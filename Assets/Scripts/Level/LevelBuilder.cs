@@ -19,8 +19,12 @@ namespace DemenciaNoLimite.Level
     public class LevelBuilder : MonoBehaviour
     {
         [Header("Grid Scaling")]
-        [SerializeField] private float _cellSize = 3.0f;
-        [SerializeField] private float _wallHeight = 3.5f;
+        [SerializeField] private float _cellSize = LevelGenerator.StandardCellSize;
+        [SerializeField] private float _wallHeight = LevelGenerator.StandardWallHeight;
+
+        public float CellSize => _cellSize;
+        public float WallHeight => _wallHeight;
+
 
         [Header("Modular Prefabs (Optional - generates clean primitives if null)")]
         [SerializeField] private GameObject _wallPrefab;

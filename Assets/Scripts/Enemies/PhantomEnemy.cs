@@ -34,7 +34,18 @@ namespace DemenciaNoLimite.Enemies
             _agent = GetComponent<NavMeshAgent>();
             _renderers = GetComponentsInChildren<Renderer>();
             _spawnTime = Time.time;
+
+            var col = GetComponent<Collider>();
+            if (col == null)
+            {
+                var cap = gameObject.AddComponent<CapsuleCollider>();
+                cap.height = 1.8f;
+                cap.radius = 0.38f;
+                cap.center = new Vector3(0f, 0.9f, 0f);
+                cap.direction = 1;
+            }
         }
+
 
         private void Start()
         {

@@ -48,8 +48,18 @@ namespace DemenciaNoLimite.Core
     public class LevelGenerator : MonoBehaviour
     {
         // ════════════════════════════════════════════════════════════════════
-        // CONFIGURATION
+        // CONFIGURATION & ARCHITECTURAL METRICS
         // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>Standard floor tile/grid cell size in world units (meters).</summary>
+        public const float StandardCellSize = 3.0f;
+
+        /// <summary>Standard indoor wall height in world units (meters).</summary>
+        public const float StandardWallHeight = 3.0f;
+
+        /// <summary>Standard indoor ceiling height clearance in world units (meters).</summary>
+        public const float StandardCeilingHeight = 3.0f;
+
 
         [Header("Maze Size Ranges")]
         [SerializeField] private Vector2Int _minMazeSize = new Vector2Int(15, 15);

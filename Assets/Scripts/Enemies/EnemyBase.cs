@@ -62,6 +62,12 @@ namespace DemenciaNoLimite.Enemies
         public float MaxHealth => _maxHealth;
         public EnemyData Data => _data;
 
+        [Header("Hitbox & Scale Configuration")]
+        [Tooltip("Standard model height (meters) for indoor ceiling compatibility (typically 1.75m - 2.0m).")]
+        [SerializeField] protected float _targetHeight = 1.8f;
+        [SerializeField] protected float _targetRadius = 0.38f;
+        [SerializeField] protected bool _autoFitColliderOnAwake = true;
+
         protected virtual void Awake()
         {
             _agent = GetComponent<NavMeshAgent>();
@@ -69,7 +75,63 @@ namespace DemenciaNoLimite.Enemies
             {
                 _agent.enabled = false;
             }
+
+            if (_autoFitColliderOnAwake)
+            {
+                FitHitboxToModel();
+            }
         }
+
+        /// <summary>
+        /// Calibrates CapsuleCollider and NavMeshAgent to accurately match visual mesh bounds.
+        /// Prevents invisible hitboxes and ceiling/doorway collisions.
+        /// </summary>
+        [ContextMenu("Fit Hitbox To Model")]
+        public void FitHitboxToModel()
+        {
+            var cap = GetComponent<CapsuleCollider>();
+            if (cap == null) cap = gameObject.AddComponent<CapsuleCollider>();
+
+            var renderers = GetComponentsInChildren<Renderer>();
+            Bounds b = new Bounds(transform.position, Vector3.zero);
+            bool foundRenderer = false;
+            foreach (var r in renderers)
+            {
+                if (r is MeshRenderer || r is SkinnedMeshRenderer)
+                {
+                    if (!foundRenderer) { b = r.bounds; foundRenderer = true; }
+                    else { b.Encapsulate(r.bounds); }
+                }
+            }
+
+            if (foundRenderer)
+            {
+                Vector3 localMin = transform.InverseTransformPoint(b.min);
+                Vector3 localMax = transform.InverseTransformPoint(b.max);
+                float localHeight = Mathf.Abs(localMax.y - localMin.y);
+                float localRadius = Mathf.Max(Mathf.Abs(localMax.x - localMin.x), Mathf.Abs(localMax.z - localMin.z)) * 0.45f;
+                float localCenterY = (localMax.y + localMin.y) * 0.5f;
+
+                cap.height = Mathf.Max(0.5f, localHeight);
+                cap.radius = Mathf.Clamp(localRadius, 0.25f, 0.55f);
+                cap.center = new Vector3(0f, localCenterY, 0f);
+                cap.direction = 1; // Y-Axis
+            }
+            else
+            {
+                cap.height = _targetHeight;
+                cap.radius = _targetRadius;
+                cap.center = new Vector3(0f, _targetHeight * 0.5f, 0f);
+                cap.direction = 1;
+            }
+
+            if (_agent != null)
+            {
+                _agent.height = cap.height * transform.lossyScale.y;
+                _agent.radius = cap.radius * Mathf.Max(transform.lossyScale.x, transform.lossyScale.z);
+            }
+        }
+
 
         public virtual void Initialize(EnemyData data, EnemyBuffState buffState)
         {
@@ -436,8 +498,14 @@ namespace DemenciaNoLimite.Enemies
             var cam = Camera.main;
             if (cam == null) return;
 
-            Vector3 headPos = transform.position + Vector3.up * 1.5f;
+            var cap = GetComponent<CapsuleCollider>();
+            float headY = (cap != null)
+                ? (cap.center.y + cap.height * 0.5f) * transform.lossyScale.y
+                : (_targetHeight > 0 ? _targetHeight : 1.8f);
+
+            Vector3 headPos = transform.position + Vector3.up * (headY + 0.2f);
             Vector3 screenPos = cam.WorldToScreenPoint(headPos);
+
 
             if (screenPos.z < 0.5f || screenPos.z > 30f) return;
 

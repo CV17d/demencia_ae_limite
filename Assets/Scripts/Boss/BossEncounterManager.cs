@@ -68,11 +68,12 @@ namespace DemenciaNoLimite.Boss
 
             // Determine spawn location from level layout or center fallback
             var levelGen = FindAnyObjectByType<LevelGenerator>();
-            Vector3 spawnPos = Vector3.forward * 10f;
+            float cellSize = LevelGenerator.StandardCellSize;
+            Vector3 spawnPos = Vector3.forward * (10f * cellSize);
             if (levelGen != null && levelGen.LastGeneratedLayout != null)
             {
                 var exit = levelGen.LastGeneratedLayout.ExitPoint;
-                spawnPos = new Vector3(exit.x * 2f, 0f, exit.y * 2f);
+                spawnPos = new Vector3(exit.x * cellSize, 0f, exit.y * cellSize);
             }
 
             GameObject bossGo = null;
@@ -82,11 +83,11 @@ namespace DemenciaNoLimite.Boss
             }
             else
             {
-                // Fallback primitive
+                // Fallback primitive: scaled wide (2.6m) and height clamped under ceiling (2.6m)
                 bossGo = GameObject.CreatePrimitive(PrimitiveType.Capsule);
                 bossGo.name = $"Boss_{stats.BossID}";
-                bossGo.transform.position = spawnPos;
-                bossGo.transform.localScale = new Vector3(2f, 3.5f, 2f);
+                bossGo.transform.position = spawnPos + Vector3.up * 1.3f;
+                bossGo.transform.localScale = new Vector3(2.6f, 1.3f, 2.6f);
             }
 
             _activeBoss = bossGo.GetComponent<BossController>();

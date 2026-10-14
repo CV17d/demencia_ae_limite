@@ -1,8 +1,11 @@
 // ============================================================================
-// PlayerWeaponHandler.cs — Attack execution, ballistics & reload pipeline
+// PlayerWeaponHandler.cs — Shooting Mechanics & Ballistics Pipeline
 // ============================================================================
-// Interacts with PlayerInventory, PlayerController, and DamagePipeline.
-// Supports Melee cones, Hitscan raycasts with headshot multipliers, and Projectiles.
+// Uses a clean, reliable Physics.Raycast originating from the center of the Main Camera.
+// Specifically targets objects on the "Enemy" LayerMask.
+// Uses GetComponent<IDamageable>() to apply damage.
+// Provides visual Debug.DrawRay for bullet tracing in the Scene View.
+// Explicitly ignores the Player's own colliders.
 // ============================================================================
 
 using System.Collections;
@@ -16,11 +19,17 @@ namespace DemenciaNoLimite.Player
     [RequireComponent(typeof(PlayerInventory))]
     public class PlayerWeaponHandler : MonoBehaviour
     {
-        [Header("References")]
-        [SerializeField] private Transform _firePoint;
+        [Header("Camera & Raycast References")]
+        [Tooltip("Main FPS Camera. If null, automatically resolves to Camera.main.")]
         [SerializeField] private Camera _playerCamera;
+        [SerializeField] private Transform _firePoint;
         [SerializeField] private PlayerController _controller;
-        [SerializeField] private LayerMask _hitMask = ~0;
+
+        [Header("Targeting & Layer Configuration")]
+        [Tooltip("Specific LayerMask for detecting enemies.")]
+        [SerializeField] private LayerMask _enemyLayerMask;
+        [SerializeField] private float _defaultMaxRange = 100f;
+        [SerializeField] private float _debugRayDuration = 1.5f;
 
         [Header("Projectile Fallback Prefab")]
         [SerializeField] private GameObject _defaultProjectilePrefab;
@@ -28,14 +37,52 @@ namespace DemenciaNoLimite.Player
         private PlayerInventory _inventory;
         private float _nextFireTime;
         private bool _isReloading;
+        private Collider[] _playerColliders;
 
         public bool IsReloading => _isReloading;
+        public LayerMask EnemyLayerMask => _enemyLayerMask;
 
         private void Awake()
         {
             _inventory = GetComponent<PlayerInventory>();
             if (_controller == null) _controller = GetComponent<PlayerController>();
-            if (_playerCamera == null) _playerCamera = Camera.main;
+
+            ResolveCamera();
+            ResolveEnemyLayerMask();
+
+            _playerColliders = GetComponentsInChildren<Collider>();
+        }
+
+        private void Start()
+        {
+            ResolveCamera();
+        }
+
+        private void ResolveCamera()
+        {
+            if (_playerCamera == null)
+            {
+                _playerCamera = Camera.main ?? GetComponentInChildren<Camera>() ?? FindAnyObjectByType<Camera>();
+            }
+        }
+
+        private void ResolveEnemyLayerMask()
+        {
+            // If enemyLayerMask is empty (0), attempt to set to "Enemy" layer
+            if (_enemyLayerMask.value == 0)
+            {
+                int enemyLayer = LayerMask.NameToLayer("Enemy");
+                if (enemyLayer != -1)
+                {
+                    _enemyLayerMask = 1 << enemyLayer;
+                }
+                else
+                {
+                    // Fallback to everything except player
+                    int playerLayer = LayerMask.NameToLayer("Player");
+                    _enemyLayerMask = playerLayer != -1 ? ~(1 << playerLayer) : ~0;
+                }
+            }
         }
 
         private void Update()
@@ -85,7 +132,7 @@ namespace DemenciaNoLimite.Player
         {
             WeaponData data = weaponInstance.Data;
 
-            // Check ammo
+            // Ammo verification
             if (!data.InfiniteAmmo && weaponInstance.CurrentMagAmmo <= 0)
             {
                 StartCoroutine(ReloadRoutine(weaponInstance));
@@ -99,24 +146,22 @@ namespace DemenciaNoLimite.Player
                 _inventory.NotifyAmmoChange();
             }
 
-            // Set fire delay
             _nextFireTime = Time.time + data.FireInterval;
 
-            // Apply recoil kick
             if (_controller != null)
             {
                 _controller.ApplyRecoil(data.RecoilStrength, data.SpreadAngle);
             }
 
-            // Execute based on type
             switch (data.Type)
             {
-                case WeaponType.Melee:
-                    ExecuteMeleeAttack(data);
+                case WeaponType.Hitscan:
+                default:
+                    ExecuteRaycastShot(data);
                     break;
 
-                case WeaponType.Hitscan:
-                    ExecuteHitscanAttack(data);
+                case WeaponType.Melee:
+                    ExecuteMeleeAttack(data);
                     break;
 
                 case WeaponType.Projectile:
@@ -125,22 +170,62 @@ namespace DemenciaNoLimite.Player
             }
         }
 
-        private void ExecuteHitscanAttack(WeaponData data)
+        /// <summary>
+        /// Simple, reliable Physics.Raycast originating from the center of the Main Camera.
+        /// Ignores the Player's own colliders, filters for Enemy LayerMask, and applies IDamageable damage.
+        /// </summary>
+        private void ExecuteRaycastShot(WeaponData data)
         {
+            ResolveCamera();
             Transform camTransform = _playerCamera != null ? _playerCamera.transform : transform;
-            Vector3 origin = camTransform.position;
 
-            for (int i = 0; i < data.PelletsPerShot; i++)
+            // Offset ray slightly forward to prevent intersecting player's own bounding box
+            Vector3 origin = camTransform.position + camTransform.forward * 0.25f;
+            float maxRange = data.MaxRange > 0f ? data.MaxRange : _defaultMaxRange;
+
+            int pellets = Mathf.Max(1, data.PelletsPerShot);
+
+            // Filter out player layer completely
+            int playerLayer = gameObject.layer;
+            LayerMask filteredMask = _enemyLayerMask.value != 0 
+                ? (_enemyLayerMask & ~(1 << playerLayer))
+                : ~(1 << playerLayer);
+
+            for (int i = 0; i < pellets; i++)
             {
-                Vector3 spreadDir = CalculateSpread(camTransform.forward, data.SpreadAngle);
+                Vector3 rayDir = CalculateSpread(camTransform.forward, data.SpreadAngle);
 
-                if (Physics.Raycast(origin, spreadDir, out RaycastHit hit, data.MaxRange, _hitMask, QueryTriggerInteraction.Ignore))
+                bool hitFound = Physics.Raycast(
+                    origin,
+                    rayDir,
+                    out RaycastHit hit,
+                    maxRange,
+                    filteredMask,
+                    QueryTriggerInteraction.Ignore
+                );
+
+                IDamageable target = null;
+                bool isEnemyHit = false;
+
+                if (hitFound)
                 {
-                    bool isHeadshot = hit.collider.CompareTag("Head") || hit.collider.gameObject.name.ToLower().Contains("head");
+                    // Explicitly ignore if we hit player's own hierarchy
+                    if (IsPlayerCollider(hit.collider))
+                    {
+                        // Player hit bypassed
+                        continue;
+                    }
 
-                    IDamageable target = hit.collider.GetComponentInParent<IDamageable>();
+                    // Query IDamageable on hit object or its parent
+                    target = hit.collider.GetComponent<IDamageable>() ?? hit.collider.GetComponentInParent<IDamageable>();
+
                     if (target != null && target.IsAlive)
                     {
+                        isEnemyHit = true;
+
+                        bool isHeadshot = hit.collider.CompareTag("Head") || 
+                                          hit.collider.gameObject.name.ToLower().Contains("head");
+
                         PlayerStats stats = GameManager.Instance?.Player;
                         bool isCrit = Random.value < (stats?.CritChance ?? 0.05f);
                         float dmg = data.CalculateDamage(stats, isCrit, isHeadshot);
@@ -150,7 +235,7 @@ namespace DemenciaNoLimite.Player
                             attacker: gameObject,
                             hitPoint: hit.point,
                             hitNormal: hit.normal,
-                            direction: spreadDir,
+                            direction: rayDir,
                             sourceType: DamageSourceType.Bullet,
                             isCritical: isCrit,
                             isHeadshot: isHeadshot,
@@ -161,33 +246,57 @@ namespace DemenciaNoLimite.Player
                         target.TakeDamage(info);
                     }
 
-                    IKnockbackable knockback = hit.collider.GetComponentInParent<IKnockbackable>();
+                    // Apply physical impulse if entity reacts to knockback
+                    IKnockbackable knockback = hit.collider.GetComponent<IKnockbackable>() ?? hit.collider.GetComponentInParent<IKnockbackable>();
                     if (knockback != null && data.KnockbackForce > 0f)
                     {
-                        knockback.ApplyKnockback(spreadDir * data.KnockbackForce);
+                        knockback.ApplyKnockback(rayDir * data.KnockbackForce);
                     }
                 }
+
+                // Visual Debug.DrawRay in Scene view:
+                // Green when hitting an enemy with IDamageable, Red when hitting non-enemy or missing
+                float lineDist = hitFound ? hit.distance : maxRange;
+                Color rayColor = isEnemyHit ? Color.green : (hitFound ? Color.yellow : Color.red);
+                Debug.DrawRay(origin, rayDir * lineDist, rayColor, _debugRayDuration);
             }
+        }
+
+        private bool IsPlayerCollider(Collider col)
+        {
+            if (col == null) return false;
+            if (col.transform.root == transform.root) return true;
+            if (col.CompareTag("Player")) return true;
+
+            if (_playerColliders != null)
+            {
+                for (int i = 0; i < _playerColliders.Length; i++)
+                {
+                    if (_playerColliders[i] == col) return true;
+                }
+            }
+            return false;
         }
 
         private void ExecuteMeleeAttack(WeaponData data)
         {
+            ResolveCamera();
             Transform camTransform = _playerCamera != null ? _playerCamera.transform : transform;
             Vector3 origin = camTransform.position;
             Vector3 forward = camTransform.forward;
 
-            Collider[] hits = Physics.OverlapSphere(origin + forward * (data.MeleeRange * 0.5f), data.MeleeRange, _hitMask);
+            Collider[] hits = Physics.OverlapSphere(origin + forward * (data.MeleeRange * 0.5f), data.MeleeRange, _enemyLayerMask);
 
             foreach (var col in hits)
             {
-                if (col.gameObject == gameObject) continue;
+                if (IsPlayerCollider(col)) continue;
 
                 Vector3 toTarget = (col.bounds.center - origin).normalized;
                 float angle = Vector3.Angle(forward, toTarget);
 
                 if (angle <= data.MeleeArc * 0.5f)
                 {
-                    IDamageable target = col.GetComponentInParent<IDamageable>();
+                    IDamageable target = col.GetComponent<IDamageable>() ?? col.GetComponentInParent<IDamageable>();
                     if (target != null && target.IsAlive)
                     {
                         PlayerStats stats = GameManager.Instance?.Player;
@@ -215,6 +324,7 @@ namespace DemenciaNoLimite.Player
 
         private void ExecuteProjectileAttack(WeaponData data)
         {
+            ResolveCamera();
             Transform camTransform = _playerCamera != null ? _playerCamera.transform : transform;
             Vector3 spawnPos = _firePoint != null ? _firePoint.position : camTransform.position + camTransform.forward * 0.5f;
             Vector3 direction = CalculateSpread(camTransform.forward, data.SpreadAngle);
@@ -232,14 +342,13 @@ namespace DemenciaNoLimite.Player
                 knockbackForce: data.KnockbackForce
             );
 
-            GameObject projGo = null;
+            GameObject projGo;
             if (_defaultProjectilePrefab != null)
             {
                 projGo = Instantiate(_defaultProjectilePrefab, spawnPos, Quaternion.LookRotation(direction));
             }
             else
             {
-                // Fallback primitive if no prefab assigned yet
                 projGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 projGo.transform.position = spawnPos;
                 projGo.transform.localScale = Vector3.one * 0.2f;

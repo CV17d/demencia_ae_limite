@@ -127,7 +127,7 @@ namespace DemenciaNoLimite.UI
             float topY = pad;
 
             // Background panel for Top-Left Stats
-            DrawRect(new Rect(pad - 8, topY - 8, 310, 185), new Color(0.08f, 0.08f, 0.12f, 0.88f));
+            DrawRect(new Rect(pad - 8, topY - 8, 310, 160), new Color(0.08f, 0.08f, 0.12f, 0.88f));
 
             // Floor & Act
             string floorText = _hud != null ? _hud.FloorDisplayText : "TORRE DE LA FRONTERA";
@@ -161,17 +161,7 @@ namespace DemenciaNoLimite.UI
             GUI.Label(new Rect(pad + 150, topY, 140, 22), $"🔫 BALAS: {ammoText}", _subStyle);
             topY += 24;
 
-            // Elevator Waypoint Tracker
-            var elevatorTrigger = Object.FindAnyObjectByType<DemenciaNoLimite.Level.ElevatorDoorTrigger>();
-            var player = GameObject.FindGameObjectWithTag("Player");
-            if (elevatorTrigger != null && player != null)
-            {
-                float dist = Vector3.Distance(player.transform.position, elevatorTrigger.transform.position);
-                GUI.Label(new Rect(pad, topY, 290, 20), $"<color=#00ff88>📍 ELEVADOR: {dist:F0}m de distancia</color>", _subStyle);
-                topY += 20;
-            }
-
-            // Controls Hint
+            // Controls Hint (Pure manual exploration - no compass or waypoints)
             GUI.Label(new Rect(pad, topY, 290, 20), "<color=#888888>WASD: Mover | Clic: Disparo | Tab: Liberar Mouse</color>", _subStyle);
         }
 

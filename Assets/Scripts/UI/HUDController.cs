@@ -3,6 +3,10 @@
 // ============================================================================
 // Aggregates data from GameManager, PlayerStats, MentalDegradation, and PlayerInventory.
 // Exposes formatted strings and normalized floats for UI text/sliders to bind directly.
+//
+// NOTE: All compass, radar, waypoint indicators, and navigation markers are
+// strictly excluded. The player must navigate the 27-floor tower and locate
+// the exit elevator exclusively through manual spatial exploration.
 // ============================================================================
 
 using System;
@@ -62,12 +66,11 @@ namespace DemenciaNoLimite.UI
 
         private void Update()
         {
-            // Keep currency and health live
             var gm = GameManager.Instance;
             if (gm != null && gm.Player != null)
             {
                 CurrencyDisplayText = $"{gm.Currency} FICHAS";
-                HealthNormalized = Mathf.Clamp01(gm.Player.CurrentHP / gm.Player.MaxHP);
+                HealthNormalized = Mathf.Clamp01(gm.Player.CurrentHP / Mathf.Max(1f, gm.Player.MaxHP));
                 HealthDisplayText = $"{Mathf.CeilToInt(gm.Player.CurrentHP)} / {Mathf.CeilToInt(gm.Player.MaxHP)}";
                 SanityNormalized = gm.Player.MentalDegradation;
                 OnHUDRefreshed?.Invoke();
@@ -121,7 +124,7 @@ namespace DemenciaNoLimite.UI
             var gm = GameManager.Instance;
             if (gm == null || gm.Player == null) return;
 
-            HealthNormalized = Mathf.Clamp01(gm.Player.CurrentHP / gm.Player.MaxHP);
+            HealthNormalized = Mathf.Clamp01(gm.Player.CurrentHP / Mathf.Max(1f, gm.Player.MaxHP));
             HealthDisplayText = $"{Mathf.CeilToInt(gm.Player.CurrentHP)} / {Mathf.CeilToInt(gm.Player.MaxHP)}";
             SanityNormalized = gm.Player.MentalDegradation;
             CurrencyDisplayText = $"{gm.Currency} FICHAS";

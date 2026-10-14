@@ -4,7 +4,8 @@
 // Selects enemy archetypes according to AIDirector's EnemyComposition.
 // Injects Cursed Pact EnemyBuffState multipliers.
 // Injects hallucination PhantomEnemies when Mental Degradation is high.
-// Enforces indoor ceiling height constraints and hitbox calibration for rooms.
+// Enforces strict human-scale limits so enemies never clip into ceilings or corridors.
+// Spawns enemies strictly on top of generated physical floor tiles.
 // ============================================================================
 
 using System.Collections.Generic;
@@ -18,6 +19,14 @@ namespace DemenciaNoLimite.Level
 {
     public class EnemySpawner : MonoBehaviour
     {
+        [Header("Physical Size & Corridor Constraints")]
+        [Tooltip("Ceiling clearance limit (meters) for normal enemies.")]
+        [SerializeField] private float _maxAllowedHeight = 1.85f;
+        [SerializeField] private float _maxAllowedRadius = 0.42f;
+
+        [Header("Hitbox Auto-Calibration")]
+        [SerializeField] private bool _autoCalibrateHitbox = true;
+
         [Header("Enemy Data Catalogs")]
         [SerializeField] private EnemyData _gruntData;
         [SerializeField] private EnemyData _rangedData;
@@ -28,64 +37,37 @@ namespace DemenciaNoLimite.Level
         [SerializeField] private GameObject _enemyPrefabDefault;
         [SerializeField] private GameObject _phantomEnemyPrefab;
 
-        [Header("Indoor Scale & Ceiling Constraints")]
-        [Tooltip("Minimum headroom clearance beneath the room ceiling. Enemy height will be clamped below (Ceiling - Margin).")]
-        [SerializeField] private float _ceilingClearance = 1.0f;
-
-        [Tooltip("Hard ceiling limit for enemy height inside rooms (e.g. 1.85m to 2.1m for 3.0m ceilings).")]
-        [SerializeField] private float _maxEnemyHeight = 2.0f;
-
-        [Tooltip("Automatically calibrate and align CapsuleCollider dimensions to strictly fit model.")]
-        [SerializeField] private bool _autoCalibrateHitbox = true;
-
         private readonly List<GameObject> _activeEnemies = new List<GameObject>();
         public int RemainingEnemiesCount => _activeEnemies.Count;
 
-        /// <summary>
-        /// Returns the maximum allowable enemy height strictly lower than the procedural ceiling.
-        /// </summary>
-        public float MaxAllowedHeight
-        {
-            get
-            {
-                float ceiling = LevelGenerator.StandardCeilingHeight;
-                var levelBuilder = FindAnyObjectByType<LevelBuilder>();
-                if (levelBuilder != null && levelBuilder.WallHeight > 0f)
-                {
-                    ceiling = levelBuilder.WallHeight;
-                }
-
-                float safeCeilingLimit = Mathf.Max(1.5f, ceiling - _ceilingClearance);
-                return Mathf.Min(_maxEnemyHeight, safeCeilingLimit);
-            }
-        }
+        public float MaxAllowedHeight => _maxAllowedHeight;
+        public float MaxAllowedRadius => _maxAllowedRadius;
 
         public void SpawnEnemies(FloorLayout layout, FloorConfig config)
         {
             ClearEnemies();
 
+            if (layout == null || config == null)
+            {
+                Debug.LogWarning("[EnemySpawner] Cannot spawn enemies: layout or config is null.");
+                return;
+            }
+
             var gm = GameManager.Instance;
             var aiDirector = FindAnyObjectByType<AIDirector>();
             var degradationSystem = FindAnyObjectByType<MentalDegradationSystem>();
 
-            EnemyComposition composition = (aiDirector != null) 
+            EnemyComposition composition = (aiDirector != null && gm != null) 
                 ? aiDirector.GetEnemyComposition(config, gm.EnemyBuffs) 
                 : new EnemyComposition();
 
-            int spawnCount = Mathf.Min(config.BaseEnemyCount, layout.EnemySpawnPoints.Count);
-
-            float cellSize = LevelGenerator.StandardCellSize;
-            var levelBuilder = FindAnyObjectByType<LevelBuilder>();
-            if (levelBuilder != null)
-            {
-                cellSize = levelBuilder.CellSize;
-            }
+            // Collect robust list of spawn coordinates directly on floor tiles
+            List<Vector3> spawnWorldPositions = CollectFloorSpawnPositions(layout, config.BaseEnemyCount);
+            int spawnCount = spawnWorldPositions.Count;
 
             for (int i = 0; i < spawnCount; i++)
             {
-                Vector2Int gridPoint = layout.EnemySpawnPoints[i];
-                // Floor tiles have surface at Y = 0.0f
-                Vector3 worldPos = new Vector3(gridPoint.x * cellSize, 0f, gridPoint.y * cellSize);
+                Vector3 worldPos = spawnWorldPositions[i];
 
                 // Hallucination phantom check at high degradation
                 if (degradationSystem != null && degradationSystem.ShouldSpawnPhantomEnemies())
@@ -101,10 +83,85 @@ namespace DemenciaNoLimite.Level
                 EnemyType selectedType = composition.SelectType(Random.value);
                 EnemyData selectedData = GetEnemyDataForType(selectedType);
 
-                SpawnRealEnemy(worldPos, selectedType, selectedData, gm.EnemyBuffs);
+                SpawnRealEnemy(worldPos, selectedType, selectedData, gm != null ? gm.EnemyBuffs : null);
             }
 
-            Debug.Log($"[EnemySpawner] Spawned {spawnCount} entities on Floor {config.FloorNumber} with indoor scale enforcement (MaxHeight: {MaxAllowedHeight:F2}m).");
+            Debug.Log($"[EnemySpawner] Spawned {spawnCount} entities on Floor {config.FloorNumber} strictly on floor tiles.");
+        }
+
+        private List<Vector3> CollectFloorSpawnPositions(FloorLayout layout, int desiredCount)
+        {
+            var result = new List<Vector3>();
+            float cellSize = LevelGenerator.StandardCellSize;
+
+            // 1. First add validated points from layout.EnemySpawnPoints
+            if (layout.EnemySpawnPoints != null)
+            {
+                foreach (var pt in layout.EnemySpawnPoints)
+                {
+                    if (pt.x > 0 && pt.x < layout.Width && pt.y > 0 && pt.y < layout.Height)
+                    {
+                        CellType cell = layout.Grid[pt.x, pt.y];
+                        if (cell == CellType.Floor || cell == CellType.Corridor || cell == CellType.SpawnRoom)
+                        {
+                            result.Add(new Vector3(pt.x * cellSize, 0f, pt.y * cellSize));
+                            if (result.Count >= desiredCount) return result;
+                        }
+                    }
+                }
+            }
+
+            // 2. If quota not reached, scan all walkable floor tiles away from player
+            if (result.Count < desiredCount)
+            {
+                var candidateTiles = new List<Vector2Int>();
+                for (int x = 1; x < layout.Width - 1; x++)
+                {
+                    for (int y = 1; y < layout.Height - 1; y++)
+                    {
+                        CellType c = layout.Grid[x, y];
+                        if (c == CellType.Floor || c == CellType.Corridor)
+                        {
+                            Vector2Int pos = new Vector2Int(x, y);
+                            if (pos != layout.SpawnPoint && pos != layout.ExitPoint)
+                            {
+                                float distToSpawn = Vector2Int.Distance(pos, layout.SpawnPoint);
+                                if (distToSpawn > 3.5f)
+                                {
+                                    candidateTiles.Add(pos);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Shuffle candidates
+                for (int i = 0; i < candidateTiles.Count; i++)
+                {
+                    int swapIdx = Random.Range(i, candidateTiles.Count);
+                    var temp = candidateTiles[i];
+                    candidateTiles[i] = candidateTiles[swapIdx];
+                    candidateTiles[swapIdx] = temp;
+                }
+
+                foreach (var tile in candidateTiles)
+                {
+                    Vector3 worldPos = new Vector3(tile.x * cellSize, 0f, tile.y * cellSize);
+                    if (!result.Contains(worldPos))
+                    {
+                        result.Add(worldPos);
+                        if (result.Count >= desiredCount) break;
+                    }
+                }
+            }
+
+            // Fallback emergency center if level is exceptionally small
+            if (result.Count == 0)
+            {
+                result.Add(new Vector3(layout.SpawnPoint.x * cellSize + 6f, 0f, layout.SpawnPoint.y * cellSize + 6f));
+            }
+
+            return result;
         }
 
         private void SpawnRealEnemy(Vector3 worldPos, EnemyType type, EnemyData data, EnemyBuffState buffs)
@@ -116,7 +173,6 @@ namespace DemenciaNoLimite.Level
 
             if (_enemyPrefabDefault != null)
             {
-                // Prefabs with pivot at feet spawn at ground level (Y = 0)
                 enemyGo = Instantiate(_enemyPrefabDefault, worldPos, Quaternion.identity, transform);
             }
             else
@@ -124,12 +180,20 @@ namespace DemenciaNoLimite.Level
                 isPrimitive = true;
                 enemyGo = GameObject.CreatePrimitive(PrimitiveType.Capsule);
                 enemyGo.name = $"Enemy_{data?.EnemyID ?? type.ToString()}";
-                // Primitive capsule has pivot at center, so offset up by half height to rest on floor
+                // Primitive capsule has pivot at center, so position at half height
                 enemyGo.transform.position = worldPos + Vector3.up * (targetHeight * 0.5f);
                 enemyGo.transform.parent = transform;
             }
 
-            // Enforce size limit & hitbox accuracy
+            // Ensure layer is Enemy if defined, otherwise keep default
+            int enemyLayer = LayerMask.NameToLayer("Enemy");
+            if (enemyLayer != -1)
+            {
+                enemyGo.layer = enemyLayer;
+            }
+            enemyGo.tag = "Enemy";
+
+            // Enforce strict scaling and calibrate collider
             EnforceEnemyScaleAndHitbox(enemyGo, targetHeight, targetRadius, isPrimitive);
 
             var enemyComp = enemyGo.GetComponent<EnemyBase>();
@@ -144,8 +208,7 @@ namespace DemenciaNoLimite.Level
 
         private void SpawnPhantomEnemy(Vector3 worldPos)
         {
-            float targetHeight = Mathf.Min(1.8f, MaxAllowedHeight);
-            float targetRadius = 0.38f;
+            GetArchetypeDimensions(EnemyType.Grunt, out float targetHeight, out float targetRadius);
 
             GameObject phantomGo;
             bool isPrimitive = false;
@@ -163,6 +226,13 @@ namespace DemenciaNoLimite.Level
                 phantomGo.transform.parent = transform;
             }
 
+            int enemyLayer = LayerMask.NameToLayer("Enemy");
+            if (enemyLayer != -1)
+            {
+                phantomGo.layer = enemyLayer;
+            }
+            phantomGo.tag = "Enemy";
+
             EnforceEnemyScaleAndHitbox(phantomGo, targetHeight, targetRadius, isPrimitive);
 
             var phantomComp = phantomGo.GetComponent<PhantomEnemy>();
@@ -170,41 +240,42 @@ namespace DemenciaNoLimite.Level
             {
                 phantomComp = phantomGo.AddComponent<PhantomEnemy>();
             }
+            _activeEnemies.Add(phantomGo);
         }
 
         /// <summary>
         /// Retrieves proportional physical dimensions (height & radius) per enemy archetype.
-        /// Guaranteed to be strictly lower than building ceiling.
+        /// Strictly clamped to be equal or smaller than the player's scale (<= 1.85m height).
         /// </summary>
         public void GetArchetypeDimensions(EnemyType type, out float height, out float radius)
         {
-            float maxAllowed = MaxAllowedHeight;
+            float maxAllowed = _maxAllowedHeight;
             float desiredHeight;
             float desiredRadius;
 
             switch (type)
             {
                 case EnemyType.Heavy:
-                    desiredHeight = 2.1f;
-                    desiredRadius = 0.48f;
-                    break;
-                case EnemyType.Elite:
-                    desiredHeight = 1.95f;
+                    desiredHeight = 1.85f;
                     desiredRadius = 0.42f;
                     break;
+                case EnemyType.Elite:
+                    desiredHeight = 1.80f;
+                    desiredRadius = 0.38f;
+                    break;
                 case EnemyType.Ranged:
-                    desiredHeight = 1.75f;
-                    desiredRadius = 0.35f;
+                    desiredHeight = 1.65f;
+                    desiredRadius = 0.32f;
                     break;
                 case EnemyType.Grunt:
                 default:
-                    desiredHeight = 1.8f;
-                    desiredRadius = 0.38f;
+                    desiredHeight = 1.75f;
+                    desiredRadius = 0.36f;
                     break;
             }
 
             height = Mathf.Min(desiredHeight, maxAllowed);
-            radius = desiredRadius * (height / desiredHeight);
+            radius = Mathf.Min(desiredRadius, _maxAllowedRadius);
         }
 
         /// <summary>
@@ -232,22 +303,20 @@ namespace DemenciaNoLimite.Level
             }
             else
             {
-                // 1. Measure prefab's natural visual height
-                float currentHeight = MeasureCharacterHeight(enemyGo, out Bounds bounds);
+                float currentHeight = MeasureCharacterHeight(enemyGo);
                 if (currentHeight > 0.1f && currentHeight > targetHeight)
                 {
                     float scaleRatio = targetHeight / currentHeight;
                     enemyGo.transform.localScale *= scaleRatio;
                 }
 
-                // 2. Adjust / ensure accurate hitbox
                 if (_autoCalibrateHitbox)
                 {
                     CalibrateCapsuleCollider(enemyGo, targetHeight, targetRadius);
                 }
             }
 
-            // 3. Synchronize NavMeshAgent dimensions to prevent ceiling or doorway blockage
+            // Synchronize NavMeshAgent dimensions
             var agent = enemyGo.GetComponent<NavMeshAgent>();
             if (agent != null)
             {
@@ -257,49 +326,29 @@ namespace DemenciaNoLimite.Level
             }
         }
 
-        private float MeasureCharacterHeight(GameObject go, out Bounds combinedBounds)
+        private float MeasureCharacterHeight(GameObject go)
         {
-            combinedBounds = new Bounds(go.transform.position, Vector3.zero);
-            bool hasBounds = false;
-
             var renderers = go.GetComponentsInChildren<Renderer>();
+            bool hasBounds = false;
+            Bounds combined = new Bounds(go.transform.position, Vector3.zero);
+
             foreach (var r in renderers)
             {
                 if (r is MeshRenderer || r is SkinnedMeshRenderer)
                 {
                     if (!hasBounds)
                     {
-                        combinedBounds = r.bounds;
+                        combined = r.bounds;
                         hasBounds = true;
                     }
                     else
                     {
-                        combinedBounds.Encapsulate(r.bounds);
+                        combined.Encapsulate(r.bounds);
                     }
                 }
             }
 
-            if (!hasBounds)
-            {
-                var colliders = go.GetComponentsInChildren<Collider>();
-                foreach (var c in colliders)
-                {
-                    if (!c.isTrigger)
-                    {
-                        if (!hasBounds)
-                        {
-                            combinedBounds = c.bounds;
-                            hasBounds = true;
-                        }
-                        else
-                        {
-                            combinedBounds.Encapsulate(c.bounds);
-                        }
-                    }
-                }
-            }
-
-            return hasBounds ? combinedBounds.size.y : 2.0f;
+            return hasBounds ? combined.size.y : 1.8f;
         }
 
         private void CalibrateCapsuleCollider(GameObject go, float targetHeight, float targetRadius)
@@ -310,28 +359,15 @@ namespace DemenciaNoLimite.Level
                 cap = go.AddComponent<CapsuleCollider>();
             }
 
-            // In local coordinates of go:
             float localScaleY = Mathf.Max(0.001f, go.transform.lossyScale.y);
             float localScaleXZ = Mathf.Max(0.001f, Mathf.Max(go.transform.lossyScale.x, go.transform.lossyScale.z));
 
             float localHeight = targetHeight / localScaleY;
             float localRadius = targetRadius / localScaleXZ;
 
-            // Detect if pivot is at feet (local bottom Y near 0) or center (local bottom Y negative)
-            var rend = go.GetComponentInChildren<Renderer>();
-            bool isPivotAtFeet = true;
-            if (rend != null)
-            {
-                float localBottomY = go.transform.InverseTransformPoint(rend.bounds.min).y;
-                if (localBottomY < -localHeight * 0.3f)
-                {
-                    isPivotAtFeet = false;
-                }
-            }
-
             cap.height = localHeight;
             cap.radius = localRadius;
-            cap.center = isPivotAtFeet ? new Vector3(0f, localHeight * 0.5f, 0f) : Vector3.zero;
+            cap.center = new Vector3(0f, localHeight * 0.5f, 0f);
             cap.direction = 1; // Y-Axis
         }
 
@@ -357,4 +393,3 @@ namespace DemenciaNoLimite.Level
         }
     }
 }
-

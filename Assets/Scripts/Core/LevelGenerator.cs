@@ -4,11 +4,8 @@
 // Handles the structural logic for generating each floor:
 //   - Determines maze dimensions, room count, path complexity
 //   - Selects enemy spawn points and hazard placements
+//   - Distinguishes interior walls from exterior perimeter walls and windows
 //   - Delegates boss room layout for boss floors
-//
-// NOTE: This script handles the LOGIC and DATA of level generation.
-// Actual mesh/prefab instantiation will be handled by a separate
-// LevelBuilder system that reads the generated FloorLayout.
 // ============================================================================
 
 using System.Collections.Generic;
@@ -20,29 +17,31 @@ namespace DemenciaNoLimite.Core
 {
     /// <summary>
     /// Output data structure from the level generator.
-    /// Consumed by the LevelBuilder (future) to instantiate the physical level.
+    /// Consumed by LevelBuilder to instantiate physical geometry and entities.
     /// </summary>
     public class FloorLayout
     {
         public int Width;
         public int Height;
-        public CellType[,] Grid;           // 2D cell grid
-        public Vector2Int   SpawnPoint;     // Player start position
-        public Vector2Int   ExitPoint;      // Elevator / boss trigger position
-        public List<Vector2Int> EnemySpawnPoints  = new List<Vector2Int>();
-        public List<Vector2Int> HazardPoints      = new List<Vector2Int>();
-        public List<Vector2Int> ItemSpawnPoints    = new List<Vector2Int>();
+        public CellType[,] Grid;            // 2D cell grid
+        public Vector2Int SpawnPoint;       // Player start position
+        public Vector2Int ExitPoint;        // Elevator / boss trigger position
+        public List<Vector2Int> EnemySpawnPoints = new List<Vector2Int>();
+        public List<Vector2Int> HazardPoints     = new List<Vector2Int>();
+        public List<Vector2Int> ItemSpawnPoints  = new List<Vector2Int>();
     }
 
     public enum CellType
     {
-        Wall,
-        Floor,
-        Corridor,
-        SpawnRoom,     // Player spawn chamber
-        ExitRoom,      // Elevator / boss gate
-        HazardZone,
-        SecretRoom     // Rare, Luck-gated
+        Wall,           // Interior partition wall
+        Floor,          // Standard walkable room floor
+        Corridor,       // Walkable hallway
+        SpawnRoom,      // Player spawn chamber
+        ExitRoom,       // Elevator / boss gate chamber
+        HazardZone,     // Area denial hazards
+        SecretRoom,     // Rare, Luck-gated secret cache
+        ExteriorWall,   // Structural perimeter outer wall of skyscraper
+        ExteriorWindow  // Exterior perimeter wall segment featuring glass window
     }
 
     public class LevelGenerator : MonoBehaviour
@@ -55,11 +54,10 @@ namespace DemenciaNoLimite.Core
         public const float StandardCellSize = 3.0f;
 
         /// <summary>Standard indoor wall height in world units (meters).</summary>
-        public const float StandardWallHeight = 3.0f;
+        public const float StandardWallHeight = 3.2f;
 
         /// <summary>Standard indoor ceiling height clearance in world units (meters).</summary>
-        public const float StandardCeilingHeight = 3.0f;
-
+        public const float StandardCeilingHeight = 3.2f;
 
         [Header("Maze Size Ranges")]
         [SerializeField] private Vector2Int _minMazeSize = new Vector2Int(15, 15);
@@ -90,8 +88,6 @@ namespace DemenciaNoLimite.Core
         /// </summary>
         public FloorLayout GenerateFloor(FloorConfig config)
         {
-            // Seed the RNG deterministically from run seed + floor number
-            // This allows replaying the same run for debugging.
             int seed = GenerateSeed(config.FloorNumber);
             _rng = new System.Random(seed);
 
@@ -105,6 +101,9 @@ namespace DemenciaNoLimite.Core
             {
                 layout = GenerateProceduralMaze(config);
             }
+
+            // Mathematically classify exterior envelope (perimeter walls vs windows)
+            ClassifyPerimeterWallsAndWindows(layout);
 
             LastGeneratedLayout = layout;
 
@@ -120,20 +119,9 @@ namespace DemenciaNoLimite.Core
         // PROCEDURAL MAZE GENERATION (Floors 1-8, 10-17, 19-26)
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Generates a maze floor using a rooms-and-corridors approach.
-        /// Algorithm:
-        ///   1. Determine grid size from difficulty & tier
-        ///   2. Place rooms using BSP (Binary Space Partitioning) logic
-        ///   3. Connect rooms with corridors
-        ///   4. Carve additional paths based on MazeComplexity
-        ///   5. Place spawn/exit, enemies, hazards
-        ///   6. Optionally place secret rooms (Luck-gated)
-        /// </summary>
         private FloorLayout GenerateProceduralMaze(FloorConfig config)
         {
             // ── Step 1: Grid Size ──────────────────────────────────────────
-            // Scale grid size with difficulty and tier
             float sizeScale = Mathf.Lerp(0.4f, 1f, config.BaseDifficulty / 2.2f);
             int width  = (int)Mathf.Lerp(_minMazeSize.x, _maxMazeSize.x, sizeScale);
             int height = (int)Mathf.Lerp(_minMazeSize.y, _maxMazeSize.y, sizeScale);
@@ -149,10 +137,14 @@ namespace DemenciaNoLimite.Core
                 Grid   = new CellType[width, height]
             };
 
-            // Initialize all cells as walls
+            // Initialize all cells as interior walls by default
             for (int x = 0; x < width; x++)
+            {
                 for (int y = 0; y < height; y++)
+                {
                     layout.Grid[x, y] = CellType.Wall;
+                }
+            }
 
             // ── Step 2: Place Rooms ────────────────────────────────────────
             int roomCount = (int)Mathf.Lerp(_minRooms, _maxRooms, config.MazeComplexity);
@@ -168,7 +160,6 @@ namespace DemenciaNoLimite.Core
             }
 
             // ── Step 5: Spawn & Exit Placement ─────────────────────────────
-            // Spawn in first room, exit in last room
             layout.SpawnPoint = GetRoomCenter(rooms[0]);
             layout.ExitPoint  = GetRoomCenter(rooms[rooms.Count - 1]);
             layout.Grid[layout.SpawnPoint.x, layout.SpawnPoint.y] = CellType.SpawnRoom;
@@ -190,10 +181,6 @@ namespace DemenciaNoLimite.Core
         // BOSS ROOM GENERATION (Floors 9, 18, 27)
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Boss rooms are simpler: a large arena with the entrance at one end
-        /// and the boss spawn at the other, plus hazard placements.
-        /// </summary>
         private FloorLayout GenerateBossRoom(FloorConfig config)
         {
             int w = _bossRoomSize.x;
@@ -206,21 +193,20 @@ namespace DemenciaNoLimite.Core
                 Grid   = new CellType[w, h]
             };
 
-            // Fill the arena as open floor with wall borders
             for (int x = 0; x < w; x++)
             {
                 for (int y = 0; y < h; y++)
                 {
                     bool isBorder = x == 0 || x == w - 1 || y == 0 || y == h - 1;
-                    layout.Grid[x, y] = isBorder ? CellType.Wall : CellType.Floor;
+                    layout.Grid[x, y] = isBorder ? CellType.ExteriorWall : CellType.Floor;
                 }
             }
 
-            // Player spawns at the south-center
+            // Player spawns at south-center
             layout.SpawnPoint = new Vector2Int(w / 2, 2);
             layout.Grid[layout.SpawnPoint.x, layout.SpawnPoint.y] = CellType.SpawnRoom;
 
-            // Boss spawns at the north-center
+            // Boss arena center / exit gate at north-center
             layout.ExitPoint = new Vector2Int(w / 2, h - 3);
 
             // Place hazards around the arena based on tier
@@ -232,7 +218,7 @@ namespace DemenciaNoLimite.Core
                 layout.Grid[hx, hy] = CellType.HazardZone;
             }
 
-            // Add structural pillars for cover (scales with tier)
+            // Add structural pillars for cover
             int pillarCount = 2 + (int)config.Tier * 2;
             for (int i = 0; i < pillarCount; i++)
             {
@@ -245,18 +231,88 @@ namespace DemenciaNoLimite.Core
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // ROOM PLACEMENT (BSP-inspired)
+        // EXTERIOR PERIMETER & WINDOW DIFFERENTIATION
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Places non-overlapping rooms in the grid using random placement
-        /// with rejection sampling. Returns the list of placed room rects.
+        /// Mathematically distinguishes exterior perimeter boundaries from interior partition walls.
+        /// Identifies exterior edge wall cells and generates panoramic window segments.
         /// </summary>
+        private void ClassifyPerimeterWallsAndWindows(FloorLayout layout)
+        {
+            int w = layout.Width;
+            int h = layout.Height;
+
+            for (int x = 0; x < w; x++)
+            {
+                for (int y = 0; y < h; y++)
+                {
+                    bool isEdge = (x == 0 || x == w - 1 || y == 0 || y == h - 1);
+                    if (!isEdge) continue;
+
+                    // Four corners are structural pillars
+                    bool isCorner = (x == 0 && y == 0) ||
+                                    (x == 0 && y == h - 1) ||
+                                    (x == w - 1 && y == 0) ||
+                                    (x == w - 1 && y == h - 1);
+
+                    if (isCorner)
+                    {
+                        layout.Grid[x, y] = CellType.ExteriorWall;
+                        continue;
+                    }
+
+                    // Windows occur in rhythm along perimeter facade (every 2-3 cells)
+                    // or where adjacent to interior spaces
+                    bool windowRhythm = ((x + y) % 2 == 0);
+                    bool adjacentToWalkable = IsAdjacentToWalkable(layout, x, y);
+
+                    if (windowRhythm || adjacentToWalkable)
+                    {
+                        layout.Grid[x, y] = CellType.ExteriorWindow;
+                    }
+                    else
+                    {
+                        layout.Grid[x, y] = CellType.ExteriorWall;
+                    }
+                }
+            }
+        }
+
+        private bool IsAdjacentToWalkable(FloorLayout layout, int x, int y)
+        {
+            int[] dx = { 0, 0, 1, -1 };
+            int[] dy = { 1, -1, 0, 0 };
+
+            for (int i = 0; i < 4; i++)
+            {
+                int nx = x + dx[i];
+                int ny = y + dy[i];
+
+                if (nx >= 0 && nx < layout.Width && ny >= 0 && ny < layout.Height)
+                {
+                    CellType neighbor = layout.Grid[nx, ny];
+                    if (neighbor == CellType.Floor || 
+                        neighbor == CellType.Corridor || 
+                        neighbor == CellType.SpawnRoom || 
+                        neighbor == CellType.ExitRoom)
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // ROOM PLACEMENT
+        // ════════════════════════════════════════════════════════════════════
+
         private List<RectInt> PlaceRooms(FloorLayout layout, int targetCount)
         {
             var rooms = new List<RectInt>();
             int attempts = 0;
-            int maxAttempts = targetCount * 20;
+            int maxAttempts = targetCount * 25;
 
             while (rooms.Count < targetCount && attempts < maxAttempts)
             {
@@ -265,7 +321,6 @@ namespace DemenciaNoLimite.Core
                 int roomW = _rng.Next(_minRoomSize, _maxRoomSize + 1);
                 int roomH = _rng.Next(_minRoomSize, _maxRoomSize + 1);
 
-                // Ensure odd dimensions
                 if (roomW % 2 == 0) roomW++;
                 if (roomH % 2 == 0) roomH++;
 
@@ -274,7 +329,6 @@ namespace DemenciaNoLimite.Core
 
                 var candidate = new RectInt(rx, ry, roomW, roomH);
 
-                // Check for overlap with existing rooms (with 1-cell padding)
                 bool overlaps = false;
                 foreach (var existing in rooms)
                 {
@@ -296,7 +350,6 @@ namespace DemenciaNoLimite.Core
                 }
             }
 
-            // Guarantee at least 2 rooms (spawn + exit)
             if (rooms.Count < 2)
             {
                 var fallback1 = new RectInt(2, 2, 5, 5);
@@ -308,9 +361,6 @@ namespace DemenciaNoLimite.Core
             return rooms;
         }
 
-        /// <summary>
-        /// Carves a room into the grid (sets cells to Floor).
-        /// </summary>
         private void CarveRoom(FloorLayout layout, RectInt room)
         {
             for (int x = room.x; x < room.x + room.width; x++)
@@ -329,15 +379,8 @@ namespace DemenciaNoLimite.Core
         // CORRIDOR CONNECTION
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Connects all rooms in sequence using L-shaped corridors.
-        /// Sorts rooms by distance from the first room to create a
-        /// logical path through the level.
-        /// </summary>
         private void ConnectRooms(FloorLayout layout, List<RectInt> rooms)
         {
-            // Sort rooms by distance from center of the grid
-            // to create a winding path
             rooms.Sort((a, b) =>
             {
                 float distA = Vector2.Distance(
@@ -351,7 +394,6 @@ namespace DemenciaNoLimite.Core
                 return distA.CompareTo(distB);
             });
 
-            // Connect each room to the next
             for (int i = 0; i < rooms.Count - 1; i++)
             {
                 Vector2Int from = GetRoomCenter(rooms[i]);
@@ -360,15 +402,9 @@ namespace DemenciaNoLimite.Core
             }
         }
 
-        /// <summary>
-        /// Carves an L-shaped corridor between two points.
-        /// Randomly chooses horizontal-first or vertical-first.
-        /// </summary>
         private void CarveCorridor(FloorLayout layout, Vector2Int from, Vector2Int to)
         {
-            bool horizontalFirst = _rng.Next(0, 2) == 0;
-
-            if (horizontalFirst)
+            if (_rng.Next(0, 2) == 0)
             {
                 CarveHorizontal(layout, from.x, to.x, from.y);
                 CarveVertical(layout, from.y, to.y, to.x);
@@ -408,14 +444,6 @@ namespace DemenciaNoLimite.Core
             }
         }
 
-        // ════════════════════════════════════════════════════════════════════
-        // ADDITIONAL MAZE CARVING
-        // ════════════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// Adds extra dead-end paths and loops to increase maze complexity.
-        /// Called for higher-complexity floors to make navigation harder.
-        /// </summary>
         private void CarveAdditionalPaths(FloorLayout layout, float complexity)
         {
             int extraPaths = (int)(complexity * 8);
@@ -425,7 +453,6 @@ namespace DemenciaNoLimite.Core
                 int sx = _rng.Next(3, layout.Width - 3);
                 int sy = _rng.Next(3, layout.Height - 3);
 
-                // Random walk from the start point
                 int length = _rng.Next(3, 8);
                 int cx = sx, cy = sy;
 
@@ -453,53 +480,69 @@ namespace DemenciaNoLimite.Core
         // ENTITY PLACEMENT
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Places enemy spawn points in rooms (not corridors, not spawn/exit).
-        /// </summary>
         private void PlaceEnemySpawns(FloorLayout layout, List<RectInt> rooms, int count)
         {
-            // Skip first (spawn) and last (exit) rooms
-            var eligibleRooms = rooms.GetRange(
-                1, Mathf.Max(1, rooms.Count - 2)
-            );
+            var eligibleRooms = rooms.Count > 2
+                ? rooms.GetRange(1, rooms.Count - 2)
+                : rooms;
 
             int placed = 0;
             int attempts = 0;
 
-            while (placed < count && attempts < count * 10)
+            while (placed < count && attempts < count * 20)
             {
                 attempts++;
                 var room = eligibleRooms[_rng.Next(0, eligibleRooms.Count)];
-                int ex = _rng.Next(room.x + 1, room.x + room.width - 1);
-                int ey = _rng.Next(room.y + 1, room.y + room.height - 1);
+                int ex = _rng.Next(room.x, room.x + room.width);
+                int ey = _rng.Next(room.y, room.y + room.height);
 
-                var point = new Vector2Int(ex, ey);
-                if (layout.Grid[ex, ey] == CellType.Floor &&
-                    !layout.EnemySpawnPoints.Contains(point))
+                if (ex > 0 && ex < layout.Width - 1 && ey > 0 && ey < layout.Height - 1)
                 {
-                    layout.EnemySpawnPoints.Add(point);
-                    placed++;
+                    var point = new Vector2Int(ex, ey);
+                    if ((layout.Grid[ex, ey] == CellType.Floor || layout.Grid[ex, ey] == CellType.Corridor) &&
+                        point != layout.SpawnPoint &&
+                        point != layout.ExitPoint &&
+                        !layout.EnemySpawnPoints.Contains(point))
+                    {
+                        layout.EnemySpawnPoints.Add(point);
+                        placed++;
+                    }
+                }
+            }
+
+            // Fallback: if not enough points found in rooms, find any walkable floor
+            if (placed < count)
+            {
+                for (int x = 2; x < layout.Width - 2 && placed < count; x++)
+                {
+                    for (int y = 2; y < layout.Height - 2 && placed < count; y++)
+                    {
+                        var point = new Vector2Int(x, y);
+                        if ((layout.Grid[x, y] == CellType.Floor || layout.Grid[x, y] == CellType.Corridor) &&
+                            Vector2Int.Distance(point, layout.SpawnPoint) > 4f &&
+                            point != layout.ExitPoint &&
+                            !layout.EnemySpawnPoints.Contains(point))
+                        {
+                            layout.EnemySpawnPoints.Add(point);
+                            placed++;
+                        }
+                    }
                 }
             }
         }
 
-        /// <summary>
-        /// Places environmental hazards in corridors and room edges.
-        /// </summary>
         private void PlaceHazards(FloorLayout layout, List<RectInt> rooms, int count)
         {
             int placed = 0;
             int attempts = 0;
 
-            while (placed < count && attempts < count * 15)
+            while (placed < count && attempts < count * 20)
             {
                 attempts++;
                 int hx = _rng.Next(2, layout.Width - 2);
                 int hy = _rng.Next(2, layout.Height - 2);
 
-                // Prefer corridors and room edges for hazards
-                if (layout.Grid[hx, hy] == CellType.Corridor ||
-                    layout.Grid[hx, hy] == CellType.Floor)
+                if (layout.Grid[hx, hy] == CellType.Corridor || layout.Grid[hx, hy] == CellType.Floor)
                 {
                     var point = new Vector2Int(hx, hy);
                     if (!layout.HazardPoints.Contains(point) &&
@@ -514,20 +557,13 @@ namespace DemenciaNoLimite.Core
             }
         }
 
-        /// <summary>
-        /// Places optional secret rooms based on the player's Luck stat.
-        /// Higher Luck = higher chance of secret rooms spawning.
-        /// </summary>
         private void PlaceSecretRooms(FloorLayout layout, List<RectInt> rooms)
         {
             float luck = GameManager.Instance?.Player?.Luck ?? 0.5f;
-
-            // Chance of a secret room: 10% base + 40% * Luck
             float secretChance = 0.10f + (luck * 0.40f);
 
-            if (_rng.NextDouble() < secretChance)
+            if (_rng.NextDouble() < secretChance && rooms.Count > 0)
             {
-                // Place near a random room's edge
                 var targetRoom = rooms[_rng.Next(0, rooms.Count)];
                 int side = _rng.Next(0, 4);
                 int sx, sy;
@@ -547,7 +583,6 @@ namespace DemenciaNoLimite.Core
                 {
                     layout.Grid[sx, sy] = CellType.SecretRoom;
                     layout.ItemSpawnPoints.Add(new Vector2Int(sx, sy));
-
                     Debug.Log($"[LevelGenerator] Secret room placed at ({sx}, {sy})!");
                 }
             }
@@ -562,14 +597,8 @@ namespace DemenciaNoLimite.Core
             return new Vector2Int(room.x + room.width / 2, room.y + room.height / 2);
         }
 
-        /// <summary>
-        /// Generates a deterministic seed for a given floor.
-        /// Uses the run's random state + floor number for reproducibility.
-        /// </summary>
         private int GenerateSeed(int floorNumber)
         {
-            // In a full implementation, this would combine with a run-level seed
-            // stored in GameManager. For now, use Time-based + floor offset.
             return System.Environment.TickCount ^ (floorNumber * 7919);
         }
     }

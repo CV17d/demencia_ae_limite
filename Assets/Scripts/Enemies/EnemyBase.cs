@@ -30,7 +30,6 @@ namespace DemenciaNoLimite.Enemies
         Dead
     }
 
-    [RequireComponent(typeof(NavMeshAgent))]
     public class EnemyBase : MonoBehaviour, IDamageable, IKnockbackable
     {
         [Header("Data Definition")]
@@ -66,6 +65,10 @@ namespace DemenciaNoLimite.Enemies
         protected virtual void Awake()
         {
             _agent = GetComponent<NavMeshAgent>();
+            if (_agent != null && !_agent.isOnNavMesh)
+            {
+                _agent.enabled = false;
+            }
         }
 
         public virtual void Initialize(EnemyData data, EnemyBuffState buffState)
@@ -82,14 +85,16 @@ namespace DemenciaNoLimite.Enemies
             _explodesOnDeath = buffState != null && buffState.ExplodesOnDeath;
             _canDodge = buffState != null && buffState.CanDodgeProjectiles;
 
-            _maxHealth = _data.BaseHP * hpMult;
+            _maxHealth = (_data != null ? _data.BaseHP : 50f) * hpMult;
             _currentHealth = _maxHealth;
 
-            if (_agent != null)
+            if (_agent != null && _agent.isOnNavMesh)
             {
-                _agent.speed = _data.MoveSpeed * _speedMult;
-                _agent.stoppingDistance = _data.AttackRange * 0.8f;
+                _agent.speed = (_data != null ? _data.MoveSpeed : 3.5f) * _speedMult;
+                _agent.stoppingDistance = (_data != null ? _data.AttackRange : 2f) * 0.8f;
             }
+
+            SetupVisualIdentity();
 
             // Find player
             var playerGo = GameObject.FindGameObjectWithTag("Player");
@@ -171,9 +176,29 @@ namespace DemenciaNoLimite.Enemies
             {
                 _agent.SetDestination(_playerTarget.position);
             }
+            else
+            {
+                // Fallback direct pursuit with obstacle sliding
+                Vector3 toPlayer = (_playerTarget.position - transform.position);
+                toPlayer.y = 0f;
+                Vector3 moveDir = toPlayer.normalized;
+
+                if (Physics.Raycast(transform.position + Vector3.up * 0.5f, moveDir, out RaycastHit wallHit, 1.2f))
+                {
+                    moveDir = Vector3.ProjectOnPlane(moveDir, wallHit.normal).normalized;
+                }
+
+                float speed = (_data != null ? _data.MoveSpeed : 3.5f) * _speedMult;
+                transform.position += moveDir * (speed * Time.deltaTime);
+
+                if (toPlayer.sqrMagnitude > 0.01f)
+                {
+                    transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(toPlayer.normalized), Time.deltaTime * 6f);
+                }
+            }
 
             // Debris throw mutator chance while chasing
-            if (_canThrowDebris && distToPlayer > _data.AttackRange * 1.5f && Time.time - _lastAttackTime > _data.AttackCooldown * 1.5f)
+            if (_canThrowDebris && distToPlayer > (_data != null ? _data.AttackRange : 2f) * 1.5f && Time.time - _lastAttackTime > (_data != null ? _data.AttackCooldown : 1.5f) * 1.5f)
             {
                 TryThrowDebris();
             }
@@ -372,6 +397,68 @@ namespace DemenciaNoLimite.Enemies
             {
                 GameManager.Instance.Currency += currency;
             }
+        }
+
+        protected virtual void SetupVisualIdentity()
+        {
+            var rend = GetComponentInChildren<Renderer>();
+            if (rend != null)
+            {
+                rend.material.color = new Color(0.85f, 0.12f, 0.15f); // Crimson mutant flesh
+            }
+
+            // Glowing yellow eyes
+            var eyeL = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            eyeL.name = "Eye_L";
+            eyeL.transform.parent = transform;
+            eyeL.transform.localPosition = new Vector3(-0.15f, 0.6f, 0.35f);
+            eyeL.transform.localScale = new Vector3(0.1f, 0.06f, 0.1f);
+            var colL = eyeL.GetComponent<Collider>();
+            if (colL != null) Destroy(colL);
+            var rendL = eyeL.GetComponent<Renderer>();
+            if (rendL != null) rendL.material.color = Color.yellow;
+
+            var eyeR = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            eyeR.name = "Eye_R";
+            eyeR.transform.parent = transform;
+            eyeR.transform.localPosition = new Vector3(0.15f, 0.6f, 0.35f);
+            eyeR.transform.localScale = new Vector3(0.1f, 0.06f, 0.1f);
+            var colR = eyeR.GetComponent<Collider>();
+            if (colR != null) Destroy(colR);
+            var rendR = eyeR.GetComponent<Renderer>();
+            if (rendR != null) rendR.material.color = Color.yellow;
+        }
+
+        protected virtual void OnGUI()
+        {
+            if (!IsAlive) return;
+
+            var cam = Camera.main;
+            if (cam == null) return;
+
+            Vector3 headPos = transform.position + Vector3.up * 1.5f;
+            Vector3 screenPos = cam.WorldToScreenPoint(headPos);
+
+            if (screenPos.z < 0.5f || screenPos.z > 30f) return;
+
+            float barW = 70f;
+            float barH = 8f;
+            float x = screenPos.x - (barW * 0.5f);
+            float y = Screen.height - screenPos.y;
+
+            float alpha = Mathf.Clamp01(1f - (screenPos.z / 30f));
+
+            GUI.color = new Color(0.1f, 0.1f, 0.1f, alpha * 0.85f);
+            GUI.DrawTexture(new Rect(x, y, barW, barH), Texture2D.whiteTexture);
+
+            float fill = Mathf.Clamp01(_currentHealth / Mathf.Max(1f, _maxHealth));
+            GUI.color = new Color(0.95f, 0.15f, 0.2f, alpha);
+            GUI.DrawTexture(new Rect(x, y, barW * fill, barH), Texture2D.whiteTexture);
+
+            GUI.color = new Color(1f, 0.9f, 0.9f, alpha);
+            string enemyName = _data != null ? _data.DisplayName : "MUTANTE";
+            GUI.Label(new Rect(x - 20, y - 18, barW + 40, 18), $"<size=11><b>{enemyName}</b></size>");
+            GUI.color = Color.white;
         }
 
         protected virtual void TransitionToState(AIState newState)

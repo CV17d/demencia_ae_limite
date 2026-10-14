@@ -17,7 +17,6 @@ using DemenciaNoLimite.Core.Events;
 
 namespace DemenciaNoLimite.Boss
 {
-    [RequireComponent(typeof(NavMeshAgent))]
     public class BossController : MonoBehaviour, IDamageable, IKnockbackable
     {
         [Header("State & Stats")]
@@ -55,6 +54,10 @@ namespace DemenciaNoLimite.Boss
         private void Awake()
         {
             _agent = GetComponent<NavMeshAgent>();
+            if (_agent != null && !_agent.isOnNavMesh)
+            {
+                _agent.enabled = false;
+            }
         }
 
         public void Initialize(BossStats stats, AdaptiveBossController mathController)
@@ -65,7 +68,7 @@ namespace DemenciaNoLimite.Boss
             _currentPhase = 1;
             _isEnraged = false;
 
-            if (_agent != null)
+            if (_agent != null && _agent.isOnNavMesh)
             {
                 _agent.speed = stats.MoveSpeed;
                 _agent.stoppingDistance = 2.5f;
@@ -74,10 +77,44 @@ namespace DemenciaNoLimite.Boss
             var playerGo = GameObject.FindGameObjectWithTag("Player");
             if (playerGo != null) _playerTransform = playerGo.transform;
 
+            SetupBossVisuals();
+
             _isInitialized = true;
             OnHealthChanged?.Invoke(_currentHealth, _activeStats.MaxHP);
 
             Debug.Log($"[BossController] {stats.BossID} awakened with {stats.MaxHP} HP, {stats.BaseDamage} DMG.");
+        }
+
+        private void SetupBossVisuals()
+        {
+            var rend = GetComponentInChildren<Renderer>();
+            if (rend != null)
+            {
+                rend.material.color = new Color(0.45f, 0.05f, 0.1f); // Dark Demonic Flesh
+            }
+
+            // Horns / Crown
+            var hornL = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            hornL.name = "Boss_Horn_L";
+            hornL.transform.parent = transform;
+            hornL.transform.localPosition = new Vector3(-0.4f, 1.8f, 0.2f);
+            hornL.transform.localRotation = Quaternion.Euler(-25f, -20f, 0f);
+            hornL.transform.localScale = new Vector3(0.25f, 0.9f, 0.25f);
+            var colL = hornL.GetComponent<Collider>();
+            if (colL != null) Destroy(colL);
+            var rendHL = hornL.GetComponent<Renderer>();
+            if (rendHL != null) rendHL.material.color = Color.black;
+
+            var hornR = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            hornR.name = "Boss_Horn_R";
+            hornR.transform.parent = transform;
+            hornR.transform.localPosition = new Vector3(0.4f, 1.8f, 0.2f);
+            hornR.transform.localRotation = Quaternion.Euler(-25f, 20f, 0f);
+            hornR.transform.localScale = new Vector3(0.25f, 0.9f, 0.25f);
+            var colR = hornR.GetComponent<Collider>();
+            if (colR != null) Destroy(colR);
+            var rendHR = hornR.GetComponent<Renderer>();
+            if (rendHR != null) rendHR.material.color = Color.black;
         }
 
         private void Update()
@@ -104,6 +141,22 @@ namespace DemenciaNoLimite.Boss
                     : _activeStats.MoveSpeed;
 
                 _agent.SetDestination(_playerTransform.position);
+            }
+            else
+            {
+                // Fallback direct pursuit towards player in arena
+                Vector3 toPlayer = (_playerTransform.position - transform.position);
+                toPlayer.y = 0f;
+                float speed = _mathController != null 
+                    ? _mathController.GetBossMoveSpeed(_isEnraged) 
+                    : (_activeStats != null ? _activeStats.MoveSpeed : 3.5f);
+
+                transform.position += toPlayer.normalized * (speed * Time.deltaTime);
+
+                if (toPlayer.sqrMagnitude > 0.01f)
+                {
+                    transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(toPlayer.normalized), Time.deltaTime * 5f);
+                }
             }
 
             // Area denial special

@@ -126,6 +126,9 @@ namespace DemenciaNoLimite.Level
                 wall.transform.localScale = new Vector3(_cellSize, _wallHeight, _cellSize);
                 wall.transform.parent = _levelContainer;
                 wall.layer = LayerMask.NameToLayer("Default");
+
+                var rend = wall.GetComponent<Renderer>();
+                if (rend != null) rend.material.color = new Color(0.24f, 0.27f, 0.30f); // Dark industrial concrete
             }
             _instantiatedLevelObjects.Add(wall);
         }
@@ -145,6 +148,9 @@ namespace DemenciaNoLimite.Level
                 floor.transform.localScale = new Vector3(_cellSize, 0.2f, _cellSize);
                 floor.transform.parent = _levelContainer;
                 floor.layer = LayerMask.NameToLayer("Default");
+
+                var rend = floor.GetComponent<Renderer>();
+                if (rend != null) rend.material.color = new Color(0.12f, 0.13f, 0.15f); // Asphalt floor
             }
             _instantiatedLevelObjects.Add(floor);
         }
@@ -163,28 +169,66 @@ namespace DemenciaNoLimite.Level
         {
             Vector3 exitPos = new Vector3(exitGrid.x * _cellSize, 0f, exitGrid.y * _cellSize);
 
-            GameObject door;
-            if (_exitDoorPrefab != null)
-            {
-                door = Instantiate(_exitDoorPrefab, exitPos, Quaternion.identity, _levelContainer);
-            }
-            else
-            {
-                door = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                door.name = isBossFloor ? "Boss_Exit_Gate" : "Elevator_Door_Trigger";
-                door.transform.position = exitPos + Vector3.up * 1.5f;
-                door.transform.localScale = new Vector3(_cellSize * 0.8f, 3f, 0.4f);
-                door.transform.parent = _levelContainer;
-                var col = door.GetComponent<Collider>();
-                if (col != null) col.isTrigger = true;
-            }
+            // 1. Elevator frame pillars (Hazard Yellow)
+            var frameL = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            frameL.name = "Elevator_Pillar_L";
+            frameL.transform.position = exitPos + Vector3.up * 1.6f + Vector3.left * 1.3f;
+            frameL.transform.localScale = new Vector3(0.35f, 3.2f, 0.35f);
+            frameL.transform.parent = _levelContainer;
+            var rendFL = frameL.GetComponent<Renderer>();
+            if (rendFL != null) rendFL.material.color = new Color(0.92f, 0.78f, 0.1f);
+            _instantiatedLevelObjects.Add(frameL);
 
-            if (door.GetComponent<ElevatorDoorTrigger>() == null)
-            {
-                door.AddComponent<ElevatorDoorTrigger>();
-            }
+            var frameR = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            frameR.name = "Elevator_Pillar_R";
+            frameR.transform.position = exitPos + Vector3.up * 1.6f + Vector3.right * 1.3f;
+            frameR.transform.localScale = new Vector3(0.35f, 3.2f, 0.35f);
+            frameR.transform.parent = _levelContainer;
+            var rendFR = frameR.GetComponent<Renderer>();
+            if (rendFR != null) rendFR.material.color = new Color(0.92f, 0.78f, 0.1f);
+            _instantiatedLevelObjects.Add(frameR);
 
-            _instantiatedLevelObjects.Add(door);
+            // 2. Overhead illuminated sign
+            var sign = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            sign.name = "Elevator_Header_Sign";
+            sign.transform.position = exitPos + Vector3.up * 3.2f;
+            sign.transform.localScale = new Vector3(2.8f, 0.5f, 0.4f);
+            sign.transform.parent = _levelContainer;
+            var rendSign = sign.GetComponent<Renderer>();
+            if (rendSign != null) rendSign.material.color = new Color(0.1f, 0.85f, 0.3f); // Glowing Green
+            _instantiatedLevelObjects.Add(sign);
+
+            // 3. Cabin interior beacon light
+            var beaconGo = new GameObject("Elevator_Beacon_Light");
+            beaconGo.transform.position = exitPos + Vector3.up * 2.2f;
+            beaconGo.transform.parent = _levelContainer;
+            var pLight = beaconGo.AddComponent<Light>();
+            pLight.type = LightType.Point;
+            pLight.color = new Color(0.2f, 1.0f, 0.4f);
+            pLight.range = 10.0f;
+            pLight.intensity = 2.5f;
+            _instantiatedLevelObjects.Add(beaconGo);
+
+            // 4. Cabin trigger volume
+            GameObject cabin = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cabin.name = isBossFloor ? "Boss_Exit_Gate" : "Elevator_Cabin";
+            cabin.transform.position = exitPos + Vector3.up * 1.5f;
+            cabin.transform.localScale = new Vector3(2.4f, 3.0f, 2.0f);
+            cabin.transform.parent = _levelContainer;
+
+            var rendCabin = cabin.GetComponent<Renderer>();
+            if (rendCabin != null) rendCabin.material.color = new Color(0.2f, 0.22f, 0.28f);
+
+            var col = cabin.GetComponent<Collider>();
+            if (col != null) col.isTrigger = true;
+
+            var trigger = cabin.AddComponent<ElevatorDoorTrigger>();
+            int nextFloor = (GameManager.Instance != null && GameManager.Instance.CurrentFloor != null)
+                ? GameManager.Instance.CurrentFloor.FloorNumber + 1
+                : 2;
+            trigger.SetNextFloorNumber(nextFloor);
+
+            _instantiatedLevelObjects.Add(cabin);
         }
 
         private void ClearPreviousFloor()

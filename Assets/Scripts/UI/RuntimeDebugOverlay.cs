@@ -93,10 +93,23 @@ namespace DemenciaNoLimite.UI
                 DrawBossBar();
             }
 
-            // 4. Elevator UI Dialog (if active)
+            // 4. Tower Navigation & 27-Floor Testing Panel
+            DrawTowerProgressPanel();
+
+            // 5. Elevator UI Dialog (if active)
             if (_elevatorUI != null && _elevatorUI.IsElevatorUIVisible)
             {
                 DrawElevatorDialog();
+            }
+        }
+
+        private void Update()
+        {
+            // Tab key toggles cursor lock so player can click buttons
+            if (Input.GetKeyDown(KeyCode.Tab))
+            {
+                Cursor.lockState = Cursor.lockState == CursorLockMode.Locked ? CursorLockMode.None : CursorLockMode.Locked;
+                Cursor.visible = Cursor.lockState == CursorLockMode.None;
             }
         }
 
@@ -114,11 +127,11 @@ namespace DemenciaNoLimite.UI
             float topY = pad;
 
             // Background panel for Top-Left Stats
-            DrawRect(new Rect(pad - 8, topY - 8, 300, 160), new Color(0.08f, 0.08f, 0.12f, 0.85f));
+            DrawRect(new Rect(pad - 8, topY - 8, 310, 185), new Color(0.08f, 0.08f, 0.12f, 0.88f));
 
             // Floor & Act
             string floorText = _hud != null ? _hud.FloorDisplayText : "TORRE DE LA FRONTERA";
-            GUI.Label(new Rect(pad, topY, 280, 26), floorText, _headerStyle);
+            GUI.Label(new Rect(pad, topY, 290, 26), floorText, _headerStyle);
             topY += 28;
 
             // Health Bar
@@ -148,8 +161,66 @@ namespace DemenciaNoLimite.UI
             GUI.Label(new Rect(pad + 150, topY, 140, 22), $"🔫 BALAS: {ammoText}", _subStyle);
             topY += 24;
 
+            // Elevator Waypoint Tracker
+            var elevatorTrigger = Object.FindAnyObjectByType<DemenciaNoLimite.Level.ElevatorDoorTrigger>();
+            var player = GameObject.FindGameObjectWithTag("Player");
+            if (elevatorTrigger != null && player != null)
+            {
+                float dist = Vector3.Distance(player.transform.position, elevatorTrigger.transform.position);
+                GUI.Label(new Rect(pad, topY, 290, 20), $"<color=#00ff88>📍 ELEVADOR: {dist:F0}m de distancia</color>", _subStyle);
+                topY += 20;
+            }
+
             // Controls Hint
-            GUI.Label(new Rect(pad, topY, 280, 20), "<color=#888888>WASD: Mover | Shift: Correr | Click: Disparar | R: Recargar</color>", _subStyle);
+            GUI.Label(new Rect(pad, topY, 290, 20), "<color=#888888>WASD: Mover | Clic: Disparo | Tab: Liberar Mouse</color>", _subStyle);
+        }
+
+        private void DrawTowerProgressPanel()
+        {
+            float panelW = 270f;
+            float panelH = 155f;
+            float px = Screen.width - panelW - 20f;
+            float py = 20f;
+
+            DrawRect(new Rect(px - 8, py - 8, panelW + 16, panelH + 16), new Color(0.08f, 0.08f, 0.12f, 0.88f));
+
+            var gm = GameManager.Instance;
+            int currentFloor = gm != null && gm.CurrentFloor != null ? gm.CurrentFloor.FloorNumber : 1;
+
+            GUI.Label(new Rect(px, py, panelW, 22), "<b>🏢 EDIFICIO TORRE (27 PISOS)</b>", _headerStyle);
+            py += 26;
+
+            GUI.Label(new Rect(px, py, panelW, 20), $"Piso Actual: <color=yellow>PISO {currentFloor:D2} / 27</color>", _subStyle);
+            py += 22;
+
+            GUI.Label(new Rect(px, py, panelW, 20), "<color=#aaaaaa>Saltar a Pisos de Prueba (Tab para cursor):</color>", _subStyle);
+            py += 22;
+
+            float btnW = 56f;
+            float btnH = 26f;
+
+            if (GUI.Button(new Rect(px, py, btnW, btnH), "P01"))
+            {
+                gm?.TransitionToFloor(1);
+            }
+            if (GUI.Button(new Rect(px + 62, py, btnW + 8, btnH), "P09 (J1)"))
+            {
+                gm?.TransitionToFloor(9); // Boss 1: Carnicero
+            }
+            if (GUI.Button(new Rect(px + 138, py, btnW + 8, btnH), "P18 (J2)"))
+            {
+                gm?.TransitionToFloor(18); // Boss 2: Maquina
+            }
+            if (GUI.Button(new Rect(px + 214, py, btnW - 4, btnH), "P27 (J3)"))
+            {
+                gm?.TransitionToFloor(27); // Boss 3: Demencia
+            }
+            py += 32;
+
+            if (GUI.Button(new Rect(px, py, panelW, 26), "▲ ACTIVAR ELEVADOR AHORA ▲"))
+            {
+                gm?.OnCurrentFloorCleared();
+            }
         }
 
         private void DrawBossBar()

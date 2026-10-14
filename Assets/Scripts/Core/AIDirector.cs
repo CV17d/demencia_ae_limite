@@ -50,6 +50,10 @@ namespace DemenciaNoLimite.Core
         public float CurrentDifficultyWeight { get; private set; } = 1.0f;
 
         // Rolling performance metrics (updated each floor)
+        public float RecentDamageTakenPerFloor => _recentDamageTakenPerFloor;
+        public float RecentTimePerFloor => _recentTimePerFloor;
+        public float RecentKillEfficiency => _recentKillEfficiency;
+
         private float _recentDamageTakenPerFloor;
         private float _recentTimePerFloor;
         private float _recentKillEfficiency; // kills / time
@@ -284,6 +288,12 @@ namespace DemenciaNoLimite.Core
             _recentDamageTakenPerFloor = Mathf.Lerp(
                 _recentDamageTakenPerFloor, recentDamage, 1f / _analysisWindow
             );
+
+            float timePerFloor = player.RunTimer / Mathf.Max(1, floorNumber);
+            _recentTimePerFloor = Mathf.Lerp(_recentTimePerFloor, timePerFloor, 1f / _analysisWindow);
+
+            float killEff = (player.EnemiesKilled / Mathf.Max(1f, player.RunTimer)) * 60f;
+            _recentKillEfficiency = Mathf.Lerp(_recentKillEfficiency, killEff, 1f / _analysisWindow);
         }
 
         private void OnPactAccepted(CursedPactData pact)

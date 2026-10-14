@@ -36,12 +36,12 @@ namespace DemenciaNoLimite.UI
 
         private void OnEnable()
         {
-            GameEvents.OnElevatorResolved += OpenElevatorUI;
+            GameEvents.OnElevatorEventResolved += OpenElevatorUI;
         }
 
         private void OnDisable()
         {
-            GameEvents.OnElevatorResolved -= OpenElevatorUI;
+            GameEvents.OnElevatorEventResolved -= OpenElevatorUI;
         }
 
         public void OpenElevatorUI(ElevatorResult eventType)

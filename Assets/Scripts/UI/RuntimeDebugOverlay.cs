@@ -14,6 +14,7 @@
 using UnityEngine;
 using DemenciaNoLimite.Core;
 using DemenciaNoLimite.Core.Data;
+using DemenciaNoLimite.Core.Events;
 
 namespace DemenciaNoLimite.UI
 {

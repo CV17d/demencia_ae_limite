@@ -72,6 +72,7 @@ namespace DemenciaNoLimite.Horror
             // Combined stress formula
             float totalStress = Mathf.Clamp01((hpFactor * 0.6f) + (degradationFactor * 0.4f));
             _currentBPM = Mathf.Lerp(_minBPM, _maxBPM, totalStress);
+            OnHeartbeatTick?.Invoke(_currentBPM);
         }
 
         private void CheckWhisperTriggers()

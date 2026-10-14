@@ -40,6 +40,16 @@ namespace DemenciaNoLimite.Editor
 
             Undo.RegisterCreatedObjectUndo(bootstrapperGo, "Create GameBootstrapper");
 
+            // Ensure Assets/Scenes folder exists and save scene
+            if (!AssetDatabase.IsValidFolder("Assets/Scenes"))
+            {
+                AssetDatabase.CreateFolder("Assets", "Scenes");
+            }
+
+            UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(
+                UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene()
+            );
+
             EditorUtility.DisplayDialog(
                 "Demencia No Limite — ¡Listo para Jugar!",
                 "Se ha configurado la escena con éxito.\n\n" +

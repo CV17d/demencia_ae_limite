@@ -84,12 +84,13 @@ namespace DemenciaNoLimite.Boss
             // Generate adaptive stats
             BossStats stats = _bossMathController.GenerateBossStats(config, gm.Player, gm.EnemyBuffs);
 
-            // Determine spawn location at the physical center of the boss arena
+            // Determine spawn location at the physical center and elevation of the boss arena
             var levelGen = FindAnyObjectByType<LevelGenerator>();
             float cellSize = LevelGenerator.StandardCellSize;
             int arenaW = (levelGen != null && levelGen.LastGeneratedLayout != null) ? levelGen.LastGeneratedLayout.Width : 24;
             int arenaH = (levelGen != null && levelGen.LastGeneratedLayout != null) ? levelGen.LastGeneratedLayout.Height : 24;
-            Vector3 spawnPos = new Vector3((arenaW / 2) * cellSize, 0f, (arenaH / 2) * cellSize);
+            float elevation = FloorConfig.GetFloorElevation(config.FloorNumber);
+            Vector3 spawnPos = new Vector3((arenaW / 2) * cellSize, elevation, (arenaH / 2) * cellSize);
 
             GameObject bossGo = null;
             if (_bossPrefabDefault != null)
@@ -104,6 +105,10 @@ namespace DemenciaNoLimite.Boss
                 bossGo.transform.position = spawnPos + Vector3.up * 1.3f;
                 bossGo.transform.localScale = new Vector3(2.6f, 1.3f, 2.6f);
             }
+
+            int enemyLayer = LayerMask.NameToLayer("Enemy");
+            if (enemyLayer != -1) bossGo.layer = enemyLayer;
+            bossGo.tag = "Enemy";
 
             _activeBoss = bossGo.GetComponent<BossController>();
             if (_activeBoss == null)

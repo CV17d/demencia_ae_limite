@@ -96,6 +96,12 @@ namespace DemenciaNoLimite.Level
             }
         }
 
+        public void SetSpawners(EnemySpawner enemySpawner, HazardSpawner hazardSpawner)
+        {
+            _enemySpawner = enemySpawner;
+            _hazardSpawner = hazardSpawner;
+        }
+
         private void ResolveSpawners()
         {
             if (_enemySpawner == null)

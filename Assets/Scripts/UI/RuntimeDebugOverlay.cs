@@ -167,7 +167,7 @@ namespace DemenciaNoLimite.UI
 
         private void DrawTowerProgressPanel()
         {
-            float panelW = 270f;
+            float panelW = 280f;
             float panelH = 155f;
             float px = Screen.width - panelW - 20f;
             float py = 20f;
@@ -177,39 +177,39 @@ namespace DemenciaNoLimite.UI
             var gm = GameManager.Instance;
             int currentFloor = gm != null && gm.CurrentFloor != null ? gm.CurrentFloor.FloorNumber : 1;
 
-            GUI.Label(new Rect(px, py, panelW, 22), "<b>🏢 EDIFICIO TORRE (27 PISOS)</b>", _headerStyle);
+            GUI.Label(new Rect(px, py, panelW, 22), "<b>🏢 TORRE PRE-GENERADA (30 PISOS)</b>", _headerStyle);
             py += 26;
 
-            GUI.Label(new Rect(px, py, panelW, 20), $"Piso Actual: <color=yellow>PISO {currentFloor:D2} / 27</color>", _subStyle);
+            GUI.Label(new Rect(px, py, panelW, 20), $"Piso Actual: <color=yellow>PISO {currentFloor:D2} / {FloorConfig.MAX_TOWER_FLOORS}</color>", _subStyle);
             py += 22;
 
-            GUI.Label(new Rect(px, py, panelW, 20), "<color=#aaaaaa>Saltar a Pisos de Prueba (Tab para cursor):</color>", _subStyle);
+            GUI.Label(new Rect(px, py, panelW, 20), "<color=#aaaaaa>Teletransporte Directo (Tab para cursor):</color>", _subStyle);
             py += 22;
 
-            float btnW = 56f;
+            float btnW = 60f;
             float btnH = 26f;
 
-            if (GUI.Button(new Rect(px, py, btnW, btnH), "P01"))
+            if (GUI.Button(new Rect(px, py, btnW, btnH), "P01 (Lobby)"))
             {
-                gm?.TransitionToFloor(1);
+                gm?.TeleportToFloor(1);
             }
-            if (GUI.Button(new Rect(px + 62, py, btnW + 8, btnH), "P09 (J1)"))
+            if (GUI.Button(new Rect(px + 66, py, btnW, btnH), "P10 (J1)"))
             {
-                gm?.TransitionToFloor(9); // Boss 1: Carnicero
+                gm?.TeleportToFloor(10); // Boss 1: Carnicero
             }
-            if (GUI.Button(new Rect(px + 138, py, btnW + 8, btnH), "P18 (J2)"))
+            if (GUI.Button(new Rect(px + 132, py, btnW, btnH), "P20 (J2)"))
             {
-                gm?.TransitionToFloor(18); // Boss 2: Maquina
+                gm?.TeleportToFloor(20); // Boss 2: Maquina
             }
-            if (GUI.Button(new Rect(px + 214, py, btnW - 4, btnH), "P27 (J3)"))
+            if (GUI.Button(new Rect(px + 198, py, btnW, btnH), "P30 (J3)"))
             {
-                gm?.TransitionToFloor(27); // Boss 3: Demencia
+                gm?.TeleportToFloor(30); // Boss 3: Demencia
             }
             py += 32;
 
-            if (GUI.Button(new Rect(px, py, panelW, 26), "▲ ACTIVAR ELEVADOR AHORA ▲"))
+            if (GUI.Button(new Rect(px, py, panelW, 26), "▲ SUBIR SIGUIENTE PISO ▲"))
             {
-                gm?.OnCurrentFloorCleared();
+                gm?.TeleportToFloor(currentFloor + 1);
             }
         }
 

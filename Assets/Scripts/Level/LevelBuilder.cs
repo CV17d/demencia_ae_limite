@@ -1,20 +1,25 @@
 // ============================================================================
-// LevelBuilder.cs — Physical 3D Construction & Memory Management
+// LevelBuilder.cs — 30-Floor Pre-Generation Tower Builder & Geometry Assembler
 // ============================================================================
-// Constructs the physical 3D skyscraper geometry from the FloorLayout:
-//   - Full Space Construction: Enclosed rooms, straight corridors, structural walls.
-//   - Lateral Safe Room & Merchant Feature: Physical dividing wall with counter
-//     sill, cutout window, service shelf, overhead warm lighting, and exit elevator.
-//   - Clean Memory Management: Dedicated container GameObject that is destroyed
-//     completely between floors to eliminate RAM/VRAM leaks.
-//   - Safe Player Teleportation: Disables CharacterController during repositioning.
+// Constructs all 30 floors of the tower at Start() with 100m vertical separation:
+//   - Floor 1 at Y = 0 (Tutorial Lobby)
+//   - Floors 2-9 at Y = 100..800 (Roguelike loot & combat floors)
+//   - Floor 10 at Y = 900 (Boss 1: El Carnicero)
+//   - Floors 11-19 at Y = 1000..1800 (Act 2 Roguelike floors)
+//   - Floor 20 at Y = 1900 (Boss 2: La Maquina)
+//   - Floors 21-29 at Y = 2000..2800 (Act 3 Roguelike floors)
+//   - Floor 30 at Y = 2900 (Final Boss: Demencia Incarnate)
+//
+// Void Gap Elimination:
+//   - Overlapping floor tiles (_cellSize + 0.12m) to eliminate seam glitches.
+//   - Continuous structural sub-floor foundation slab under every procedural floor.
+//   - Overlapping wall blocks (_cellSize + 0.08m) sealing all corner gaps.
 // ============================================================================
 
 using System.Collections.Generic;
 using UnityEngine;
 using DemenciaNoLimite.Core;
 using DemenciaNoLimite.Core.Data;
-using DemenciaNoLimite.Core.Events;
 using DemenciaNoLimite.Player;
 
 namespace DemenciaNoLimite.Level
@@ -52,29 +57,41 @@ namespace DemenciaNoLimite.Level
         [SerializeField] private EnemySpawner _enemySpawner;
         [SerializeField] private HazardSpawner _hazardSpawner;
 
-        private readonly List<GameObject> _instantiatedLevelObjects = new List<GameObject>();
-        private Transform _levelContainer;
+        private Transform _towerContainer;
+        private readonly Dictionary<int, Vector3> _floorSpawnPositions = new Dictionary<int, Vector3>();
+        private readonly Dictionary<int, GameObject> _floorRoots = new Dictionary<int, GameObject>();
+        private bool _isTowerPreGenerated = false;
+
+        public bool IsTowerPreGenerated => _isTowerPreGenerated;
 
         private void Awake()
         {
-            EnsureContainer();
+            EnsureTowerContainer();
             ResolveSpawners();
         }
 
-        private void EnsureContainer()
+        private void Start()
         {
-            if (_levelContainer == null)
+            if (!_isTowerPreGenerated)
             {
-                var existing = transform.Find("[Generated_Floor_Geometry]");
+                PreGenerateEntireTower();
+            }
+        }
+
+        private void EnsureTowerContainer()
+        {
+            if (_towerContainer == null)
+            {
+                var existing = transform.Find("[30_FLOOR_TOWER]");
                 if (existing != null)
                 {
-                    _levelContainer = existing;
+                    _towerContainer = existing;
                 }
                 else
                 {
-                    var containerGo = new GameObject("[Generated_Floor_Geometry]");
-                    containerGo.transform.SetParent(transform, false);
-                    _levelContainer = containerGo.transform;
+                    var go = new GameObject("[30_FLOOR_TOWER]");
+                    go.transform.SetParent(transform, false);
+                    _towerContainer = go.transform;
                 }
             }
         }
@@ -96,112 +113,124 @@ namespace DemenciaNoLimite.Level
             }
         }
 
-        public void SetSpawners(EnemySpawner enemySpawner, HazardSpawner hazardSpawner)
-        {
-            _enemySpawner = enemySpawner;
-            _hazardSpawner = hazardSpawner;
-        }
-
         // ════════════════════════════════════════════════════════════════════
-        // MEMORY MANAGEMENT: COMPLETE FLOOR CONTAINER DESTRUCTION
+        // 30-FLOOR TOWER PRE-GENERATION
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Completely destroys the previous floor container and all its children.
-        /// Frees meshes, colliders, lights, and entity memory cleanly.
+        /// Pre-generates all 30 floors of the skyscraper in a single loop at Start().
+        /// Each floor is placed with 100 units of vertical spacing (Y = (N-1) * 100).
         /// </summary>
-        public void TeardownFloorGeometry()
+        [ContextMenu("Pre-Generate 30-Floor Tower")]
+        public void PreGenerateEntireTower()
         {
-            if (_enemySpawner != null)
-            {
-                _enemySpawner.ClearEnemies();
-            }
+            if (_isTowerPreGenerated) return;
 
-            if (_hazardSpawner != null)
-            {
-                _hazardSpawner.ClearHazards();
-            }
-
-            if (_levelContainer != null)
-            {
-                if (Application.isPlaying)
-                {
-                    Destroy(_levelContainer.gameObject);
-                }
-                else
-                {
-                    DestroyImmediate(_levelContainer.gameObject);
-                }
-                _levelContainer = null;
-            }
-
-            _instantiatedLevelObjects.Clear();
-            Debug.Log("[LevelBuilder] Previous floor container destroyed. Memory freed successfully.");
-        }
-
-        // ════════════════════════════════════════════════════════════════════
-        // PHYSICAL LEVEL CONSTRUCTION
-        // ════════════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// Convenience entry point to generate and construct a floor directly.
-        /// </summary>
-        public void BuildFloor(FloorConfig config)
-        {
-            var levelGen = FindAnyObjectByType<LevelGenerator>();
-            if (levelGen != null)
-            {
-                FloorLayout layout = levelGen.GenerateFloor(config);
-                BuildFloorFromLayout(layout, config);
-            }
-        }
-
-        /// <summary>
-        /// Instantiates the complete 3D environment for the given layout.
-        /// </summary>
-        public void BuildFloorFromLayout(FloorLayout layout, FloorConfig config)
-        {
-            EnsureContainer();
+            EnsureTowerContainer();
             ResolveSpawners();
 
-            if (layout == null)
+            var levelGen = FindAnyObjectByType<LevelGenerator>();
+            if (levelGen == null)
             {
-                Debug.LogError("[LevelBuilder] Layout is null! Cannot build physical floor.");
+                Debug.LogError("[LevelBuilder] Critical: LevelGenerator missing! Cannot pre-generate tower.");
                 return;
             }
 
-            // 1. Instantiate grid geometry (floors, ceilings, walls, windows, merchant counter)
-            ConstructGridGeometry(layout);
+            Debug.Log("<color=cyan>[LevelBuilder] Pre-generating entire 30-Floor Skyscraper Tower...</color>");
 
-            // 2. Instantiate Lateral Safe Room Exit Elevator
-            PlaceLateralExitElevator(layout.ExitPoint, config != null && config.Type == FloorType.BossRoom);
-
-            // 3. Instantiate Environmental Hazards
-            if (_hazardSpawner != null)
+            for (int floorNum = 1; floorNum <= FloorConfig.MAX_TOWER_FLOORS; floorNum++)
             {
-                _hazardSpawner.SpawnHazards(layout, config);
+                FloorConfig config = FloorConfig.Build(floorNum);
+                FloorLayout layout = levelGen.GenerateFloor(config);
+
+                BuildFloorInTowerStack(floorNum, layout, config);
             }
 
-            // 4. Instantiate Enemies (only on non-boss floors)
-            if (config != null && config.Type != FloorType.BossRoom)
+            _isTowerPreGenerated = true;
+            Debug.Log("<color=green>[LevelBuilder] All 30 floors successfully pre-generated in vertical space! Zero-void gaps guaranteed.</color>");
+        }
+
+        private void BuildFloorInTowerStack(int floorNumber, FloorLayout layout, FloorConfig config)
+        {
+            float floorElevation = FloorConfig.GetFloorElevation(floorNumber);
+
+            var floorGo = new GameObject($"Floor_{floorNumber:D2}_{(config.Type == FloorType.BossRoom ? "BOSS_ROOM" : "NORMAL")}");
+            floorGo.transform.SetParent(_towerContainer, false);
+            floorGo.transform.position = new Vector3(0f, floorElevation, 0f);
+            _floorRoots[floorNumber] = floorGo;
+
+            Transform floorTransform = floorGo.transform;
+
+            // 1. Continuous Sub-Floor Foundation Slab (Mathematically guarantees player cannot fall into the void)
+            CreateContinuousSubFloorFoundation(layout, floorElevation, floorTransform);
+
+            // 2. Grid Geometry with Overlapping Tiles (Zero physical gaps)
+            ConstructGridGeometry(layout, floorElevation, floorTransform);
+
+            // 3. Register Predefined Start Room World Position
+            Vector3 spawnWorldPos = new Vector3(
+                layout.SpawnPoint.x * _cellSize,
+                floorElevation + 1.0f,
+                layout.SpawnPoint.y * _cellSize
+            );
+            _floorSpawnPositions[floorNumber] = spawnWorldPos;
+
+            // 4. Place Elevator Teleporter Cabin
+            PlaceElevatorCabin(floorNumber, layout.ExitPoint, floorElevation, floorTransform, config.Type == FloorType.BossRoom);
+
+            // 5. Populate Entities & Hazards at Floor Elevation
+            if (config.Type != FloorType.BossRoom && floorNumber > 1)
             {
                 if (_enemySpawner != null)
                 {
-                    _enemySpawner.SpawnEnemies(layout, config);
+                    _enemySpawner.SpawnEnemiesAtElevation(layout, config, floorElevation, floorTransform);
                 }
             }
 
-            Debug.Log($"[LevelBuilder] Physical floor {(config != null ? config.FloorNumber : 1)} constructed successfully.");
+            if (_hazardSpawner != null)
+            {
+                _hazardSpawner.SpawnHazardsAtElevation(layout, config, floorElevation, floorTransform);
+            }
         }
 
-        private void ConstructGridGeometry(FloorLayout layout)
+        // ════════════════════════════════════════════════════════════════════
+        // VOID GAP ELIMINATION & PHYSICAL FOUNDATION
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Creates a monolithic sub-floor safety slab beneath the entire floor layout.
+        /// Prevents edge-clip or corner-drop void falls.
+        /// </summary>
+        private void CreateContinuousSubFloorFoundation(FloorLayout layout, float elevation, Transform parent)
+        {
+            var foundation = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            foundation.name = "[Continuous_SubFloor_Foundation]";
+            
+            float totalWidth = layout.Width * _cellSize + 4.0f;
+            float totalLength = layout.Height * _cellSize + 4.0f;
+            Vector3 center = new Vector3((layout.Width * _cellSize) * 0.5f, elevation - 0.25f, (layout.Height * _cellSize) * 0.5f);
+
+            foundation.transform.position = center;
+            foundation.transform.localScale = new Vector3(totalWidth, 0.4f, totalLength);
+            foundation.transform.SetParent(parent, true);
+
+            foundation.layer = LayerMask.NameToLayer("Default");
+
+            var rend = foundation.GetComponent<Renderer>();
+            if (rend != null)
+            {
+                rend.material.color = new Color(0.08f, 0.08f, 0.10f);
+            }
+        }
+
+        private void ConstructGridGeometry(FloorLayout layout, float elevation, Transform parent)
         {
             for (int x = 0; x < layout.Width; x++)
             {
                 for (int y = 0; y < layout.Height; y++)
                 {
                     CellType cell = layout.Grid[x, y];
-                    Vector3 worldPos = new Vector3(x * _cellSize, 0f, y * _cellSize);
+                    Vector3 worldPos = new Vector3(x * _cellSize, elevation, y * _cellSize);
 
                     switch (cell)
                     {
@@ -211,91 +240,74 @@ namespace DemenciaNoLimite.Level
                         case CellType.ExitRoom:
                         case CellType.HazardZone:
                         case CellType.SecretRoom:
-                            SpawnFloor(worldPos, false);
-                            SpawnCeiling(worldPos);
+                            SpawnFloorTile(worldPos, parent, false);
+                            SpawnCeilingTile(worldPos, elevation, parent);
                             break;
 
                         case CellType.SafeRoom:
-                            SpawnFloor(worldPos, true); // Distinct safe haven tiles
-                            SpawnCeiling(worldPos);
-                            break;
-
-                        case CellType.MerchantCounter:
-                            SpawnMerchantWindowFeature(worldPos);
+                            SpawnFloorTile(worldPos, parent, true);
+                            SpawnCeilingTile(worldPos, elevation, parent);
                             break;
 
                         case CellType.ExteriorWall:
-                            SpawnExteriorWall(worldPos);
+                            SpawnExteriorWall(worldPos, parent);
                             break;
 
                         case CellType.ExteriorWindow:
-                            SpawnExteriorWindow(worldPos, x, y, layout.Width, layout.Height);
+                            SpawnExteriorWindow(worldPos, x, y, layout.Width, layout.Height, parent);
                             break;
 
                         case CellType.Wall:
                         default:
-                            SpawnInteriorWall(worldPos);
+                            SpawnInteriorWall(worldPos, parent);
                             break;
                     }
                 }
             }
         }
 
-        // ════════════════════════════════════════════════════════════════════
-        // FLOORS & CEILINGS
-        // ════════════════════════════════════════════════════════════════════
-
-        private void SpawnFloor(Vector3 position, bool isSafeRoom)
+        private void SpawnFloorTile(Vector3 position, Transform parent, bool isSafeRoom)
         {
             GameObject floor;
-            if (_floorPrefab != null)
+            if (_floorPrefab != null && !isSafeRoom)
             {
-                floor = Instantiate(_floorPrefab, position, Quaternion.identity, _levelContainer);
+                floor = Instantiate(_floorPrefab, position, Quaternion.identity, parent);
             }
             else
             {
                 floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                floor.name = isSafeRoom ? "Floor_Tile_SafeRoom" : "Floor_Tile";
-                floor.transform.position = position + Vector3.down * 0.1f;
-                floor.transform.localScale = new Vector3(_cellSize, 0.2f, _cellSize);
-                floor.transform.parent = _levelContainer;
+                floor.name = isSafeRoom ? "SafeRoom_Floor_Tile" : "Floor_Tile";
+                // 12cm overlap prevents any floating-point gap between cubes
+                floor.transform.position = position + Vector3.down * 0.15f;
+                floor.transform.localScale = new Vector3(_cellSize + 0.12f, 0.3f, _cellSize + 0.12f);
+                floor.transform.SetParent(parent, true);
+                floor.layer = LayerMask.NameToLayer("Default");
 
                 var rend = floor.GetComponent<Renderer>();
                 if (rend != null)
                 {
-                    if (isSafeRoom && _safeRoomFloorMaterial != null)
-                    {
-                        rend.material = _safeRoomFloorMaterial;
-                    }
-                    else if (_floorMaterial != null)
-                    {
-                        rend.material = _floorMaterial;
-                    }
-                    else
-                    {
-                        rend.material.color = isSafeRoom
-                            ? new Color(0.24f, 0.26f, 0.23f)  // Warm industrial safe haven floor
-                            : new Color(0.14f, 0.15f, 0.17f); // Dark industrial slate
-                    }
+                    if (isSafeRoom && _safeRoomFloorMaterial != null) rend.material = _safeRoomFloorMaterial;
+                    else if (_floorMaterial != null) rend.material = _floorMaterial;
+                    else rend.material.color = isSafeRoom ? new Color(0.20f, 0.22f, 0.25f) : new Color(0.14f, 0.15f, 0.17f);
                 }
             }
-            _instantiatedLevelObjects.Add(floor);
         }
 
-        private void SpawnCeiling(Vector3 position)
+        private void SpawnCeilingTile(Vector3 position, float elevation, Transform parent)
         {
             GameObject ceiling;
             if (_ceilingPrefab != null)
             {
-                ceiling = Instantiate(_ceilingPrefab, position + Vector3.up * _ceilingHeight, Quaternion.identity, _levelContainer);
+                ceiling = Instantiate(_ceilingPrefab, position + Vector3.up * _ceilingHeight, Quaternion.identity, parent);
             }
             else
             {
                 ceiling = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 ceiling.name = "Ceiling_Tile";
-                ceiling.transform.position = position + Vector3.up * (_ceilingHeight + 0.1f);
-                ceiling.transform.localScale = new Vector3(_cellSize, 0.2f, _cellSize);
-                ceiling.transform.parent = _levelContainer;
+                ceiling.transform.position = position + Vector3.up * (_ceilingHeight + 0.15f);
+                ceiling.transform.localScale = new Vector3(_cellSize + 0.12f, 0.3f, _cellSize + 0.12f);
+                ceiling.transform.SetParent(parent, true);
+                ceiling.layer = LayerMask.NameToLayer("Default");
 
                 var rend = ceiling.GetComponent<Renderer>();
                 if (rend != null)
@@ -304,27 +316,24 @@ namespace DemenciaNoLimite.Level
                     else rend.material.color = new Color(0.18f, 0.19f, 0.22f);
                 }
             }
-            _instantiatedLevelObjects.Add(ceiling);
         }
 
-        // ════════════════════════════════════════════════════════════════════
-        // WALLS & WINDOWS
-        // ════════════════════════════════════════════════════════════════════
-
-        private void SpawnInteriorWall(Vector3 position)
+        private void SpawnInteriorWall(Vector3 position, Transform parent)
         {
             GameObject wall;
             if (_wallPrefab != null)
             {
-                wall = Instantiate(_wallPrefab, position + Vector3.up * (_wallHeight * 0.5f), Quaternion.identity, _levelContainer);
+                wall = Instantiate(_wallPrefab, position + Vector3.up * (_wallHeight * 0.5f), Quaternion.identity, parent);
             }
             else
             {
                 wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                wall.name = "Interior_Dividing_Wall";
+                wall.name = "Interior_Wall";
                 wall.transform.position = position + Vector3.up * (_wallHeight * 0.5f);
-                wall.transform.localScale = new Vector3(_cellSize, _wallHeight, _cellSize);
-                wall.transform.parent = _levelContainer;
+                // 8cm overlap seals corners with zero gap
+                wall.transform.localScale = new Vector3(_cellSize + 0.08f, _wallHeight, _cellSize + 0.08f);
+                wall.transform.SetParent(parent, true);
+                wall.layer = LayerMask.NameToLayer("Default");
 
                 var rend = wall.GetComponent<Renderer>();
                 if (rend != null)
@@ -333,23 +342,23 @@ namespace DemenciaNoLimite.Level
                     else rend.material.color = new Color(0.26f, 0.28f, 0.32f);
                 }
             }
-            _instantiatedLevelObjects.Add(wall);
         }
 
-        private void SpawnExteriorWall(Vector3 position)
+        private void SpawnExteriorWall(Vector3 position, Transform parent)
         {
             GameObject extWall;
             if (_exteriorWallPrefab != null)
             {
-                extWall = Instantiate(_exteriorWallPrefab, position + Vector3.up * (_wallHeight * 0.5f), Quaternion.identity, _levelContainer);
+                extWall = Instantiate(_exteriorWallPrefab, position + Vector3.up * (_wallHeight * 0.5f), Quaternion.identity, parent);
             }
             else
             {
                 extWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                extWall.name = "Exterior_Facade_Wall";
+                extWall.name = "Exterior_Perimeter_Wall";
                 extWall.transform.position = position + Vector3.up * (_wallHeight * 0.5f);
-                extWall.transform.localScale = new Vector3(_cellSize, _wallHeight, _cellSize);
-                extWall.transform.parent = _levelContainer;
+                extWall.transform.localScale = new Vector3(_cellSize + 0.08f, _wallHeight, _cellSize + 0.08f);
+                extWall.transform.SetParent(parent, true);
+                extWall.layer = LayerMask.NameToLayer("Default");
 
                 var rend = extWall.GetComponent<Renderer>();
                 if (rend != null)
@@ -358,315 +367,152 @@ namespace DemenciaNoLimite.Level
                     else rend.material.color = new Color(0.12f, 0.13f, 0.15f);
                 }
             }
-            _instantiatedLevelObjects.Add(extWall);
         }
 
-        private void SpawnExteriorWindow(Vector3 position, int x, int y, int width, int height)
+        private void SpawnExteriorWindow(Vector3 position, int x, int y, int width, int height, Transform parent)
         {
             if (_windowPrefab != null)
             {
-                var win = Instantiate(_windowPrefab, position, Quaternion.identity, _levelContainer);
-                _instantiatedLevelObjects.Add(win);
+                var win = Instantiate(_windowPrefab, position, Quaternion.identity, parent);
                 return;
             }
 
             bool isHorizontalEdge = (y == 0 || y == height - 1);
             Vector3 sillScale = isHorizontalEdge
-                ? new Vector3(_cellSize, 0.9f, _cellSize * 0.35f)
-                : new Vector3(_cellSize * 0.35f, 0.9f, _cellSize);
+                ? new Vector3(_cellSize + 0.08f, 0.9f, _cellSize * 0.35f)
+                : new Vector3(_cellSize * 0.35f, 0.9f, _cellSize + 0.08f);
 
             Vector3 lintelScale = isHorizontalEdge
-                ? new Vector3(_cellSize, 0.7f, _cellSize * 0.35f)
-                : new Vector3(_cellSize * 0.35f, 0.7f, _cellSize);
+                ? new Vector3(_cellSize + 0.08f, 0.7f, _cellSize * 0.35f)
+                : new Vector3(_cellSize * 0.35f, 0.7f, _cellSize + 0.08f);
 
             Vector3 glassScale = isHorizontalEdge
-                ? new Vector3(_cellSize * 0.98f, _wallHeight - 1.6f, 0.12f)
-                : new Vector3(0.12f, _wallHeight - 1.6f, _cellSize * 0.98f);
+                ? new Vector3(_cellSize, _wallHeight - 1.6f, 0.12f)
+                : new Vector3(0.12f, _wallHeight - 1.6f, _cellSize);
 
-            // 1. Lower Sill
+            // Lower Wall Sill
             var sill = GameObject.CreatePrimitive(PrimitiveType.Cube);
             sill.name = "Window_Sill";
             sill.transform.position = position + Vector3.up * 0.45f;
             sill.transform.localScale = sillScale;
-            sill.transform.parent = _levelContainer;
+            sill.transform.SetParent(parent, true);
             var rendSill = sill.GetComponent<Renderer>();
             if (rendSill != null) rendSill.material.color = new Color(0.2f, 0.22f, 0.25f);
-            _instantiatedLevelObjects.Add(sill);
 
-            // 2. Upper Lintel
+            // Upper Lintel
             float lintelH = 0.7f;
+            float lintelCenterY = _wallHeight - (lintelH * 0.5f);
             var lintel = GameObject.CreatePrimitive(PrimitiveType.Cube);
             lintel.name = "Window_Lintel";
-            lintel.transform.position = position + Vector3.up * (_wallHeight - (lintelH * 0.5f));
+            lintel.transform.position = position + Vector3.up * lintelCenterY;
             lintel.transform.localScale = lintelScale;
-            lintel.transform.parent = _levelContainer;
+            lintel.transform.SetParent(parent, true);
             var rendLintel = lintel.GetComponent<Renderer>();
             if (rendLintel != null) rendLintel.material.color = new Color(0.2f, 0.22f, 0.25f);
-            _instantiatedLevelObjects.Add(lintel);
 
-            // 3. Panoramic Glass Pane
+            // Panoramic Glass Pane
+            float glassCenterY = 0.9f + (_wallHeight - 1.6f) * 0.5f;
             var glass = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            glass.name = "Window_Glass";
-            glass.transform.position = position + Vector3.up * (0.9f + (_wallHeight - 1.6f) * 0.5f);
+            glass.name = "Window_Glass_Exterior";
+            glass.transform.position = position + Vector3.up * glassCenterY;
             glass.transform.localScale = glassScale;
-            glass.transform.parent = _levelContainer;
+            glass.transform.SetParent(parent, true);
+
             var rendGlass = glass.GetComponent<Renderer>();
             if (rendGlass != null)
             {
                 if (_windowMaterial != null) rendGlass.material = _windowMaterial;
                 else rendGlass.material.color = new Color(0.35f, 0.65f, 0.85f, 0.45f);
             }
-            _instantiatedLevelObjects.Add(glass);
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // 2. LATERAL SAFE ROOM: MERCHANT WINDOW & COUNTER ARCHITECTURE
+        // ELEVATOR TELEPORTER CABIN
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Generates the dedicated Merchant architectural counter and cutout window.
-        /// Features:
-        ///   - Base counter partition wall (0m to 1.0m)
-        ///   - Polished interaction desk counter shelf extending forward (height 1.0m)
-        ///   - Cutout window opening (1.0m to 2.3m) for dialogue/trading
-        ///   - Upper lintel header (2.3m to 3.2m)
-        ///   - Framing jambs & warm overhead atmospheric lighting
-        /// </summary>
-        private void SpawnMerchantWindowFeature(Vector3 position)
+        private void PlaceElevatorCabin(int currentFloor, Vector2Int exitGrid, float elevation, Transform parent, bool isBossFloor)
         {
-            // Spawn base floor and ceiling
-            SpawnFloor(position, true);
-            SpawnCeiling(position);
+            Vector3 exitPos = new Vector3(exitGrid.x * _cellSize, elevation, exitGrid.y * _cellSize);
 
-            if (_merchantCounterPrefab != null)
-            {
-                var customCounter = Instantiate(_merchantCounterPrefab, position, Quaternion.identity, _levelContainer);
-                _instantiatedLevelObjects.Add(customCounter);
-                return;
-            }
-
-            var rootGo = new GameObject("Merchant_Service_Window");
-            rootGo.transform.position = position;
-            rootGo.transform.parent = _levelContainer;
-
-            // 1. Lower Counter Base Wall (0.0m to 1.0m)
-            var baseWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            baseWall.name = "Merchant_Counter_Base";
-            baseWall.transform.position = position + Vector3.up * 0.5f;
-            baseWall.transform.localScale = new Vector3(_cellSize, 1.0f, 0.45f);
-            baseWall.transform.parent = rootGo.transform;
-            var rendBase = baseWall.GetComponent<Renderer>();
-            if (rendBase != null) rendBase.material.color = new Color(0.24f, 0.20f, 0.17f); // Dark mahogany wood paneling
-
-            // 2. Physical Service Desk Shelf (extends forward into Safe Room)
-            var counterDesk = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            counterDesk.name = "Merchant_Counter_Shelf";
-            counterDesk.transform.position = position + Vector3.up * 1.02f + Vector3.back * 0.18f;
-            counterDesk.transform.localScale = new Vector3(_cellSize * 1.02f, 0.08f, 0.85f);
-            counterDesk.transform.parent = rootGo.transform;
-            var rendDesk = counterDesk.GetComponent<Renderer>();
-            if (rendDesk != null)
-            {
-                if (_merchantCounterMaterial != null) rendDesk.material = _merchantCounterMaterial;
-                else rendDesk.material.color = new Color(0.48f, 0.32f, 0.18f); // Polished walnut counter top
-            }
-
-            // 3. Cutout Opening Side Pillars (Jambs)
-            float jambWidth = 0.35f;
-            var jambL = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            jambL.name = "Merchant_Window_Jamb_L";
-            jambL.transform.position = position + Vector3.up * 1.65f + Vector3.left * ((_cellSize * 0.5f) - (jambWidth * 0.5f));
-            jambL.transform.localScale = new Vector3(jambWidth, 1.3f, 0.45f);
-            jambL.transform.parent = rootGo.transform;
-            var rendJL = jambL.GetComponent<Renderer>();
-            if (rendJL != null) rendJL.material.color = new Color(0.28f, 0.24f, 0.20f);
-
-            var jambR = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            jambR.name = "Merchant_Window_Jamb_R";
-            jambR.transform.position = position + Vector3.up * 1.65f + Vector3.right * ((_cellSize * 0.5f) - (jambWidth * 0.5f));
-            jambR.transform.localScale = new Vector3(jambWidth, 1.3f, 0.45f);
-            jambR.transform.parent = rootGo.transform;
-            var rendJR = jambR.GetComponent<Renderer>();
-            if (rendJR != null) rendJR.material.color = new Color(0.28f, 0.24f, 0.20f);
-
-            // 4. Upper Lintel Wall (2.3m to ceiling 3.2m)
-            float lintelH = _wallHeight - 2.3f;
-            var topLintel = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            topLintel.name = "Merchant_Window_Lintel";
-            topLintel.transform.position = position + Vector3.up * (2.3f + (lintelH * 0.5f));
-            topLintel.transform.localScale = new Vector3(_cellSize, lintelH, 0.45f);
-            topLintel.transform.parent = rootGo.transform;
-            var rendLintel = topLintel.GetComponent<Renderer>();
-            if (rendLintel != null) rendLintel.material.color = new Color(0.26f, 0.28f, 0.32f);
-
-            // 5. Overhead Warm Amber Illumination
-            var lampGo = new GameObject("Merchant_Warm_Spotlight");
-            lampGo.transform.position = position + Vector3.up * 2.85f + Vector3.back * 0.3f;
-            lampGo.transform.parent = rootGo.transform;
-            var lamp = lampGo.AddComponent<Light>();
-            lamp.type = LightType.Point;
-            lamp.color = new Color(1.0f, 0.82f, 0.45f); // Warm safe haven amber
-            lamp.range = 6.5f;
-            lamp.intensity = 2.4f;
-
-            _instantiatedLevelObjects.Add(rootGo);
-        }
-
-        // ════════════════════════════════════════════════════════════════════
-        // 3. LATERAL EXIT ELEVATOR & SOFTLOCK PREVENTION
-        // ════════════════════════════════════════════════════════════════════
-
-        private void PlaceLateralExitElevator(Vector2Int exitGrid, bool isBossFloor)
-        {
-            Vector3 exitPos = new Vector3(exitGrid.x * _cellSize, 0f, exitGrid.y * _cellSize);
-
-            // 1. Elevator frame pillars (Hazard Yellow)
+            // Illuminated Yellow Elevator Posts
             var frameL = GameObject.CreatePrimitive(PrimitiveType.Cube);
             frameL.name = "Elevator_Pillar_L";
             frameL.transform.position = exitPos + Vector3.up * 1.6f + Vector3.left * 1.3f;
             frameL.transform.localScale = new Vector3(0.35f, 3.2f, 0.35f);
-            frameL.transform.parent = _levelContainer;
+            frameL.transform.SetParent(parent, true);
             var rendFL = frameL.GetComponent<Renderer>();
             if (rendFL != null) rendFL.material.color = new Color(0.92f, 0.78f, 0.1f);
-            _instantiatedLevelObjects.Add(frameL);
 
             var frameR = GameObject.CreatePrimitive(PrimitiveType.Cube);
             frameR.name = "Elevator_Pillar_R";
             frameR.transform.position = exitPos + Vector3.up * 1.6f + Vector3.right * 1.3f;
             frameR.transform.localScale = new Vector3(0.35f, 3.2f, 0.35f);
-            frameR.transform.parent = _levelContainer;
+            frameR.transform.SetParent(parent, true);
             var rendFR = frameR.GetComponent<Renderer>();
             if (rendFR != null) rendFR.material.color = new Color(0.92f, 0.78f, 0.1f);
-            _instantiatedLevelObjects.Add(frameR);
 
-            // 2. Overhead illuminated header sign
+            // Overhead Sign
             var sign = GameObject.CreatePrimitive(PrimitiveType.Cube);
             sign.name = "Elevator_Header_Sign";
-            sign.transform.position = exitPos + Vector3.up * 3.1f;
+            sign.transform.position = exitPos + Vector3.up * 3.2f;
             sign.transform.localScale = new Vector3(2.8f, 0.5f, 0.4f);
-            sign.transform.parent = _levelContainer;
+            sign.transform.SetParent(parent, true);
             var rendSign = sign.GetComponent<Renderer>();
-            if (rendSign != null) rendSign.material.color = new Color(0.1f, 0.88f, 0.35f);
-            _instantiatedLevelObjects.Add(sign);
+            if (rendSign != null) rendSign.material.color = new Color(0.1f, 0.85f, 0.3f);
 
-            // 3. Cabin interior beacon light
+            // Beacon Point Light
             var beaconGo = new GameObject("Elevator_Beacon_Light");
             beaconGo.transform.position = exitPos + Vector3.up * 2.2f;
-            beaconGo.transform.parent = _levelContainer;
+            beaconGo.transform.SetParent(parent, true);
             var pLight = beaconGo.AddComponent<Light>();
             pLight.type = LightType.Point;
             pLight.color = new Color(0.2f, 1.0f, 0.4f);
-            pLight.range = 10.0f;
-            pLight.intensity = 2.5f;
-            _instantiatedLevelObjects.Add(beaconGo);
+            pLight.range = 8.0f;
+            pLight.intensity = 2.0f;
 
-            // 4. Cabin trigger volume
-            GameObject cabin;
-            if (_elevatorCabinPrefab != null)
-            {
-                cabin = Instantiate(_elevatorCabinPrefab, exitPos, Quaternion.identity, _levelContainer);
-            }
-            else
-            {
-                cabin = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                cabin.name = isBossFloor ? "Boss_Exit_Gate" : "Elevator_Cabin";
-                cabin.transform.position = exitPos + Vector3.up * 1.5f;
-                cabin.transform.localScale = new Vector3(2.4f, 3.0f, 2.0f);
-                cabin.transform.parent = _levelContainer;
+            // Cabin Trigger Volume (Elevator Door Teleporter)
+            GameObject cabin = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cabin.name = isBossFloor ? $"Boss_Exit_Gate_F{currentFloor}" : $"Elevator_Cabin_F{currentFloor}";
+            cabin.transform.position = exitPos + Vector3.up * 1.5f;
+            cabin.transform.localScale = new Vector3(2.4f, 3.0f, 2.0f);
+            cabin.transform.SetParent(parent, true);
 
-                var rendCabin = cabin.GetComponent<Renderer>();
-                if (rendCabin != null)
-                {
-                    // Disable renderer on the trigger volume so the illuminated elevator interior is visible
-                    rendCabin.enabled = false;
-                }
-
-                // Construct authentic 3-walled elevator enclosure (Back, Left, Right) with open front
-                SpawnElevatorEnclosure(exitPos);
-            }
+            var rendCabin = cabin.GetComponent<Renderer>();
+            if (rendCabin != null) rendCabin.material.color = new Color(0.18f, 0.20f, 0.24f);
 
             var col = cabin.GetComponent<Collider>();
-            if (col == null) col = cabin.AddComponent<BoxCollider>();
-            col.isTrigger = true;
+            if (col != null) col.isTrigger = true;
 
-            var trigger = cabin.GetComponent<ElevatorDoorTrigger>() ?? cabin.AddComponent<ElevatorDoorTrigger>();
-            int currentFloorNum = (GameManager.Instance != null && GameManager.Instance.CurrentFloor != null)
-                ? GameManager.Instance.CurrentFloor.FloorNumber
-                : 1;
-            trigger.SetNextFloorNumber(currentFloorNum + 1);
-
-            _instantiatedLevelObjects.Add(cabin);
-        }
-
-        private void SpawnElevatorEnclosure(Vector3 exitPos)
-        {
-            Color steelColor = new Color(0.18f, 0.20f, 0.24f);
-
-            // 1. Back Wall
-            var backWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            backWall.name = "Elevator_Cabin_Back";
-            backWall.transform.position = exitPos + Vector3.up * 1.6f + Vector3.forward * 1.0f;
-            backWall.transform.localScale = new Vector3(2.6f, 3.2f, 0.2f);
-            backWall.transform.parent = _levelContainer;
-            var rendB = backWall.GetComponent<Renderer>();
-            if (rendB != null) rendB.material.color = steelColor;
-            _instantiatedLevelObjects.Add(backWall);
-
-            // 2. Left Wall
-            var leftWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            leftWall.name = "Elevator_Cabin_Left";
-            leftWall.transform.position = exitPos + Vector3.up * 1.6f + Vector3.left * 1.25f;
-            leftWall.transform.localScale = new Vector3(0.2f, 3.2f, 2.0f);
-            leftWall.transform.parent = _levelContainer;
-            var rendL = leftWall.GetComponent<Renderer>();
-            if (rendL != null) rendL.material.color = steelColor;
-            _instantiatedLevelObjects.Add(leftWall);
-
-            // 3. Right Wall
-            var rightWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            rightWall.name = "Elevator_Cabin_Right";
-            rightWall.transform.position = exitPos + Vector3.up * 1.6f + Vector3.right * 1.25f;
-            rightWall.transform.localScale = new Vector3(0.2f, 3.2f, 2.0f);
-            rightWall.transform.parent = _levelContainer;
-            var rendR = rightWall.GetComponent<Renderer>();
-            if (rendR != null) rendR.material.color = steelColor;
-            _instantiatedLevelObjects.Add(rightWall);
+            var trigger = cabin.AddComponent<ElevatorDoorTrigger>();
+            trigger.SetFloorNumbers(currentFloor, currentFloor + 1);
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // 4. SAFE PLAYER TELEPORTATION TO START ROOM
+        // SPAWN COORDINATE LOOKUP
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Safely snaps the player to the newly generated Spawn Room.
-        /// Temporarily disables CharacterController to prevent Unity physics fighting/jitter.
+        /// Retrieves the pre-calculated world spawn position for any of the 30 floors.
         /// </summary>
-        public void PositionPlayerAtSpawn(Vector2Int spawnGrid)
+        public Vector3 GetFloorSpawnPosition(int floorNumber)
         {
-            Vector3 worldSpawn = new Vector3(spawnGrid.x * _cellSize, 1.0f, spawnGrid.y * _cellSize);
-
-            var playerController = FindAnyObjectByType<PlayerController>();
-            if (playerController != null)
+            if (_floorSpawnPositions.TryGetValue(floorNumber, out Vector3 pos))
             {
-                playerController.Teleport(worldSpawn, Quaternion.identity);
-                Debug.Log($"[LevelBuilder] PlayerController safely teleported to Spawn Room: {worldSpawn}");
-                return;
+                return pos;
             }
 
-            var playerObj = GameObject.FindGameObjectWithTag("Player");
-            if (playerObj != null)
+            // Fallback: 100m elevation calculation
+            float elevation = FloorConfig.GetFloorElevation(floorNumber);
+            return new Vector3(10f * _cellSize, elevation + 1.0f, 10f * _cellSize);
+        }
+
+        public GameObject GetFloorRoot(int floorNumber)
+        {
+            if (_floorRoots.TryGetValue(floorNumber, out GameObject root))
             {
-                var cc = playerObj.GetComponent<CharacterController>();
-                if (cc != null) cc.enabled = false;
-                playerObj.transform.position = worldSpawn;
-                playerObj.transform.rotation = Quaternion.identity;
-                if (cc != null) cc.enabled = true;
-                Debug.Log($"[LevelBuilder] Player GameObject safely teleported to Spawn Room: {worldSpawn}");
+                return root;
             }
-            else
-            {
-                Debug.LogWarning("[LevelBuilder] Could not find GameObject with 'Player' tag or PlayerController for teleportation!");
-            }
+            return null;
         }
     }
 }

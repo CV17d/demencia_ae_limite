@@ -1,9 +1,7 @@
 // ============================================================================
 // EnemySpawner.cs — Dynamic enemy population driven by AI Director & Degradation
 // ============================================================================
-// Selects enemy archetypes according to AIDirector's EnemyComposition.
-// Injects Cursed Pact EnemyBuffState multipliers.
-// Injects hallucination PhantomEnemies when Mental Degradation is high.
+// Supports instant elevation spawning for 30-floor pre-generated towers.
 // Enforces strict human-scale limits so enemies never clip into ceilings or corridors.
 // Spawns enemies strictly on top of generated physical floor tiles.
 // ============================================================================
@@ -45,8 +43,11 @@ namespace DemenciaNoLimite.Level
 
         public void SpawnEnemies(FloorLayout layout, FloorConfig config)
         {
-            ClearEnemies();
+            SpawnEnemiesAtElevation(layout, config, 0f, transform);
+        }
 
+        public void SpawnEnemiesAtElevation(FloorLayout layout, FloorConfig config, float elevation, Transform parentContainer)
+        {
             if (layout == null || config == null)
             {
                 Debug.LogWarning("[EnemySpawner] Cannot spawn enemies: layout or config is null.");
@@ -61,32 +62,31 @@ namespace DemenciaNoLimite.Level
                 ? aiDirector.GetEnemyComposition(config, gm.EnemyBuffs) 
                 : new EnemyComposition();
 
-            // Collect robust list of spawn coordinates directly on floor tiles
             List<Vector3> spawnWorldPositions = CollectFloorSpawnPositions(layout, config.BaseEnemyCount);
             int spawnCount = spawnWorldPositions.Count;
 
+            Transform targetParent = parentContainer != null ? parentContainer : transform;
+
             for (int i = 0; i < spawnCount; i++)
             {
-                Vector3 worldPos = spawnWorldPositions[i];
+                Vector3 worldPos = spawnWorldPositions[i] + Vector3.up * elevation;
 
-                // Hallucination phantom check at high degradation
                 if (degradationSystem != null && degradationSystem.ShouldSpawnPhantomEnemies())
                 {
                     if (Random.value < degradationSystem.PhantomEnemyChance())
                     {
-                        SpawnPhantomEnemy(worldPos);
+                        SpawnPhantomEnemy(worldPos, targetParent);
                         continue;
                     }
                 }
 
-                // Standard enemy selection via Director composition
                 EnemyType selectedType = composition.SelectType(Random.value);
                 EnemyData selectedData = GetEnemyDataForType(selectedType);
 
-                SpawnRealEnemy(worldPos, selectedType, selectedData, gm != null ? gm.EnemyBuffs : null);
+                SpawnRealEnemy(worldPos, selectedType, selectedData, gm != null ? gm.EnemyBuffs : null, targetParent);
             }
 
-            Debug.Log($"[EnemySpawner] Spawned {spawnCount} entities on Floor {config.FloorNumber} strictly on floor tiles.");
+            Debug.Log($"[EnemySpawner] Spawned {spawnCount} entities on Floor {config.FloorNumber} at elevation Y={elevation:F0}.");
         }
 
         private List<Vector3> CollectFloorSpawnPositions(FloorLayout layout, int desiredCount)
@@ -94,7 +94,6 @@ namespace DemenciaNoLimite.Level
             var result = new List<Vector3>();
             float cellSize = LevelGenerator.StandardCellSize;
 
-            // 1. First add validated points from layout.EnemySpawnPoints
             if (layout.EnemySpawnPoints != null)
             {
                 foreach (var pt in layout.EnemySpawnPoints)
@@ -102,7 +101,7 @@ namespace DemenciaNoLimite.Level
                     if (pt.x > 0 && pt.x < layout.Width && pt.y > 0 && pt.y < layout.Height)
                     {
                         CellType cell = layout.Grid[pt.x, pt.y];
-                        if (cell == CellType.Floor || cell == CellType.Corridor)
+                        if (cell == CellType.Floor || cell == CellType.Corridor || cell == CellType.SpawnRoom)
                         {
                             result.Add(new Vector3(pt.x * cellSize, 0f, pt.y * cellSize));
                             if (result.Count >= desiredCount) return result;
@@ -111,7 +110,6 @@ namespace DemenciaNoLimite.Level
                 }
             }
 
-            // 2. If quota not reached, scan all walkable floor tiles away from player
             if (result.Count < desiredCount)
             {
                 var candidateTiles = new List<Vector2Int>();
@@ -135,7 +133,6 @@ namespace DemenciaNoLimite.Level
                     }
                 }
 
-                // Shuffle candidates
                 for (int i = 0; i < candidateTiles.Count; i++)
                 {
                     int swapIdx = Random.Range(i, candidateTiles.Count);
@@ -155,7 +152,6 @@ namespace DemenciaNoLimite.Level
                 }
             }
 
-            // Fallback emergency center if level is exceptionally small
             if (result.Count == 0)
             {
                 result.Add(new Vector3(layout.SpawnPoint.x * cellSize + 6f, 0f, layout.SpawnPoint.y * cellSize + 6f));
@@ -164,7 +160,7 @@ namespace DemenciaNoLimite.Level
             return result;
         }
 
-        private void SpawnRealEnemy(Vector3 worldPos, EnemyType type, EnemyData data, EnemyBuffState buffs)
+        private void SpawnRealEnemy(Vector3 worldPos, EnemyType type, EnemyData data, EnemyBuffState buffs, Transform parent)
         {
             GetArchetypeDimensions(type, out float targetHeight, out float targetRadius);
 
@@ -173,40 +169,31 @@ namespace DemenciaNoLimite.Level
 
             if (_enemyPrefabDefault != null)
             {
-                enemyGo = Instantiate(_enemyPrefabDefault, worldPos, Quaternion.identity, transform);
+                enemyGo = Instantiate(_enemyPrefabDefault, worldPos, Quaternion.identity, parent);
             }
             else
             {
                 isPrimitive = true;
                 enemyGo = GameObject.CreatePrimitive(PrimitiveType.Capsule);
                 enemyGo.name = $"Enemy_{data?.EnemyID ?? type.ToString()}";
-                // Primitive capsule has pivot at center, so position at half height
                 enemyGo.transform.position = worldPos + Vector3.up * (targetHeight * 0.5f);
-                enemyGo.transform.parent = transform;
+                enemyGo.transform.SetParent(parent, true);
             }
 
-            // Ensure layer is Enemy if defined, otherwise keep default
             int enemyLayer = LayerMask.NameToLayer("Enemy");
-            if (enemyLayer != -1)
-            {
-                enemyGo.layer = enemyLayer;
-            }
+            if (enemyLayer != -1) enemyGo.layer = enemyLayer;
             enemyGo.tag = "Enemy";
 
-            // Enforce strict scaling and calibrate collider
             EnforceEnemyScaleAndHitbox(enemyGo, targetHeight, targetRadius, isPrimitive);
 
             var enemyComp = enemyGo.GetComponent<EnemyBase>();
-            if (enemyComp == null)
-            {
-                enemyComp = enemyGo.AddComponent<EnemyBase>();
-            }
+            if (enemyComp == null) enemyComp = enemyGo.AddComponent<EnemyBase>();
 
             enemyComp.Initialize(data != null ? data : ScriptableObject.CreateInstance<EnemyData>(), buffs);
             _activeEnemies.Add(enemyGo);
         }
 
-        private void SpawnPhantomEnemy(Vector3 worldPos)
+        private void SpawnPhantomEnemy(Vector3 worldPos, Transform parent)
         {
             GetArchetypeDimensions(EnemyType.Grunt, out float targetHeight, out float targetRadius);
 
@@ -215,7 +202,7 @@ namespace DemenciaNoLimite.Level
 
             if (_phantomEnemyPrefab != null)
             {
-                phantomGo = Instantiate(_phantomEnemyPrefab, worldPos, Quaternion.identity, transform);
+                phantomGo = Instantiate(_phantomEnemyPrefab, worldPos, Quaternion.identity, parent);
             }
             else
             {
@@ -223,30 +210,20 @@ namespace DemenciaNoLimite.Level
                 phantomGo = GameObject.CreatePrimitive(PrimitiveType.Capsule);
                 phantomGo.name = "Phantom_Hallucination";
                 phantomGo.transform.position = worldPos + Vector3.up * (targetHeight * 0.5f);
-                phantomGo.transform.parent = transform;
+                phantomGo.transform.SetParent(parent, true);
             }
 
             int enemyLayer = LayerMask.NameToLayer("Enemy");
-            if (enemyLayer != -1)
-            {
-                phantomGo.layer = enemyLayer;
-            }
+            if (enemyLayer != -1) phantomGo.layer = enemyLayer;
             phantomGo.tag = "Enemy";
 
             EnforceEnemyScaleAndHitbox(phantomGo, targetHeight, targetRadius, isPrimitive);
 
             var phantomComp = phantomGo.GetComponent<PhantomEnemy>();
-            if (phantomComp == null)
-            {
-                phantomComp = phantomGo.AddComponent<PhantomEnemy>();
-            }
+            if (phantomComp == null) phantomComp = phantomGo.AddComponent<PhantomEnemy>();
             _activeEnemies.Add(phantomGo);
         }
 
-        /// <summary>
-        /// Retrieves proportional physical dimensions (height & radius) per enemy archetype.
-        /// Strictly clamped to be equal or smaller than the player's scale (<= 1.85m height).
-        /// </summary>
         public void GetArchetypeDimensions(EnemyType type, out float height, out float radius)
         {
             float maxAllowed = _maxAllowedHeight;
@@ -278,16 +255,12 @@ namespace DemenciaNoLimite.Level
             radius = Mathf.Min(desiredRadius, _maxAllowedRadius);
         }
 
-        /// <summary>
-        /// Clamps the enemy transform scale to fit building constraints and calibrates the CapsuleCollider.
-        /// </summary>
         public void EnforceEnemyScaleAndHitbox(GameObject enemyGo, float targetHeight, float targetRadius, bool isPrimitive)
         {
             if (enemyGo == null) return;
 
             if (isPrimitive)
             {
-                // Primitive capsule has unscaled height 2.0 and diameter 1.0 (radius 0.5)
                 float scaleFactorY = targetHeight / 2.0f;
                 float scaleFactorXZ = (targetRadius * 2.0f) / 1.0f;
                 enemyGo.transform.localScale = new Vector3(scaleFactorXZ, scaleFactorY, scaleFactorXZ);
@@ -298,7 +271,7 @@ namespace DemenciaNoLimite.Level
                     cap.height = 2.0f;
                     cap.radius = 0.5f;
                     cap.center = Vector3.zero;
-                    cap.direction = 1; // Y-Axis
+                    cap.direction = 1;
                 }
             }
             else
@@ -316,7 +289,6 @@ namespace DemenciaNoLimite.Level
                 }
             }
 
-            // Synchronize NavMeshAgent dimensions
             var agent = enemyGo.GetComponent<NavMeshAgent>();
             if (agent != null)
             {
@@ -354,10 +326,7 @@ namespace DemenciaNoLimite.Level
         private void CalibrateCapsuleCollider(GameObject go, float targetHeight, float targetRadius)
         {
             var cap = go.GetComponent<CapsuleCollider>();
-            if (cap == null)
-            {
-                cap = go.AddComponent<CapsuleCollider>();
-            }
+            if (cap == null) cap = go.AddComponent<CapsuleCollider>();
 
             float localScaleY = Mathf.Max(0.001f, go.transform.lossyScale.y);
             float localScaleXZ = Mathf.Max(0.001f, Mathf.Max(go.transform.lossyScale.x, go.transform.lossyScale.z));
@@ -368,7 +337,7 @@ namespace DemenciaNoLimite.Level
             cap.height = localHeight;
             cap.radius = localRadius;
             cap.center = new Vector3(0f, localHeight * 0.5f, 0f);
-            cap.direction = 1; // Y-Axis
+            cap.direction = 1;
         }
 
         private EnemyData GetEnemyDataForType(EnemyType type)

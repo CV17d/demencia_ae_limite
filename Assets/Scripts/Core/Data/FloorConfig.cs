@@ -1,19 +1,21 @@
 // ============================================================================
-// FloorConfig.cs — Defines the type and parameters of each floor
+// FloorConfig.cs — Defines the type and parameters of each floor in the 30-floor tower
 // ============================================================================
 
 using System;
+using UnityEngine;
 
 namespace DemenciaNoLimite.Core.Data
 {
     /// <summary>
-    /// Categorizes every floor in the tower.
+    /// Categorizes every floor in the 30-floor tower.
     /// </summary>
     public enum FloorType
     {
-        ProceduralMaze, // Floors 1-8, 10-17, 19-26
-        BossRoom,       // Floors 9, 18, 27
-        Elevator        // Transition between floors (virtual, not a physical floor)
+        TutorialLobby,  // Floor 1 — Safe starter lobby & weapons tutorial
+        ProceduralMaze, // Floors 2-9, 11-19, 21-29 — Roguelike loot & combat floors
+        BossRoom,       // Floors 10, 20, 30 — Arena boss encounters
+        Elevator        // Transition elevator cabin
     }
 
     /// <summary>
@@ -22,79 +24,67 @@ namespace DemenciaNoLimite.Core.Data
     /// </summary>
     public enum FloorTier
     {
-        Act1,  // Floors 1-9   — The Favela Depths
-        Act2,  // Floors 10-18 — The Industrial Rot
-        Act3   // Floors 19-27 — The Apex / Babel
+        Act1,  // Floors 1-10  — The Favela Depths (Boss at Floor 10)
+        Act2,  // Floors 11-20 — The Industrial Rot (Boss at Floor 20)
+        Act3   // Floors 21-30 — The Apex / Babel (Final Boss at Floor 30)
     }
 
     /// <summary>
-    /// Immutable configuration for a single floor. Built once by LevelGenerator
-    /// during initialization and then consumed by the procedural generation
-    /// pipeline and AI Director.
+    /// Configuration for a single floor in the 30-floor pre-generated tower.
     /// </summary>
     [Serializable]
     public class FloorConfig
     {
+        public const int MAX_TOWER_FLOORS = 30;
+
         public int       FloorNumber;
         public FloorType Type;
         public FloorTier Tier;
 
-        // ── Difficulty Baseline (before AI Director adjustments) ───────────
-        /// <summary>Base difficulty scalar for this floor (0..1 within its tier).</summary>
+        // ── Difficulty Baseline ─────────────────────────────────────────────
         public float BaseDifficulty;
-
-        /// <summary>Base number of enemies to spawn on this floor.</summary>
         public int   BaseEnemyCount;
-
-        /// <summary>Base number of environmental hazards.</summary>
         public int   BaseHazardCount;
-
-        /// <summary>Maze complexity factor (0..1). Higher = more dead ends, longer paths.</summary>
         public float MazeComplexity;
 
         // ── Boss-specific ──────────────────────────────────────────────────
-        /// <summary>Boss identifier (only relevant for BossRoom floors).</summary>
         public string BossID;
+
+        // ── Spatial Separation ─────────────────────────────────────────────
+        /// <summary>Vertical Y-offset per floor to prevent physical overlapping.</summary>
+        public const float VerticalFloorSpacing = 100.0f;
+
+        public static float GetFloorElevation(int floorNumber)
+        {
+            return (floorNumber - 1) * VerticalFloorSpacing;
+        }
 
         // ── Factory ────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Determines the FloorType for a given floor number.
-        /// Boss floors: 9, 18, 27. Everything else: ProceduralMaze.
-        /// </summary>
         public static FloorType GetFloorType(int floorNumber)
         {
-            return (floorNumber == 9 || floorNumber == 18 || floorNumber == 27)
-                ? FloorType.BossRoom
-                : FloorType.ProceduralMaze;
+            if (floorNumber == 1) return FloorType.TutorialLobby;
+            if (floorNumber == 10 || floorNumber == 20 || floorNumber == 30) return FloorType.BossRoom;
+            return FloorType.ProceduralMaze;
         }
 
-        /// <summary>
-        /// Determines which act/tier a floor belongs to.
-        /// </summary>
         public static FloorTier GetFloorTier(int floorNumber)
         {
-            if (floorNumber <= 9)  return FloorTier.Act1;
-            if (floorNumber <= 18) return FloorTier.Act2;
+            if (floorNumber <= 10) return FloorTier.Act1;
+            if (floorNumber <= 20) return FloorTier.Act2;
             return FloorTier.Act3;
         }
 
-        /// <summary>
-        /// Builds a FloorConfig with sensible defaults for a given floor number.
-        /// The AI Director will modify these values before the floor is generated.
-        /// </summary>
         public static FloorConfig Build(int floorNumber)
         {
             var type = GetFloorType(floorNumber);
             var tier = GetFloorTier(floorNumber);
 
-            // Normalized position within the tier (0..1)
             int tierStart = tier == FloorTier.Act1 ? 1
-                          : tier == FloorTier.Act2 ? 10
-                          : 19;
-            float posInTier = (floorNumber - tierStart) / 8f; // 8 floors per tier
+                          : tier == FloorTier.Act2 ? 11
+                          : 21;
+            float posInTier = Mathf.Clamp01((floorNumber - tierStart) / 9f);
 
-            // Tier multiplier: Act1=1, Act2=1.5, Act3=2.2
             float tierMult = tier == FloorTier.Act1 ? 1.0f
                            : tier == FloorTier.Act2 ? 1.5f
                            : 2.2f;
@@ -105,36 +95,37 @@ namespace DemenciaNoLimite.Core.Data
                 Type           = type,
                 Tier           = tier,
                 BaseDifficulty = posInTier * tierMult,
-                MazeComplexity = 0.3f + (posInTier * 0.5f), // 0.3..0.8 within tier
+                MazeComplexity = 0.25f + (posInTier * 0.55f),
             };
 
-            if (type == FloorType.BossRoom)
+            if (type == FloorType.TutorialLobby)
             {
-                config.BaseEnemyCount  = 0; // Boss rooms have no mobs (just the boss)
-                config.BaseHazardCount = 2 + (int)(tier);
+                config.BaseEnemyCount  = 0;
+                config.BaseHazardCount = 0;
+                config.MazeComplexity  = 0.1f;
+            }
+            else if (type == FloorType.BossRoom)
+            {
+                config.BaseEnemyCount  = 0;
+                config.BaseHazardCount = 2 + (int)tier;
                 config.BossID          = GetBossID(floorNumber);
             }
             else
             {
-                // Maze floors: enemy count scales with floor and tier
-                config.BaseEnemyCount  = 4 + (int)(posInTier * 6f * tierMult);
+                config.BaseEnemyCount  = 3 + (int)(posInTier * 7f * tierMult);
                 config.BaseHazardCount = 1 + (int)(posInTier * 3f * tierMult);
             }
 
             return config;
         }
 
-        /// <summary>
-        /// Maps boss floors to their boss identifiers.
-        /// These IDs will match ScriptableObject asset names.
-        /// </summary>
-        private static string GetBossID(int floorNumber)
+        public static string GetBossID(int floorNumber)
         {
             switch (floorNumber)
             {
-                case 9:  return "BOSS_ACT1_CARNICERO";   // The Butcher
-                case 18: return "BOSS_ACT2_MAQUINA";     // The Machine
-                case 27: return "BOSS_ACT3_DEMENCIA";    // Dementia Incarnate
+                case 10: return "BOSS_ACT1_CARNICERO"; // The Butcher (Act 1 Climax)
+                case 20: return "BOSS_ACT2_MAQUINA";   // The Machine (Act 2 Climax)
+                case 30: return "BOSS_ACT3_DEMENCIA";  // Dementia Incarnate (Tower Pinnacle)
                 default: return "BOSS_UNKNOWN";
             }
         }

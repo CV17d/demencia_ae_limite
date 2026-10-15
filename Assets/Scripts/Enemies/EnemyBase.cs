@@ -70,6 +70,12 @@ namespace DemenciaNoLimite.Enemies
 
         protected virtual void Awake()
         {
+            int enemyLayer = LayerMask.NameToLayer("Enemy");
+            if (enemyLayer != -1 && gameObject.layer != enemyLayer)
+            {
+                gameObject.layer = enemyLayer;
+            }
+
             _agent = GetComponent<NavMeshAgent>();
             if (_agent != null && !_agent.isOnNavMesh)
             {
@@ -412,6 +418,13 @@ namespace DemenciaNoLimite.Enemies
             {
                 _agent.isStopped = true;
                 _agent.enabled = false;
+            }
+
+            // Disable colliders immediately so dead enemies don't block bullets or player pathing
+            var colliders = GetComponentsInChildren<Collider>();
+            for (int i = 0; i < colliders.Length; i++)
+            {
+                colliders[i].enabled = false;
             }
 
             // Mutator: Explode on death

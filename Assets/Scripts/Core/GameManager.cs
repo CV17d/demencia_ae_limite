@@ -246,6 +246,18 @@ namespace DemenciaNoLimite.Core
         }
 
         // ════════════════════════════════════════════════════════════════════
+        // ELEVATOR RESUMPTION
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Called when the player finishes an elevator event (pact/merchant) and proceeds to next floor.
+        /// </summary>
+        public void ResumeFromElevator(int targetFloorNumber)
+        {
+            TeleportToFloor(targetFloorNumber);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
         // RUN TERMINATION
         // ════════════════════════════════════════════════════════════════════
 
@@ -253,17 +265,16 @@ namespace DemenciaNoLimite.Core
         {
             SetState(RunState.RunOver);
 
-            bool isVictory = (reason == RunEndReason.Victory);
             Debug.Log($"[GameManager] Run Over! Result: {reason}. Floors cleared: {Player.FloorsCleared}");
 
-            GameEvents.FireRunEnded(isVictory);
+            GameEvents.FireRunEnded(reason);
         }
 
         private void SetState(RunState newState)
         {
             if (_currentState == newState) return;
             _currentState = newState;
-            GameEvents.FireGameStateChanged(newState);
+            Debug.Log($"[GameManager] Game state changed to: {newState}");
         }
     }
 }

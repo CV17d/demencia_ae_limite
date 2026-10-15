@@ -1,15 +1,13 @@
 // ============================================================================
-// GameManager.cs — Central Run Lifecycle & Floor Transition Orchestrator
+// GameManager.cs — Central Run Lifecycle & 30-Floor Tower Teleportation Orchestrator
 // ============================================================================
 // Controls: PlayerStats, EnemyBuffState, run state machine, and floor progression.
 // Coordinates: LevelGenerator, LevelBuilder, AIDirector, ElevatorEventSystem.
 //
-// Implements the strict, robust 4-step floor transition sequence:
-//   a) Increment the current floor counter.
-//   b) Memory Management: Destroy the entire container GameObject of the previous
-//      floor's geometry to free up RAM.
-//   c) Trigger LevelGenerator & LevelBuilder to instantiate the new floor.
-//   d) Safely teleport the player's Transform to the Start Room of the new floor.
+// New Pre-Generation Architecture:
+//   - All 30 floors are pre-generated vertically at game start (Floor N at Y = (N-1)*100).
+//   - Elevator progression is pure teleportation (no runtime generation or teardown).
+//   - Eliminates player void-falling bugs and loading stutter.
 // ============================================================================
 
 using UnityEngine;
@@ -23,10 +21,10 @@ namespace DemenciaNoLimite.Core
     public enum RunState
     {
         MainMenu,
-        Initializing,    // Setting up a new run
+        Initializing,    // Pre-generating tower
         InFloor,         // Active inside a procedural skyscraper floor
-        InElevator,      // Elevator transition sequence
-        BossEncounter,   // Active boss fight
+        InElevator,      // Elevator teleportation sequence
+        BossEncounter,   // Active boss fight (Floors 10, 20, 30)
         RunOver          // Victory or Player Death
     }
 
@@ -61,17 +59,19 @@ namespace DemenciaNoLimite.Core
         public RunState CurrentState => _currentState;
 
         public FloorConfig CurrentFloor { get; private set; }
+        public int CurrentFloorNumber { get; private set; } = 1;
         public PlayerStats Player { get; private set; }
         public EnemyBuffState EnemyBuffs { get; private set; }
         public int Currency { get; set; }
+        public bool IsRunActive => _currentState == RunState.InFloor || _currentState == RunState.BossEncounter || _currentState == RunState.InElevator;
 
         // ════════════════════════════════════════════════════════════════════
-        // CONSTANTS
+        // CONSTANTS (30-FLOOR ARCHITECTURE)
         // ════════════════════════════════════════════════════════════════════
 
-        public const int TOTAL_FLOORS = 27;
+        public const int TOTAL_FLOORS = FloorConfig.MAX_TOWER_FLOORS; // 30 floors
         public const int STARTING_CURRENCY = 0;
-        public static readonly int[] BossFloors = { 9, 18, 27 };
+        public static readonly int[] BossFloors = { 10, 20, 30 };
 
         // ════════════════════════════════════════════════════════════════════
         // SYSTEM REFERENCES
@@ -84,17 +84,12 @@ namespace DemenciaNoLimite.Core
         [SerializeField] private ElevatorEventSystem _elevatorSystem;
         [SerializeField] private MentalDegradationSystem _degradationSystem;
 
-        // ════════════════════════════════════════════════════════════════════
-        // INITIALIZATION
-        // ════════════════════════════════════════════════════════════════════
-
         private void InitializeSystems()
         {
             if (Player == null) Player = new PlayerStats();
             if (EnemyBuffs == null) EnemyBuffs = new EnemyBuffState();
             Currency = STARTING_CURRENCY;
 
-            // Auto-find references if unassigned in Inspector
             if (_aiDirector == null) _aiDirector = FindAnyObjectByType<AIDirector>();
             if (_levelGenerator == null) _levelGenerator = FindAnyObjectByType<LevelGenerator>();
             if (_levelBuilder == null) _levelBuilder = FindAnyObjectByType<LevelBuilder>();
@@ -117,47 +112,55 @@ namespace DemenciaNoLimite.Core
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // RUN LIFECYCLE
+        // RUN LIFECYCLE (PRE-GENERATED TOWER TELEPORTATION)
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Begins a fresh run from Floor 1.
+        /// Begins a fresh 30-floor run. Ensures all 30 floors are pre-generated
+        /// in vertical space and teleports the player to Floor 1.
         /// </summary>
         public void StartNewRun()
         {
-            Debug.Log("[GameManager] Starting new 27-floor run...");
+            Debug.Log("[GameManager] Initializing 30-floor Pre-Generated Tower run...");
 
             Player.ResetForNewRun();
             EnemyBuffs.Reset();
             Currency = STARTING_CURRENCY;
+            CurrentFloorNumber = 1;
 
             GameEvents.FireRunStarted();
-            ExecuteFloorTransition(1);
+
+            // Ensure LevelBuilder has pre-generated all 30 floors stacked at Y=(N-1)*100
+            if (_levelBuilder == null) _levelBuilder = FindAnyObjectByType<LevelBuilder>();
+            if (_levelBuilder != null)
+            {
+                _levelBuilder.PreGenerateEntireTower();
+            }
+
+            TeleportToFloor(1);
         }
 
         /// <summary>
-        /// Advances sequentially to the next floor.
+        /// Advances to the next floor via instant teleportation.
         /// Called directly by ElevatorDoorTrigger when the player steps into the cabin.
         /// </summary>
         public void AdvanceToNextFloor()
         {
-            int nextFloor = (CurrentFloor != null) ? CurrentFloor.FloorNumber + 1 : 1;
-            ExecuteFloorTransition(nextFloor);
+            int nextFloor = CurrentFloorNumber + 1;
+            TeleportToFloor(nextFloor);
         }
 
         public void TransitionToFloor(int floorNumber)
         {
-            ExecuteFloorTransition(floorNumber);
+            TeleportToFloor(floorNumber);
         }
 
         /// <summary>
-        /// Core floor transition sequence:
-        ///   a) Increment current floor counter.
-        ///   b) Memory Management: Destroy previous floor geometry container to free RAM.
-        ///   c) Trigger LevelGenerator & LevelBuilder to instantiate the new floor.
-        ///   d) Safely teleport the player Transform to the Start Room.
+        /// Instant, safe teleportation to the target floor in the 30-floor tower stack.
+        /// Moves the player Transform to the pre-generated floor's start coordinates
+        /// (Y = (targetFloor - 1) * 100 + floorSpawnY).
         /// </summary>
-        public void ExecuteFloorTransition(int targetFloorNumber)
+        public void TeleportToFloor(int targetFloorNumber)
         {
             if (targetFloorNumber < 1) targetFloorNumber = 1;
 
@@ -167,17 +170,16 @@ namespace DemenciaNoLimite.Core
                 return;
             }
 
-            Debug.Log($"[GameManager] === EXECUTING FLOOR TRANSITION TO FLOOR {targetFloorNumber} ===");
+            Debug.Log($"[GameManager] Teleporting player to Floor {targetFloorNumber} of {TOTAL_FLOORS} (Y={(targetFloorNumber - 1) * FloorConfig.VerticalFloorSpacing})...");
 
-            // ── STEP A: Increment floor counter & build config ──────────────
+            CurrentFloorNumber = targetFloorNumber;
             Player.FloorsCleared = targetFloorNumber - 1;
-            FloorConfig config = FloorConfig.Build(targetFloorNumber);
 
+            FloorConfig config = FloorConfig.Build(targetFloorNumber);
             if (_aiDirector != null)
             {
                 _aiDirector.ModifyFloorConfig(config, Player, EnemyBuffs);
             }
-
             CurrentFloor = config;
 
             if (_degradationSystem != null)
@@ -186,53 +188,16 @@ namespace DemenciaNoLimite.Core
             }
 
             GameEvents.FireFloorCleared(targetFloorNumber - 1);
-            GameEvents.FireFloorLoading(config);
 
-            // ── STEP B: Memory Management — Destroy previous floor container
+            // Get pre-generated world spawn coordinates for this floor
+            Vector3 worldSpawn = Vector3.up * FloorConfig.GetFloorElevation(targetFloorNumber);
             if (_levelBuilder == null) _levelBuilder = FindAnyObjectByType<LevelBuilder>();
             if (_levelBuilder != null)
             {
-                _levelBuilder.TeardownFloorGeometry();
-            }
-            else
-            {
-                Debug.LogWarning("[GameManager] LevelBuilder reference missing during teardown!");
+                worldSpawn = _levelBuilder.GetFloorSpawnPosition(targetFloorNumber);
             }
 
-            // ── STEP C: Trigger LevelGenerator to generate and build layout ──
-            FloorLayout layout = null;
-            if (_levelGenerator == null) _levelGenerator = FindAnyObjectByType<LevelGenerator>();
-
-            if (_levelGenerator != null)
-            {
-                layout = _levelGenerator.GenerateFloor(config);
-            }
-            else
-            {
-                Debug.LogError("[GameManager] Critical: LevelGenerator reference missing!");
-            }
-
-            if (_levelBuilder != null && layout != null)
-            {
-                _levelBuilder.BuildFloorFromLayout(layout, config);
-            }
-            else if (_levelBuilder == null)
-            {
-                Debug.LogError("[GameManager] Critical: LevelBuilder reference missing!");
-            }
-
-            // ── STEP D: Safely teleport player Transform to Start Room ──────
-            if (layout != null)
-            {
-                if (_levelBuilder != null)
-                {
-                    _levelBuilder.PositionPlayerAtSpawn(layout.SpawnPoint);
-                }
-                else
-                {
-                    SafelyTeleportPlayer(layout.SpawnPoint);
-                }
-            }
+            SafelyTeleportPlayer(worldSpawn);
 
             // Update State
             if (config.Type == FloorType.BossRoom)
@@ -245,18 +210,11 @@ namespace DemenciaNoLimite.Core
             }
 
             GameEvents.FireFloorReady(config);
-
-            Debug.Log($"[GameManager] Transition successful. Now on Floor {targetFloorNumber} ({config.Type}).");
+            Debug.Log($"[GameManager] Player arrived at Floor {targetFloorNumber} ({config.Type}) at position {worldSpawn}.");
         }
 
-        private void SafelyTeleportPlayer(Vector2Int spawnGrid)
+        public void SafelyTeleportPlayer(Vector3 worldPos)
         {
-            Vector3 worldPos = new Vector3(
-                spawnGrid.x * LevelGenerator.StandardCellSize,
-                1.0f,
-                spawnGrid.y * LevelGenerator.StandardCellSize
-            );
-
             var pc = FindAnyObjectByType<PlayerController>();
             if (pc != null)
             {
@@ -277,63 +235,35 @@ namespace DemenciaNoLimite.Core
 
         public void OnCurrentFloorCleared()
         {
-            int clearedFloor = (CurrentFloor != null) ? CurrentFloor.FloorNumber : 1;
-            if (clearedFloor >= TOTAL_FLOORS)
-            {
-                EndRun(RunEndReason.Victory);
-                return;
-            }
+            int clearedFloor = CurrentFloorNumber;
+            Debug.Log($"[GameManager] Floor {clearedFloor} cleared! Elevator unlocked.");
 
-            AdvanceToNextFloor();
+            // Add clear reward currency
+            int reward = 10 + (clearedFloor * 2);
+            Currency += reward;
+
+            GameEvents.FireFloorCleared(clearedFloor);
         }
 
-        public void ResumeFromElevator(int nextFloorNumber)
-        {
-            ExecuteFloorTransition(nextFloorNumber);
-        }
+        // ════════════════════════════════════════════════════════════════════
+        // RUN TERMINATION
+        // ════════════════════════════════════════════════════════════════════
 
         public void EndRun(RunEndReason reason)
         {
             SetState(RunState.RunOver);
-            GameEvents.FireRunEnded(reason);
 
-            Debug.Log($"[GameManager] Run ended: {reason}. " +
-                      $"Floors: {Player.FloorsCleared}, Kills: {Player.EnemiesKilled}, " +
-                      $"Time: {Player.RunTimer:F1}s");
+            bool isVictory = (reason == RunEndReason.Victory);
+            Debug.Log($"[GameManager] Run Over! Result: {reason}. Floors cleared: {Player.FloorsCleared}");
+
+            GameEvents.FireRunEnded(isVictory);
         }
-
-        // ════════════════════════════════════════════════════════════════════
-        // STATE MANAGEMENT
-        // ════════════════════════════════════════════════════════════════════
 
         private void SetState(RunState newState)
         {
-            RunState prev = _currentState;
+            if (_currentState == newState) return;
             _currentState = newState;
-            Debug.Log($"[GameManager] State: {prev} → {newState}");
-        }
-
-        public bool IsRunActive =>
-            _currentState == RunState.InFloor ||
-            _currentState == RunState.InElevator ||
-            _currentState == RunState.BossEncounter;
-
-        private void Update()
-        {
-            if (!IsRunActive) return;
-            if (Player != null)
-            {
-                Player.RunTimer += Time.deltaTime;
-            }
-        }
-
-        private void OnDestroy()
-        {
-            if (Instance == this)
-            {
-                GameEvents.ClearAll();
-                Instance = null;
-            }
+            GameEvents.FireGameStateChanged(newState);
         }
     }
 }

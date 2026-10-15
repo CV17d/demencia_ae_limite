@@ -52,14 +52,14 @@ namespace DemenciaNoLimite.Core
         public const float StandardCeilingHeight = 3.2f;
 
         [Header("Procedural Floor Boundaries")]
-        [SerializeField] private Vector2Int _minBuildingSize = new Vector2Int(18, 18);
-        [SerializeField] private Vector2Int _maxBuildingSize = new Vector2Int(30, 30);
+        [SerializeField] private Vector2Int _minBuildingSize = new Vector2Int(30, 30);
+        [SerializeField] private Vector2Int _maxBuildingSize = new Vector2Int(50, 50);
 
-        [Header("Room Parameters")]
+        [Header("Room Parameters (Labyrinth Architecture)")]
         [SerializeField] private int _minRoomSize = 4;
-        [SerializeField] private int _maxRoomSize = 8;
-        [SerializeField] private int _minRooms    = 4;
-        [SerializeField] private int _maxRooms    = 9;
+        [SerializeField] private int _maxRoomSize = 7;
+        [SerializeField] private int _minRooms    = 10;
+        [SerializeField] private int _maxRooms    = 24;
 
         [Header("Boss Arena")]
         [SerializeField] private Vector2Int _bossArenaSize = new Vector2Int(22, 22);
@@ -185,13 +185,20 @@ namespace DemenciaNoLimite.Core
         private FloorLayout GenerateRealisticSkyscraperFloor(FloorConfig config)
         {
             float difficulty = config != null ? config.BaseDifficulty : 1.0f;
-            float scale = Mathf.Clamp01((difficulty - 1f) / 2.0f);
+            int floorNumber = config != null ? config.FloorNumber : 2;
 
-            int width = Mathf.RoundToInt(Mathf.Lerp(_minBuildingSize.x, _maxBuildingSize.x, scale));
-            int height = Mathf.RoundToInt(Mathf.Lerp(_minBuildingSize.y, _maxBuildingSize.y, scale));
+            // Progression scaling across tower: Floor 2 up to Floor 29
+            float progress = Mathf.Clamp01((floorNumber - 2f) / 27f);
 
-            if (width % 2 != 0) width++;
-            if (height % 2 != 0) height++;
+            // Dynamically expand building footprint as player ascends: 32x32 up to 50x50
+            int width = Mathf.RoundToInt(Mathf.Lerp(_minBuildingSize.x, _maxBuildingSize.x, progress));
+            int height = Mathf.RoundToInt(Mathf.Lerp(_minBuildingSize.y, _maxBuildingSize.y, progress));
+
+            // Organic variance (+-2 cells) based on floor seed
+            width += (_rng.Next(-1, 2) * 2);
+            height += (_rng.Next(-1, 2) * 2);
+            width = Mathf.Clamp(width, 30, 52);
+            height = Mathf.Clamp(height, 30, 52);
 
             var layout = new FloorLayout
             {
@@ -208,26 +215,46 @@ namespace DemenciaNoLimite.Core
                 }
             }
 
-            int roomTarget = (int)Mathf.Lerp(_minRooms, _maxRooms, config != null ? config.MazeComplexity : 0.5f);
+            // Target room count: 10-15 on early floors, scaling up to 18-24 on high floors
+            int minR = Mathf.RoundToInt(Mathf.Lerp(_minRooms, _minRooms + 6, progress));
+            int maxR = Mathf.RoundToInt(Mathf.Lerp(_minRooms + 4, _maxRooms, progress));
+            int roomTarget = _rng.Next(minR, maxR + 1);
+
             var rooms = PlaceNonOverlappingRooms(layout, roomTarget);
 
-            ConnectRoomsSequential(layout, rooms);
+            // Interconnected branching labyrinth network with cycles, dead-ends, and loops
+            ConnectRoomsLabyrinthine(layout, rooms);
 
-            // Spawn Room in first room
-            layout.SpawnPoint = GetRoomCenter(rooms[0]);
+            // 1. Pick Spawn Room at one of the outer perimeter corners
+            RectInt spawnRoom = SelectSpawnRoom(layout, rooms);
+            layout.SpawnPoint = GetRoomCenter(spawnRoom);
             layout.Grid[layout.SpawnPoint.x, layout.SpawnPoint.y] = CellType.SpawnRoom;
 
-            // Safe Room & Exit Elevator in last room
-            var lastRoom = rooms[rooms.Count - 1];
-            layout.ExitPoint = GetRoomCenter(lastRoom);
-            layout.Grid[layout.ExitPoint.x, layout.ExitPoint.y] = CellType.ExitRoom;
-            layout.SafeRoomBounds = lastRoom;
+            // 2. Identify the room with the MAXIMUM reachable topological distance from Spawn
+            // This guarantees the elevator is hidden deep within the furthest wing of the maze!
+            RectInt elevatorRoom = FindFurthestReachableRoom(layout, rooms, layout.SpawnPoint);
+            layout.ExitPoint = GetRoomCenter(elevatorRoom);
+            layout.SafeRoomBounds = elevatorRoom;
 
-            // Spawns & Hazards
-            int enemyCount = config != null ? config.BaseEnemyCount : 5;
+            // Convert elevator room into Safe Room
+            for (int x = elevatorRoom.x; x < elevatorRoom.x + elevatorRoom.width; x++)
+            {
+                for (int y = elevatorRoom.y; y < elevatorRoom.y + elevatorRoom.height; y++)
+                {
+                    if (x > 0 && x < layout.Width - 1 && y > 0 && y < layout.Height - 1)
+                    {
+                        if (layout.Grid[x, y] == CellType.Floor)
+                            layout.Grid[x, y] = CellType.SafeRoom;
+                    }
+                }
+            }
+            layout.Grid[layout.ExitPoint.x, layout.ExitPoint.y] = CellType.ExitRoom;
+
+            // 3. Spawns & Hazards distributed across labyrinth wings
+            int enemyCount = config != null ? config.BaseEnemyCount : (6 + floorNumber / 2);
             PlaceEnemySpawns(layout, rooms, enemyCount);
 
-            int hazardCount = config != null ? config.BaseHazardCount : 2;
+            int hazardCount = config != null ? config.BaseHazardCount : (2 + floorNumber / 4);
             PlaceHazards(layout, hazardCount);
 
             return layout;
@@ -333,7 +360,7 @@ namespace DemenciaNoLimite.Core
         {
             var rooms = new List<RectInt>();
             int attempts = 0;
-            int maxAttempts = targetCount * 25;
+            int maxAttempts = targetCount * 60;
 
             while (rooms.Count < targetCount && attempts < maxAttempts)
             {
@@ -368,12 +395,17 @@ namespace DemenciaNoLimite.Core
                 }
             }
 
-            if (rooms.Count < 2)
+            // Fallback safety: ensure minimum 4 rooms even in worst rng packing
+            if (rooms.Count < 4)
             {
                 var fallback1 = new RectInt(2, 2, 5, 5);
                 var fallback2 = new RectInt(layout.Width - 7, layout.Height - 7, 5, 5);
-                if (rooms.Count == 0) { rooms.Add(fallback1); CarveRoom(layout, fallback1); }
-                if (rooms.Count == 1) { rooms.Add(fallback2); CarveRoom(layout, fallback2); }
+                var fallback3 = new RectInt(2, layout.Height - 7, 5, 5);
+                var fallback4 = new RectInt(layout.Width - 7, 2, 5, 5);
+                if (!rooms.Contains(fallback1)) { rooms.Add(fallback1); CarveRoom(layout, fallback1); }
+                if (!rooms.Contains(fallback2)) { rooms.Add(fallback2); CarveRoom(layout, fallback2); }
+                if (!rooms.Contains(fallback3)) { rooms.Add(fallback3); CarveRoom(layout, fallback3); }
+                if (!rooms.Contains(fallback4)) { rooms.Add(fallback4); CarveRoom(layout, fallback4); }
             }
 
             layout.ArchitecturalRooms = rooms;
@@ -394,55 +426,246 @@ namespace DemenciaNoLimite.Core
             }
         }
 
-        private void ConnectRoomsSequential(FloorLayout layout, List<RectInt> rooms)
+        private RectInt SelectSpawnRoom(FloorLayout layout, List<RectInt> rooms)
         {
-            rooms.Sort((a, b) =>
-            {
-                float distA = Vector2.Distance(GetRoomCenter(a), new Vector2(layout.Width / 2f, layout.Height / 2f));
-                float distB = Vector2.Distance(GetRoomCenter(b), new Vector2(layout.Width / 2f, layout.Height / 2f));
-                return distA.CompareTo(distB);
-            });
+            if (rooms.Count == 0) return new RectInt(2, 2, 4, 4);
 
-            for (int i = 0; i < rooms.Count - 1; i++)
+            // Pick a room nearest to one of the 4 outer perimeter corners of the skyscraper
+            Vector2[] corners = new Vector2[]
             {
-                Vector2Int from = GetRoomCenter(rooms[i]);
-                Vector2Int to   = GetRoomCenter(rooms[i + 1]);
-                CarveLCorridor(layout, from, to);
+                new Vector2(3f, 3f),
+                new Vector2(layout.Width - 4f, 3f),
+                new Vector2(3f, layout.Height - 4f),
+                new Vector2(layout.Width - 4f, layout.Height - 4f)
+            };
+            Vector2 chosenCorner = corners[_rng.Next(0, corners.Length)];
+
+            RectInt bestRoom = rooms[0];
+            float bestDist = float.MaxValue;
+            foreach (var r in rooms)
+            {
+                float d = Vector2.Distance(GetRoomCenter(r), chosenCorner);
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    bestRoom = r;
+                }
             }
+            return bestRoom;
         }
 
-        private void CarveLCorridor(FloorLayout layout, Vector2Int from, Vector2Int to)
+        /// <summary>
+        /// Runs a 4-directional Breadth-First Search (BFS) over the walkable grid from the Spawn Room
+        /// and identifies the room with the MAXIMUM reachable walkable path distance.
+        /// This mathematically guarantees the elevator is placed at the deepest end of the labyrinth.
+        /// </summary>
+        private RectInt FindFurthestReachableRoom(FloorLayout layout, List<RectInt> rooms, Vector2Int startPos)
         {
-            int startX = Mathf.Min(from.x, to.x);
-            int endX   = Mathf.Max(from.x, to.x);
-            for (int x = startX; x <= endX; x++)
+            if (rooms.Count <= 1) return rooms[0];
+
+            int w = layout.Width;
+            int h = layout.Height;
+            int[,] dist = new int[w, h];
+            for (int x = 0; x < w; x++)
+                for (int y = 0; y < h; y++)
+                    dist[x, y] = -1;
+
+            Queue<Vector2Int> queue = new Queue<Vector2Int>();
+            queue.Enqueue(startPos);
+            dist[startPos.x, startPos.y] = 0;
+
+            int[] dx = { 1, -1, 0, 0 };
+            int[] dy = { 0, 0, 1, -1 };
+
+            while (queue.Count > 0)
             {
-                if (x > 0 && x < layout.Width - 1 && from.y > 0 && from.y < layout.Height - 1)
+                Vector2Int curr = queue.Dequeue();
+                int currentDist = dist[curr.x, curr.y];
+
+                for (int i = 0; i < 4; i++)
                 {
-                    if (layout.Grid[x, from.y] == CellType.Wall)
-                        layout.Grid[x, from.y] = CellType.Corridor;
+                    int nx = curr.x + dx[i];
+                    int ny = curr.y + dy[i];
+
+                    if (nx >= 0 && nx < w && ny >= 0 && ny < h && dist[nx, ny] == -1)
+                    {
+                        CellType cell = layout.Grid[nx, ny];
+                        if (cell == CellType.Floor || cell == CellType.Corridor ||
+                            cell == CellType.SafeRoom || cell == CellType.SpawnRoom ||
+                            cell == CellType.ExitRoom || cell == CellType.HazardZone)
+                        {
+                            dist[nx, ny] = currentDist + 1;
+                            queue.Enqueue(new Vector2Int(nx, ny));
+                        }
+                    }
                 }
             }
 
-            int startY = Mathf.Min(from.y, to.y);
-            int endY   = Mathf.Max(from.y, to.y);
-            for (int y = startY; y <= endY; y++)
+            RectInt furthestRoom = rooms[rooms.Count - 1];
+            int maxDistance = -1;
+
+            foreach (var r in rooms)
             {
-                if (to.x > 0 && to.x < layout.Width - 1 && y > 0 && y < layout.Height - 1)
+                Vector2Int c = GetRoomCenter(r);
+                if (c == startPos) continue;
+
+                int d = dist[c.x, c.y];
+                if (d > maxDistance)
                 {
-                    if (layout.Grid[to.x, y] == CellType.Wall)
-                        layout.Grid[to.x, y] = CellType.Corridor;
+                    maxDistance = d;
+                    furthestRoom = r;
+                }
+            }
+
+            // Fallback if unreachable by BFS
+            if (maxDistance <= 0)
+            {
+                float maxEuclidean = -1f;
+                foreach (var r in rooms)
+                {
+                    Vector2Int c = GetRoomCenter(r);
+                    if (c == startPos) continue;
+                    float d = Vector2Int.Distance(startPos, c);
+                    if (d > maxEuclidean)
+                    {
+                        maxEuclidean = d;
+                        furthestRoom = r;
+                    }
+                }
+            }
+
+            return furthestRoom;
+        }
+
+        private struct LabyrinthEdge
+        {
+            public int From;
+            public int To;
+            public float Distance;
+        }
+
+        /// <summary>
+        /// Connects rooms using a Minimum Spanning Tree (Kruskal's) plus 35% cycle/loop edges.
+        /// Produces a complex, realistic labyrinth with branches, multiple pathways, and dead-ends.
+        /// </summary>
+        private void ConnectRoomsLabyrinthine(FloorLayout layout, List<RectInt> rooms)
+        {
+            if (rooms.Count < 2) return;
+
+            var edges = new List<LabyrinthEdge>();
+            for (int i = 0; i < rooms.Count; i++)
+            {
+                for (int j = i + 1; j < rooms.Count; j++)
+                {
+                    float d = Vector2.Distance(GetRoomCenter(rooms[i]), GetRoomCenter(rooms[j]));
+                    edges.Add(new LabyrinthEdge { From = i, To = j, Distance = d });
+                }
+            }
+            edges.Sort((a, b) => a.Distance.CompareTo(b.Distance));
+
+            // Disjoint Set Union
+            int[] parent = new int[rooms.Count];
+            for (int i = 0; i < rooms.Count; i++) parent[i] = i;
+
+            int Find(int i)
+            {
+                if (parent[i] == i) return i;
+                return parent[i] = Find(parent[i]);
+            }
+
+            void Union(int i, int j)
+            {
+                int rootA = Find(i);
+                int rootB = Find(j);
+                if (rootA != rootB) parent[rootA] = rootB;
+            }
+
+            var selectedEdges = new List<LabyrinthEdge>();
+            var remainingEdges = new List<LabyrinthEdge>();
+
+            foreach (var edge in edges)
+            {
+                if (Find(edge.From) != Find(edge.To))
+                {
+                    Union(edge.From, edge.To);
+                    selectedEdges.Add(edge);
+                }
+                else
+                {
+                    remainingEdges.Add(edge);
+                }
+            }
+
+            // Add 35% extra cycles/loops so players have intersecting corridors and branches
+            int extraLoops = Mathf.Min(remainingEdges.Count, Mathf.Max(2, rooms.Count / 3));
+            for (int i = 0; i < extraLoops; i++)
+            {
+                selectedEdges.Add(remainingEdges[i]);
+            }
+
+            // Carve corridors
+            foreach (var edge in selectedEdges)
+            {
+                Vector2Int from = GetRoomCenter(rooms[edge.From]);
+                Vector2Int to   = GetRoomCenter(rooms[edge.To]);
+                CarveDoglegCorridor(layout, from, to);
+            }
+        }
+
+        private void CarveDoglegCorridor(FloorLayout layout, Vector2Int from, Vector2Int to)
+        {
+            bool xFirst = _rng.Next(0, 2) == 0;
+            if (xFirst)
+            {
+                CarveCorridorLine(layout, from.x, from.y, to.x, from.y);
+                CarveCorridorLine(layout, to.x, from.y, to.x, to.y);
+            }
+            else
+            {
+                CarveCorridorLine(layout, from.x, from.y, from.x, to.y);
+                CarveCorridorLine(layout, from.x, to.y, to.x, to.y);
+            }
+        }
+
+        private void CarveCorridorLine(FloorLayout layout, int x0, int y0, int x1, int y1)
+        {
+            int minX = Mathf.Min(x0, x1);
+            int maxX = Mathf.Max(x0, x1);
+            int minY = Mathf.Min(y0, y1);
+            int maxY = Mathf.Max(y0, y1);
+
+            for (int x = minX; x <= maxX; x++)
+            {
+                for (int y = minY; y <= maxY; y++)
+                {
+                    if (x > 0 && x < layout.Width - 1 && y > 0 && y < layout.Height - 1)
+                    {
+                        if (layout.Grid[x, y] == CellType.Wall)
+                        {
+                            layout.Grid[x, y] = CellType.Corridor;
+                        }
+                    }
                 }
             }
         }
 
         private void PlaceEnemySpawns(FloorLayout layout, List<RectInt> rooms, int count)
         {
-            var eligibleRooms = rooms.Count > 2 ? rooms.GetRange(1, rooms.Count - 2) : rooms;
+            var eligibleRooms = new List<RectInt>();
+            foreach (var r in rooms)
+            {
+                Vector2Int c = GetRoomCenter(r);
+                if (c != layout.SpawnPoint && c != layout.ExitPoint)
+                {
+                    eligibleRooms.Add(r);
+                }
+            }
+            if (eligibleRooms.Count == 0) eligibleRooms = rooms;
+
             int placed = 0;
             int attempts = 0;
 
-            while (placed < count && attempts < count * 20)
+            while (placed < count && attempts < count * 35)
             {
                 attempts++;
                 var room = eligibleRooms[_rng.Next(0, eligibleRooms.Count)];

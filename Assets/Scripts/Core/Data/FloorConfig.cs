@@ -94,8 +94,8 @@ namespace DemenciaNoLimite.Core.Data
                 FloorNumber    = floorNumber,
                 Type           = type,
                 Tier           = tier,
-                BaseDifficulty = posInTier * tierMult,
-                MazeComplexity = 0.25f + (posInTier * 0.55f),
+                BaseDifficulty = 1.0f + (posInTier * tierMult),
+                MazeComplexity = Mathf.Clamp01(0.40f + (posInTier * 0.40f) + ((int)tier * 0.15f)),
             };
 
             if (type == FloorType.TutorialLobby)
@@ -112,8 +112,9 @@ namespace DemenciaNoLimite.Core.Data
             }
             else
             {
-                config.BaseEnemyCount  = 3 + (int)(posInTier * 7f * tierMult);
-                config.BaseHazardCount = 1 + (int)(posInTier * 3f * tierMult);
+                // Procedural maze floors: scale enemies and hazards proportionally with larger labyrinth wings
+                config.BaseEnemyCount  = 5 + (int)(floorNumber * 0.65f);
+                config.BaseHazardCount = 2 + (int)(floorNumber * 0.25f);
             }
 
             return config;

@@ -22,19 +22,25 @@ namespace DemenciaNoLimite.Level
 
         public void SpawnHazards(FloorLayout layout, FloorConfig config)
         {
-            ClearHazards();
+            SpawnHazardsAtElevation(layout, config, 0f, transform);
+        }
+
+        public void SpawnHazardsAtElevation(FloorLayout layout, FloorConfig config, float elevation, Transform parentContainer)
+        {
+            if (layout == null || config == null) return;
+            Transform targetParent = parentContainer != null ? parentContainer : transform;
 
             int count = Mathf.Min(config.BaseHazardCount, layout.HazardPoints.Count);
 
             for (int i = 0; i < count; i++)
             {
                 Vector2Int point = layout.HazardPoints[i];
-                Vector3 worldPos = new Vector3(point.x * 3.0f, 0.1f, point.y * 3.0f);
+                Vector3 worldPos = new Vector3(point.x * 3.0f, elevation + 0.1f, point.y * 3.0f);
 
                 GameObject hazardGo;
                 if (_hazardPrefabDefault != null)
                 {
-                    hazardGo = Instantiate(_hazardPrefabDefault, worldPos, Quaternion.identity, transform);
+                    hazardGo = Instantiate(_hazardPrefabDefault, worldPos, Quaternion.identity, targetParent);
                 }
                 else
                 {
@@ -42,7 +48,7 @@ namespace DemenciaNoLimite.Level
                     hazardGo.name = "Hazard_Toxic_Spill";
                     hazardGo.transform.position = worldPos;
                     hazardGo.transform.localScale = new Vector3(2.5f, 0.05f, 2.5f);
-                    hazardGo.transform.parent = transform;
+                    hazardGo.transform.SetParent(targetParent, true);
                     var col = hazardGo.GetComponent<Collider>();
                     if (col != null) col.isTrigger = true;
                     var rend = hazardGo.GetComponent<Renderer>();

@@ -171,36 +171,38 @@ namespace DemenciaNoLimite.Player
         }
 
         /// <summary>
-        /// Simple, reliable Physics.Raycast originating from the center of the Main Camera.
-        /// Ignores the Player's own colliders, filters for Enemy LayerMask, and applies IDamageable damage.
+        /// Simple, reliable Physics.Raycast originating from the exact center of the Main Camera.
+        /// Ignores the Player's own colliders, detects objects on the Enemy LayerMask, and applies IDamageable damage.
         /// </summary>
         private void ExecuteRaycastShot(WeaponData data)
         {
             ResolveCamera();
-            Transform camTransform = _playerCamera != null ? _playerCamera.transform : transform;
 
-            // Offset ray slightly forward to prevent intersecting player's own bounding box
-            Vector3 origin = camTransform.position + camTransform.forward * 0.25f;
+            // Origin & Direction strictly originating from the center of the Main Camera viewport (0.5, 0.5)
+            Ray cameraCenterRay = (_playerCamera != null)
+                ? _playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f))
+                : new Ray(transform.position + Vector3.up * 1.5f, transform.forward);
+
+            Vector3 origin = cameraCenterRay.origin + cameraCenterRay.direction * 0.25f;
             float maxRange = data.MaxRange > 0f ? data.MaxRange : _defaultMaxRange;
-
             int pellets = Mathf.Max(1, data.PelletsPerShot);
 
-            // Filter out player layer completely
+            // Construct mask excluding Player layer
             int playerLayer = gameObject.layer;
-            LayerMask filteredMask = _enemyLayerMask.value != 0 
-                ? (_enemyLayerMask & ~(1 << playerLayer))
-                : ~(1 << playerLayer);
+            LayerMask targetMask = _enemyLayerMask.value != 0
+                ? (LayerMask)(_enemyLayerMask.value & ~(1 << playerLayer))
+                : (LayerMask)(~(1 << playerLayer));
 
             for (int i = 0; i < pellets; i++)
             {
-                Vector3 rayDir = CalculateSpread(camTransform.forward, data.SpreadAngle);
+                Vector3 rayDir = CalculateSpread(cameraCenterRay.direction, data.SpreadAngle);
 
                 bool hitFound = Physics.Raycast(
                     origin,
                     rayDir,
                     out RaycastHit hit,
                     maxRange,
-                    filteredMask,
+                    targetMask,
                     QueryTriggerInteraction.Ignore
                 );
 
@@ -209,14 +211,13 @@ namespace DemenciaNoLimite.Player
 
                 if (hitFound)
                 {
-                    // Explicitly ignore if we hit player's own hierarchy
+                    // Crucial: Ignore the player's own colliders
                     if (IsPlayerCollider(hit.collider))
                     {
-                        // Player hit bypassed
                         continue;
                     }
 
-                    // Query IDamageable on hit object or its parent
+                    // Query IDamageable on hit object or its parent hierarchy
                     target = hit.collider.GetComponent<IDamageable>() ?? hit.collider.GetComponentInParent<IDamageable>();
 
                     if (target != null && target.IsAlive)
@@ -244,6 +245,7 @@ namespace DemenciaNoLimite.Player
                         );
 
                         target.TakeDamage(info);
+                        Debug.Log($"[PlayerWeaponHandler] Hit {hit.collider.gameObject.name} for {dmg:F1} DMG (Crit: {isCrit}, Headshot: {isHeadshot})");
                     }
 
                     // Apply physical impulse if entity reacts to knockback
@@ -254,8 +256,8 @@ namespace DemenciaNoLimite.Player
                     }
                 }
 
-                // Visual Debug.DrawRay in Scene view:
-                // Green when hitting an enemy with IDamageable, Red when hitting non-enemy or missing
+                // Visual Feedback: Debug.DrawRay in scene view to trace bullets
+                // Green when hitting an enemy with IDamageable, Yellow on environment hit, Red on miss
                 float lineDist = hitFound ? hit.distance : maxRange;
                 Color rayColor = isEnemyHit ? Color.green : (hitFound ? Color.yellow : Color.red);
                 Debug.DrawRay(origin, rayDir * lineDist, rayColor, _debugRayDuration);

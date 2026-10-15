@@ -106,6 +106,10 @@ namespace DemenciaNoLimite
             managerGo.AddComponent<HorrorAudioManager>();
             managerGo.AddComponent<ScreenShakeController>();
 
+            // Wire references directly to eliminate runtime lookup delays
+            gm.SetReferences(aiDirector, levelGen, levelBuilder, elevator, degradation);
+            levelBuilder.SetSpawners(enemySpawner, hazardSpawner);
+
             // 4. Populate default sample pacts & merchant items into ElevatorEventSystem
             PopulateElevatorSampleData(elevator);
 
@@ -116,6 +120,25 @@ namespace DemenciaNoLimite
         {
             var existingPlayer = GameObject.FindGameObjectWithTag("Player");
             if (existingPlayer != null) return existingPlayer;
+
+            // Remove any duplicate AudioListeners on existing scene cameras to avoid Unity warnings
+            foreach (var listener in FindObjectsByType<AudioListener>(FindObjectsSortMode.None))
+            {
+                if (listener != null)
+                {
+                    Destroy(listener);
+                }
+            }
+
+            // Deactivate default scene camera if present
+            var oldCams = FindObjectsByType<Camera>(FindObjectsSortMode.None);
+            foreach (var oldCam in oldCams)
+            {
+                if (oldCam != null && oldCam.name != "PlayerCamera")
+                {
+                    oldCam.gameObject.SetActive(false);
+                }
+            }
 
             // Root Player Capsule
             var playerGo = new GameObject("Player_João");
@@ -140,6 +163,9 @@ namespace DemenciaNoLimite
             cam.nearClipPlane = 0.05f;
             cam.fieldOfView = 75f;
             camGo.AddComponent<AudioListener>();
+
+            // Explicitly assign camera holder on controller
+            controller.SetCameraHolder(camGo.transform);
 
             var weaponHandler = playerGo.AddComponent<PlayerWeaponHandler>();
 

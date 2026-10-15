@@ -25,14 +25,30 @@ namespace DemenciaNoLimite.Boss
 
         private void OnEnable()
         {
+            GameEvents.OnFloorLoading += OnFloorLoading;
             GameEvents.OnFloorReady += OnFloorReady;
             GameEvents.OnBossDefeated += OnBossDefeated;
         }
 
         private void OnDisable()
         {
+            GameEvents.OnFloorLoading -= OnFloorLoading;
             GameEvents.OnFloorReady -= OnFloorReady;
             GameEvents.OnBossDefeated -= OnBossDefeated;
+        }
+
+        private void OnFloorLoading(FloorConfig config)
+        {
+            CleanupBoss();
+        }
+
+        public void CleanupBoss()
+        {
+            if (_activeBoss != null)
+            {
+                Destroy(_activeBoss.gameObject);
+                _activeBoss = null;
+            }
         }
 
         private void Awake()
@@ -63,18 +79,17 @@ namespace DemenciaNoLimite.Boss
             var gm = GameManager.Instance;
             if (gm == null || _bossMathController == null) return;
 
+            CleanupBoss();
+
             // Generate adaptive stats
             BossStats stats = _bossMathController.GenerateBossStats(config, gm.Player, gm.EnemyBuffs);
 
-            // Determine spawn location from level layout or center fallback
+            // Determine spawn location at the physical center of the boss arena
             var levelGen = FindAnyObjectByType<LevelGenerator>();
             float cellSize = LevelGenerator.StandardCellSize;
-            Vector3 spawnPos = Vector3.forward * (10f * cellSize);
-            if (levelGen != null && levelGen.LastGeneratedLayout != null)
-            {
-                var exit = levelGen.LastGeneratedLayout.ExitPoint;
-                spawnPos = new Vector3(exit.x * cellSize, 0f, exit.y * cellSize);
-            }
+            int arenaW = (levelGen != null && levelGen.LastGeneratedLayout != null) ? levelGen.LastGeneratedLayout.Width : 24;
+            int arenaH = (levelGen != null && levelGen.LastGeneratedLayout != null) ? levelGen.LastGeneratedLayout.Height : 24;
+            Vector3 spawnPos = new Vector3((arenaW / 2) * cellSize, 0f, (arenaH / 2) * cellSize);
 
             GameObject bossGo = null;
             if (_bossPrefabDefault != null)

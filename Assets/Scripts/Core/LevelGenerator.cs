@@ -170,32 +170,41 @@ namespace DemenciaNoLimite.Core
             // ── STEP 2: Anchor Lateral Safe Room on East Perimeter ───────────
             // Dedicated Safe Room flush against the East lateral exterior wall.
             // Never spawned in the center of the map!
-            int safeRoomW = 7;
-            int safeRoomH = 6;
-            int safeRoomX = width - 1 - safeRoomW; // e.g. touches x = width - 2 (next to exterior wall width - 1)
-            int safeRoomY = centerY - (safeRoomH / 2);
+            int safeRoomW = 8;
+            int safeRoomH = 7;
+            int safeRoomX = width - 1 - safeRoomW;
+            int safeRoomY = centerY - 3;
             RectInt safeRoomRect = new RectInt(safeRoomX, safeRoomY, safeRoomW, safeRoomH);
             CarveRoom(layout, safeRoomRect, CellType.SafeRoom);
             layout.ArchitecturalRooms.Add(safeRoomRect);
+
+            // Construct dividing wall on the West boundary with an open doorway into the corridor
+            for (int y = safeRoomY; y < safeRoomY + safeRoomH; y++)
+            {
+                if (y != centerY && y != centerY - 1)
+                {
+                    layout.Grid[safeRoomX, y] = CellType.Wall;
+                }
+            }
 
             // Safe room entrance doorway connecting to the central corridor
             layout.SafeRoomEntrance = new Vector2Int(safeRoomX, centerY);
             layout.Grid[safeRoomX, centerY] = CellType.SafeRoom;
             layout.Grid[safeRoomX, centerY - 1] = CellType.SafeRoom;
 
-            // Exit elevator placed against the rear exterior wall inside the Safe Room
+            // Direct unobstructed walkway aisle from entrance (safeRoomX) to Exit Elevator (width - 3)
+            // at y = centerY and y = centerY - 1
             layout.ExitPoint = new Vector2Int(width - 3, centerY);
-            layout.Grid[layout.ExitPoint.x, layout.ExitPoint.y] = CellType.ExitRoom;
-            layout.Grid[layout.ExitPoint.x, layout.ExitPoint.y - 1] = CellType.ExitRoom;
+            layout.Grid[layout.ExitPoint.x, centerY] = CellType.ExitRoom;
+            layout.Grid[layout.ExitPoint.x, centerY - 1] = CellType.ExitRoom;
 
-            // Merchant service window & counter placed inside the Safe Room
-            // A partition counter dividing the vendor space from the entrance aisle
+            // Dedicated Merchant service counter & cutout window
+            // Positioned at y = centerY - 2 (on the South side of the walkway aisle)
+            // Facing North towards the player walking to the elevator!
             int merchantX = width - 5;
-            layout.MerchantCounterPoint = new Vector2Int(merchantX, centerY - 1);
-            for (int my = safeRoomY + 1; my <= centerY; my++)
-            {
-                layout.Grid[merchantX, my] = CellType.MerchantCounter;
-            }
+            layout.MerchantCounterPoint = new Vector2Int(merchantX, centerY - 2);
+            layout.Grid[merchantX - 1, centerY - 2] = CellType.MerchantCounter;
+            layout.Grid[merchantX, centerY - 2] = CellType.MerchantCounter;
 
             // ── STEP 3: Primary Arterial Hallway Network ─────────────────────
             // Straight central corridor connecting Spawn Room to Safe Room
@@ -382,14 +391,19 @@ namespace DemenciaNoLimite.Core
             if (x <= 1 || x >= layout.Width - 2 || y <= 1 || y >= layout.Height - 2) return;
             if (layout.Grid[x, y] != CellType.Wall) return;
 
-            // Must have walkable cell on opposite sides
-            bool horizontalPass = (IsWalkable(layout.Grid[x - 1, y]) && IsWalkable(layout.Grid[x + 1, y]));
-            bool verticalPass = (IsWalkable(layout.Grid[x, y - 1]) && IsWalkable(layout.Grid[x, y + 1]));
+            // Must have walkable cell on opposite sides (strictly standard rooms/corridors)
+            bool horizontalPass = (IsStandardWalkable(layout.Grid[x - 1, y]) && IsStandardWalkable(layout.Grid[x + 1, y]));
+            bool verticalPass = (IsStandardWalkable(layout.Grid[x, y - 1]) && IsStandardWalkable(layout.Grid[x, y + 1]));
 
             if (horizontalPass || verticalPass)
             {
                 candidates.Add(new Vector2Int(x, y));
             }
+        }
+
+        private bool IsStandardWalkable(CellType type)
+        {
+            return type == CellType.Floor || type == CellType.Corridor;
         }
 
         private void EnsureCompleteConnectivity(FloorLayout layout)

@@ -45,6 +45,8 @@ namespace DemenciaNoLimite.Level
                     hazardGo.transform.parent = transform;
                     var col = hazardGo.GetComponent<Collider>();
                     if (col != null) col.isTrigger = true;
+                    var rend = hazardGo.GetComponent<Renderer>();
+                    if (rend != null) rend.material.color = new Color(0.2f, 0.85f, 0.15f, 0.85f);
                 }
 
                 if (hazardGo.GetComponent<HazardZoneTrigger>() == null)

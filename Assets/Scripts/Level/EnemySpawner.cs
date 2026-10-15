@@ -102,7 +102,7 @@ namespace DemenciaNoLimite.Level
                     if (pt.x > 0 && pt.x < layout.Width && pt.y > 0 && pt.y < layout.Height)
                     {
                         CellType cell = layout.Grid[pt.x, pt.y];
-                        if (cell == CellType.Floor || cell == CellType.Corridor || cell == CellType.SpawnRoom)
+                        if (cell == CellType.Floor || cell == CellType.Corridor)
                         {
                             result.Add(new Vector3(pt.x * cellSize, 0f, pt.y * cellSize));
                             if (result.Count >= desiredCount) return result;

@@ -53,13 +53,41 @@ namespace DemenciaNoLimite.Player
         private void Awake()
         {
             _characterController = GetComponent<CharacterController>();
+            ResolveCameraHolder();
+
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
+
+        private void Start()
+        {
+            ResolveCameraHolder();
+        }
+
+        public void SetCameraHolder(Transform camHolder)
+        {
+            _cameraHolder = camHolder;
             if (_cameraHolder != null)
             {
                 _originalCameraLocalPos = _cameraHolder.localPosition;
             }
+        }
 
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+        private void ResolveCameraHolder()
+        {
+            if (_cameraHolder == null)
+            {
+                var cam = GetComponentInChildren<Camera>();
+                if (cam != null)
+                {
+                    _cameraHolder = cam.transform;
+                }
+            }
+
+            if (_cameraHolder != null && _originalCameraLocalPos == Vector3.zero)
+            {
+                _originalCameraLocalPos = _cameraHolder.localPosition;
+            }
         }
 
         private void Update()
@@ -78,7 +106,8 @@ namespace DemenciaNoLimite.Player
         private void HandleGroundCheck()
         {
             Vector3 origin = transform.position + Vector3.up * 0.1f;
-            _isGrounded = Physics.Raycast(origin, Vector3.down, _groundCheckDistance + 0.1f, _groundMask, QueryTriggerInteraction.Ignore);
+            bool rayGrounded = Physics.Raycast(origin, Vector3.down, _groundCheckDistance + 0.15f, _groundMask, QueryTriggerInteraction.Ignore);
+            _isGrounded = (_characterController != null && _characterController.isGrounded) || rayGrounded;
 
             if (_isGrounded && _verticalVelocity < 0f)
             {

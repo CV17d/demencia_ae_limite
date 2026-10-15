@@ -96,6 +96,12 @@ namespace DemenciaNoLimite.Level
             }
         }
 
+        public void SetSpawners(EnemySpawner enemySpawner, HazardSpawner hazardSpawner)
+        {
+            _enemySpawner = enemySpawner;
+            _hazardSpawner = hazardSpawner;
+        }
+
         // ════════════════════════════════════════════════════════════════════
         // MEMORY MANAGEMENT: COMPLETE FLOOR CONTAINER DESTRUCTION
         // ════════════════════════════════════════════════════════════════════
@@ -569,7 +575,14 @@ namespace DemenciaNoLimite.Level
                 cabin.transform.parent = _levelContainer;
 
                 var rendCabin = cabin.GetComponent<Renderer>();
-                if (rendCabin != null) rendCabin.material.color = new Color(0.2f, 0.22f, 0.28f);
+                if (rendCabin != null)
+                {
+                    // Disable renderer on the trigger volume so the illuminated elevator interior is visible
+                    rendCabin.enabled = false;
+                }
+
+                // Construct authentic 3-walled elevator enclosure (Back, Left, Right) with open front
+                SpawnElevatorEnclosure(exitPos);
             }
 
             var col = cabin.GetComponent<Collider>();
@@ -583,6 +596,41 @@ namespace DemenciaNoLimite.Level
             trigger.SetNextFloorNumber(currentFloorNum + 1);
 
             _instantiatedLevelObjects.Add(cabin);
+        }
+
+        private void SpawnElevatorEnclosure(Vector3 exitPos)
+        {
+            Color steelColor = new Color(0.18f, 0.20f, 0.24f);
+
+            // 1. Back Wall
+            var backWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            backWall.name = "Elevator_Cabin_Back";
+            backWall.transform.position = exitPos + Vector3.up * 1.6f + Vector3.forward * 1.0f;
+            backWall.transform.localScale = new Vector3(2.6f, 3.2f, 0.2f);
+            backWall.transform.parent = _levelContainer;
+            var rendB = backWall.GetComponent<Renderer>();
+            if (rendB != null) rendB.material.color = steelColor;
+            _instantiatedLevelObjects.Add(backWall);
+
+            // 2. Left Wall
+            var leftWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            leftWall.name = "Elevator_Cabin_Left";
+            leftWall.transform.position = exitPos + Vector3.up * 1.6f + Vector3.left * 1.25f;
+            leftWall.transform.localScale = new Vector3(0.2f, 3.2f, 2.0f);
+            leftWall.transform.parent = _levelContainer;
+            var rendL = leftWall.GetComponent<Renderer>();
+            if (rendL != null) rendL.material.color = steelColor;
+            _instantiatedLevelObjects.Add(leftWall);
+
+            // 3. Right Wall
+            var rightWall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            rightWall.name = "Elevator_Cabin_Right";
+            rightWall.transform.position = exitPos + Vector3.up * 1.6f + Vector3.right * 1.25f;
+            rightWall.transform.localScale = new Vector3(0.2f, 3.2f, 2.0f);
+            rightWall.transform.parent = _levelContainer;
+            var rendR = rightWall.GetComponent<Renderer>();
+            if (rendR != null) rendR.material.color = steelColor;
+            _instantiatedLevelObjects.Add(rightWall);
         }
 
         // ════════════════════════════════════════════════════════════════════

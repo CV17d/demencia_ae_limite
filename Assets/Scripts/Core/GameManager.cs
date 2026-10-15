@@ -102,6 +102,20 @@ namespace DemenciaNoLimite.Core
             if (_degradationSystem == null) _degradationSystem = FindAnyObjectByType<MentalDegradationSystem>();
         }
 
+        public void SetReferences(
+            AIDirector aiDirector,
+            LevelGenerator levelGenerator,
+            LevelBuilder levelBuilder,
+            ElevatorEventSystem elevatorSystem,
+            MentalDegradationSystem degradationSystem)
+        {
+            _aiDirector = aiDirector;
+            _levelGenerator = levelGenerator;
+            _levelBuilder = levelBuilder;
+            _elevatorSystem = elevatorSystem;
+            _degradationSystem = degradationSystem;
+        }
+
         // ════════════════════════════════════════════════════════════════════
         // RUN LIFECYCLE
         // ════════════════════════════════════════════════════════════════════

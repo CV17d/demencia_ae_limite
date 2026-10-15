@@ -122,7 +122,7 @@ namespace DemenciaNoLimite
             if (existingPlayer != null) return existingPlayer;
 
             // Remove any duplicate AudioListeners on existing scene cameras to avoid Unity warnings
-            foreach (var listener in FindObjectsByType<AudioListener>(FindObjectsSortMode.None))
+            foreach (var listener in FindObjectsByType<AudioListener>())
             {
                 if (listener != null)
                 {
@@ -131,7 +131,7 @@ namespace DemenciaNoLimite
             }
 
             // Deactivate default scene camera if present
-            var oldCams = FindObjectsByType<Camera>(FindObjectsSortMode.None);
+            var oldCams = FindObjectsByType<Camera>();
             foreach (var oldCam in oldCams)
             {
                 if (oldCam != null && oldCam.name != "PlayerCamera")

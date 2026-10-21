@@ -34,6 +34,7 @@ namespace DemenciaNoLimite.Core.Events
         public static event Action<string>          OnBossDefeated;      // boss ID
         public static event Action<float>           OnPlayerDamaged;     // damage amount
         public static event Action<float>           OnPlayerHealed;      // heal amount
+        public static event Action<Vector3, float>  OnNoiseMade;         // noise position, radius
 
         // ── Pacts & Merchant ───────────────────────────────────────────────
         public static event Action<CursedPactData>  OnPactAccepted;
@@ -62,6 +63,7 @@ namespace DemenciaNoLimite.Core.Events
         public static void FireBossDefeated(string id)              => OnBossDefeated?.Invoke(id);
         public static void FirePlayerDamaged(float dmg)             => OnPlayerDamaged?.Invoke(dmg);
         public static void FirePlayerHealed(float heal)             => OnPlayerHealed?.Invoke(heal);
+        public static void FireNoiseMade(Vector3 pos, float radius) => OnNoiseMade?.Invoke(pos, radius);
 
         public static void FirePactAccepted(CursedPactData pact)    => OnPactAccepted?.Invoke(pact);
         public static void FireItemPurchased(MerchantItemData item) => OnItemPurchased?.Invoke(item);
@@ -88,6 +90,7 @@ namespace DemenciaNoLimite.Core.Events
             OnBossDefeated          = null;
             OnPlayerDamaged         = null;
             OnPlayerHealed          = null;
+            OnNoiseMade             = null;
             OnPactAccepted          = null;
             OnItemPurchased         = null;
             OnDegradationChanged    = null;

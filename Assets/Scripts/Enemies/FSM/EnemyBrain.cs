@@ -133,6 +133,12 @@ namespace DemenciaNoLimite.Enemies.FSM
             _agent = GetComponent<NavMeshAgent>();
             _capsuleCollider = GetComponent<CapsuleCollider>();
 
+            // Deshabilitar temporalmente el agente para evitar errores de consola si el NavMesh aún no existe
+            if (_agent != null)
+            {
+                _agent.enabled = false;
+            }
+
             ConfigurarColisionador();
 
             Sensory = GetComponent<SensorySystem>();
@@ -145,13 +151,70 @@ namespace DemenciaNoLimite.Enemies.FSM
             InvestigateStateInstance = new InvestigateState(this);
         }
 
+        private void OnEnable()
+        {
+            GameEvents.OnNavMeshReady += HandleNavMeshReady;
+        }
+
+        private void OnDisable()
+        {
+            GameEvents.OnNavMeshReady -= HandleNavMeshReady;
+        }
+
         private void Start()
         {
             InicializarObjetivoJugador();
             InicializarEstadisticas();
 
-            // El estado por defecto inicial es Idle
-            ChangeState(IdleStateInstance);
+            // Si ya existe NavMesh en la posición (escenas de prueba estáticas), activar de inmediato
+            if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 2.0f, NavMesh.AllAreas))
+            {
+                ActivarAgenteEnNavMesh(hit.position);
+            }
+            else
+            {
+                // Espera pasiva al evento GameEvents.OnNavMeshReady
+                if (_agent != null) _agent.enabled = false;
+            }
+        }
+
+        /// <summary>
+        /// Callback disparado cuando el ProceduralNavMeshBuilder finaliza el horneado del mapa.
+        /// </summary>
+        private void HandleNavMeshReady()
+        {
+            if (!IsAlive) return;
+
+            if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 4.0f, NavMesh.AllAreas))
+            {
+                ActivarAgenteEnNavMesh(hit.position);
+            }
+            else
+            {
+                Debug.LogWarning($"[EnemyBrain] {gameObject.name} no encontró superficie NavMesh cercana a su posición.");
+            }
+        }
+
+        /// <summary>
+        /// Acopla al agente sobre la superficie recién horneada e inicia la FSM.
+        /// </summary>
+        private void ActivarAgenteEnNavMesh(Vector3 navMeshPosition)
+        {
+            transform.position = navMeshPosition;
+
+            if (_agent != null)
+            {
+                _agent.enabled = true;
+                if (_agent.isOnNavMesh)
+                {
+                    _agent.isStopped = false;
+                }
+            }
+
+            if (_currentState == null)
+            {
+                ChangeState(IdleStateInstance);
+            }
         }
 
         private void Update()

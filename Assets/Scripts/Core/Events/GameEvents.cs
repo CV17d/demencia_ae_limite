@@ -6,6 +6,7 @@
 // ============================================================================
 
 using System;
+using UnityEngine;
 using DemenciaNoLimite.Core.Data;
 
 namespace DemenciaNoLimite.Core.Events

@@ -45,6 +45,10 @@ namespace DemenciaNoLimite.Enemies.FSM
         [SerializeField] private float _modelHeight = 1.8f;
         [SerializeField] private float _modelRadius = 0.38f;
 
+        [Header("Prefab de Proyectil (Ranged)")]
+        [Tooltip("Prefab con componente Projectile para enemigos que atacan a distancia.")]
+        [SerializeField] private GameObject _projectilePrefab;
+
         // ════════════════════════════════════════════════════════════════════
         // BUFFERS PREASIGNADOS (ZERO-ALLOCATION PHYSICS)
         // ════════════════════════════════════════════════════════════════════
@@ -77,6 +81,9 @@ namespace DemenciaNoLimite.Enemies.FSM
 
         // Instancias preexistentes de estados base para evitar 'new' en tiempo de ejecución
         public IdleState IdleStateInstance { get; private set; }
+        public ChaseState ChaseStateInstance { get; private set; }
+        public MeleeAttackState MeleeAttackStateInstance { get; private set; }
+        public RangedAttackState RangedAttackStateInstance { get; private set; }
 
         // ════════════════════════════════════════════════════════════════════
         // EVENTOS PÚBLICOS
@@ -111,6 +118,8 @@ namespace DemenciaNoLimite.Enemies.FSM
         public LayerMask PlayerLayer => _playerLayer;
         public LayerMask EnvironmentLayer => _environmentLayer;
         public IEnemyState CurrentState => _currentState;
+        public GameObject ProjectilePrefab => _projectilePrefab;
+        public float DamageMultiplier => _damageMultiplier;
 
         // ════════════════════════════════════════════════════════════════════
         // CICLO DE VIDA MONOBEHAVIOUR
@@ -125,6 +134,9 @@ namespace DemenciaNoLimite.Enemies.FSM
 
             // Instanciamos los estados base una sola vez en el ciclo de vida
             IdleStateInstance = new IdleState(this);
+            ChaseStateInstance = new ChaseState(this);
+            MeleeAttackStateInstance = new MeleeAttackState(this);
+            RangedAttackStateInstance = new RangedAttackState(this);
         }
 
         private void Start()

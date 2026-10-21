@@ -72,8 +72,10 @@ namespace DemenciaNoLimite.Enemies.FSM
         /// </summary>
         protected virtual void OnTargetDetected()
         {
-            // Nota de Arquitectura: Aquí se invocará _brain.ChangeState(_brain.ChaseStateInstance)
-            // una vez implementado el ChaseState en el siguiente paso.
+            if (_brain.ChaseStateInstance != null)
+            {
+                _brain.ChangeState(_brain.ChaseStateInstance);
+            }
         }
     }
 }

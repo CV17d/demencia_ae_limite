@@ -18,6 +18,7 @@ using DemenciaNoLimite.Core;
 using DemenciaNoLimite.Core.Data;
 using DemenciaNoLimite.Core.Events;
 using DemenciaNoLimite.Player;
+using DemenciaNoLimite.Enemies.Sensors;
 
 namespace DemenciaNoLimite.Enemies.FSM
 {
@@ -84,6 +85,8 @@ namespace DemenciaNoLimite.Enemies.FSM
         public ChaseState ChaseStateInstance { get; private set; }
         public MeleeAttackState MeleeAttackStateInstance { get; private set; }
         public RangedAttackState RangedAttackStateInstance { get; private set; }
+        public InvestigateState InvestigateStateInstance { get; private set; }
+        public SensorySystem Sensory { get; private set; }
 
         // ════════════════════════════════════════════════════════════════════
         // EVENTOS PÚBLICOS
@@ -132,11 +135,14 @@ namespace DemenciaNoLimite.Enemies.FSM
 
             ConfigurarColisionador();
 
+            Sensory = GetComponent<SensorySystem>();
+
             // Instanciamos los estados base una sola vez en el ciclo de vida
             IdleStateInstance = new IdleState(this);
             ChaseStateInstance = new ChaseState(this);
             MeleeAttackStateInstance = new MeleeAttackState(this);
             RangedAttackStateInstance = new RangedAttackState(this);
+            InvestigateStateInstance = new InvestigateState(this);
         }
 
         private void Start()
@@ -174,6 +180,19 @@ namespace DemenciaNoLimite.Enemies.FSM
             _currentState.Enter();
 
             OnStateChanged?.Invoke(_currentState);
+        }
+
+        /// <summary>
+        /// Notifica al cerebro para investigar una coordenada donde se produjo un ruido acústico.
+        /// Diseñado para la Ruta Pacifista / Mecánicas de sigilo.
+        /// </summary>
+        /// <param name="noisePosition">Coordenada mundial del sonido percibido.</param>
+        public void AlertInvestigation(Vector3 noisePosition)
+        {
+            if (!IsAlive || InvestigateStateInstance == null) return;
+
+            InvestigateStateInstance.SetTargetPosition(noisePosition);
+            ChangeState(InvestigateStateInstance);
         }
 
         // ════════════════════════════════════════════════════════════════════

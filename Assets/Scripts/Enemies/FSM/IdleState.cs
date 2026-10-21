@@ -45,13 +45,21 @@ namespace DemenciaNoLimite.Enemies.FSM
         {
             _stateTimer += Time.deltaTime;
 
-            // Validación de distancia básica hacia el jugador cacheado
-            if (_brain.Data != null && _brain.PlayerTransform != null)
-            {
-                float distanceToPlayer = _brain.GetDistanceToPlayer();
+            if (_brain.PlayerTransform == null) return;
 
-                // Si el jugador entra en el rango de detección por proximidad inmediata
-                if (distanceToPlayer <= _brain.Data.DetectionRange)
+            // 1. Detección visual direccional mediante SensorySystem (Cono de 60° para sigilo)
+            if (_brain.Sensory != null)
+            {
+                if (_brain.Sensory.CheckVision())
+                {
+                    OnTargetDetected();
+                    return;
+                }
+            }
+            else if (_brain.Data != null)
+            {
+                // Fallback omnidireccional si la entidad no cuenta con módulo sensorial
+                if (_brain.GetDistanceToPlayer() <= _brain.Data.DetectionRange)
                 {
                     OnTargetDetected();
                 }

@@ -32,7 +32,7 @@ namespace DemenciaNoLimite.Core.Events
         public static event Action<ElevatorResult>  OnElevatorEventResolved;
 
         // ── Combat / Enemies ───────────────────────────────────────────────
-        public static event Action<string>          OnEnemyKilled;       // enemy ID
+        public static event Action<Vector3>         OnEnemyKilled;       // death position
         public static event Action<string>          OnBossDefeated;      // boss ID
         public static event Action<float>           OnPlayerDamaged;     // damage amount
         public static event Action<float>           OnPlayerHealed;      // heal amount
@@ -63,7 +63,7 @@ namespace DemenciaNoLimite.Core.Events
         public static void FireElevatorEntered()                    => OnElevatorEntered?.Invoke();
         public static void FireElevatorResolved(ElevatorResult r)   => OnElevatorEventResolved?.Invoke(r);
 
-        public static void FireEnemyKilled(string id)               => OnEnemyKilled?.Invoke(id);
+        public static void FireEnemyKilled(Vector3 pos)             => OnEnemyKilled?.Invoke(pos);
         public static void FireBossDefeated(string id)              => OnBossDefeated?.Invoke(id);
         public static void FirePlayerDamaged(float dmg)             => OnPlayerDamaged?.Invoke(dmg);
         public static void FirePlayerHealed(float heal)             => OnPlayerHealed?.Invoke(heal);

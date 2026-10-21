@@ -457,8 +457,7 @@ namespace DemenciaNoLimite.Enemies.FSM
 
             OnDeath?.Invoke();
 
-            string enemyId = _enemyData != null ? _enemyData.EnemyID : "Enemy_Default";
-            GameEvents.FireEnemyKilled(enemyId);
+            GameEvents.FireEnemyKilled(transform.position);
 
             Destroy(gameObject, 0.25f);
         }

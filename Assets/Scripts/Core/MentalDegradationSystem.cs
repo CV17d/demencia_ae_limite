@@ -261,7 +261,7 @@ namespace DemenciaNoLimite.Core
         // EVENT HANDLERS
         // ════════════════════════════════════════════════════════════════════
 
-        private void OnEnemyKilled(string enemyID)
+        private void OnEnemyKilled(Vector3 deathPosition)
         {
             var player = GameManager.Instance?.Player;
             if (player == null) return;

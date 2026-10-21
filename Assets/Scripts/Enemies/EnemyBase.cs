@@ -437,7 +437,7 @@ namespace DemenciaNoLimite.Enemies
             DropLoot();
 
             // Notify systems
-            GameEvents.FireEnemyKilled(_data != null ? _data.EnemyID : "Grunt");
+            GameEvents.FireEnemyKilled(transform.position);
 
             Destroy(gameObject, 0.2f);
         }

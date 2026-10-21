@@ -144,8 +144,8 @@ namespace DemenciaNoLimite.Level
                 _surface.navMeshData = new NavMeshData();
             }
 
-            // 3. Ejecución del horneado asíncrono
-            AsyncOperation asyncOp = _surface.UpdateNavMeshData(_surface.navMeshData);
+            // 3. Ejecución del horneado asíncrono (API Unity.AI.Navigation 2.x)
+            AsyncOperation asyncOp = _surface.UpdateNavMesh(_surface.navMeshData);
 
             if (asyncOp != null)
             {
@@ -160,6 +160,9 @@ namespace DemenciaNoLimite.Level
                 _surface.BuildNavMesh();
                 yield return null;
             }
+
+            // Asegura que la instancia de NavMesh esté activa en el sistema de navegación
+            _surface.AddData();
 
             _isBaking = false;
             _bakingCoroutine = null;

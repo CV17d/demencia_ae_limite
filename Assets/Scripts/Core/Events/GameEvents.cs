@@ -24,6 +24,8 @@ namespace DemenciaNoLimite.Core.Events
         public static event Action<FloorConfig>     OnFloorLoading;
         public static event Action<FloorConfig>     OnFloorReady;
         public static event Action<int>             OnFloorCleared;
+        public static event Action                  OnMapGenerationCompleted;
+        public static event Action                  OnNavMeshReady;
 
         // ── Elevator Events ────────────────────────────────────────────────
         public static event Action                  OnElevatorEntered;
@@ -55,6 +57,8 @@ namespace DemenciaNoLimite.Core.Events
         public static void FireFloorLoading(FloorConfig config)     => OnFloorLoading?.Invoke(config);
         public static void FireFloorReady(FloorConfig config)       => OnFloorReady?.Invoke(config);
         public static void FireFloorCleared(int floorNumber)        => OnFloorCleared?.Invoke(floorNumber);
+        public static void FireMapGenerationCompleted()             => OnMapGenerationCompleted?.Invoke();
+        public static void FireNavMeshReady()                       => OnNavMeshReady?.Invoke();
 
         public static void FireElevatorEntered()                    => OnElevatorEntered?.Invoke();
         public static void FireElevatorResolved(ElevatorResult r)   => OnElevatorEventResolved?.Invoke(r);
@@ -84,6 +88,8 @@ namespace DemenciaNoLimite.Core.Events
             OnFloorLoading          = null;
             OnFloorReady            = null;
             OnFloorCleared          = null;
+            OnMapGenerationCompleted = null;
+            OnNavMeshReady          = null;
             OnElevatorEntered       = null;
             OnElevatorEventResolved = null;
             OnEnemyKilled           = null;

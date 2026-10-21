@@ -46,17 +46,28 @@ namespace DemenciaNoLimite.Player
         private float _cameraPitch;
         private bool _isGrounded;
 
+        public static PlayerController Instance { get; private set; }
+
         public bool IsGrounded => _isGrounded;
         public bool IsMoving { get; private set; }
         public bool IsSprinting { get; private set; }
 
         private void Awake()
         {
+            Instance = this;
             _characterController = GetComponent<CharacterController>();
             ResolveCameraHolder();
 
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this)
+            {
+                Instance = null;
+            }
         }
 
         private void Start()

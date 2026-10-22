@@ -314,6 +314,13 @@ namespace DemenciaNoLimite.Level
                         instantiatedModule = Instantiate(prefab, simPos, simRot, _cityRoot);
                         finalWorldBounds = simulatedBounds;
 
+                        // Decoración temática determinista si el módulo cuenta con ThematicPropSpawner
+                        ThematicPropSpawner propSpawner = instantiatedModule.GetComponent<ThematicPropSpawner>();
+                        if (propSpawner != null)
+                        {
+                            propSpawner.SpawnThematicProps(_levelSeed);
+                        }
+
                         ModuleConnector newConnector = instantiatedModule.GetComponent<ModuleConnector>();
                         if (newConnector != null)
                         {
@@ -573,6 +580,13 @@ namespace DemenciaNoLimite.Level
             GameObject prefab = startRoom[_rng.Next(0, startRoom.Count)];
             GameObject instance = Instantiate(prefab, Vector3.zero, Quaternion.identity, _cityRoot);
             instance.name = "StartRoom_SectorZero";
+
+            ThematicPropSpawner propSpawner = instance.GetComponent<ThematicPropSpawner>();
+            if (propSpawner != null)
+            {
+                propSpawner.SpawnThematicProps(_levelSeed);
+            }
+
             return instance;
         }
 

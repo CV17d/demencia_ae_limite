@@ -1,0 +1,21 @@
+[2026-10-21T22:26:19.296Z][INFO] Command-line: 'C:\\Program Files\\Unity\\Hub\\Editor\\6000.6.5f1\\Editor\\Data\\Resources\\PackageManager\\Server\\UnityPackageManager.exe' server -s 9020 --ipc-path Unity-Upm-9020 -l 2 --log-file 'C:\\Users\\CRISTIAN\\Documents\\juegooo\\My project/Logs/upm.log'
+[2026-10-21T22:26:19.324Z][INFO] IPC server started (IPC path=Unity-Upm-9020).
+[2026-10-21T22:26:19.324Z][INFO] Hint: To connect to this UPM instance, launch Unity with the command-line parameter -upmIpcPath Upm-9020.
+[2026-10-21T22:26:32.233Z][INFO] project:list-packages <-- Request received
+params: {}
+[2026-10-21T22:26:32.329Z][INFO] config:project:get-registries <-- Request received
+params: {}
+[2026-10-21T22:26:32.343Z][INFO] project:list-packages <-- Request received
+params: {}
+[2026-10-21T22:26:32.575Z][INFO] project:update-dependencies <-- Request received
+params: {}
+[2026-10-21T22:26:32.602Z][INFO] config:project:get-registries --> 200 (273 ms)
+[2026-10-21T22:26:32.722Z][INFO] project:update-dependencies --> 200 (147 ms)
+[2026-10-21T22:26:32.761Z][INFO] project:resolve-packages <-- Request received
+params: {}
+[2026-10-21T22:26:33.001Z][INFO] project:list-packages --> 200 (769 ms)
+[2026-10-21T22:26:33.014Z][INFO] project:list-packages --> 200 (671 ms)
+[2026-10-21T22:26:33.142Z][INFO] Downloading package [com.unity.package-manager.metadata-6000.6@0.0.95] from registry 'https://packages.unity.com'
+[2026-10-21T22:26:33.755Z][INFO] Finished downloading package [com.unity.package-manager.metadata-6000.6@0.0.95] from registry 'https://packages.unity.com' (size: 11.5 kB, time: 612ms)
+[2026-10-21T22:27:18.267Z][INFO] project:resolve-packages --> 200 (45507 ms)
+[2026-10-21T22:27:39.821Z][INFO] Shutting down UnityPackageManager.exe: parent process [9020] is no longer running.

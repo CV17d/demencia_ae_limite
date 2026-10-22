@@ -2,8 +2,12 @@
 // LevelGenerator.cs — Motor Procedural de la Ciudad (Sector Cero / WFC Modular)
 // ============================================================================
 // Ensambla la arquitectura modular de la ciudad mediante acoplamiento por sockets.
-// - Generación pseudoaleatoria determinista basada en System.Random y string levelSeed.
-// - Ensamblaje cerrado por enchufes (startRoom -> pasillos/intersecciones -> deadEnds).
+// - Conciencia Espacial (Overlap Prevention): Pre-valida el volumen proyectado antes
+//   de confirmar la instanciación de piezas arquitectónicas (salas, arenas, pasillos).
+// - Lógica de rechazo y fallback: Si una pieza choca, prueba otra; si ninguna cabe,
+//   sella el enchufe con un deadEnd (muro ciego) evitando huecos al vacío.
+// - Compatible con especificaciones de Grid de 4x4 unidades y piezas de gran tamaño
+//   (Arenas de 16x16 o 24x28).
 // - Notifica a la IA mediante GameEvents.FireMapGenerationCompleted() para iniciar
 //   el horneado asíncrono con ProceduralNavMeshBuilder.
 // ============================================================================
@@ -20,10 +24,41 @@ namespace DemenciaNoLimite.Level
     public class LevelGenerator : MonoBehaviour
     {
         // ════════════════════════════════════════════════════════════════════
-        // CONSTANTES ARQUITECTÓNICAS (COMPATIBILIDAD CON SISTEMAS DE NIVEL)
+        // ENUMERACIONES Y ESTRUCTURAS
         // ════════════════════════════════════════════════════════════════════
 
-        public const float StandardCellSize = 3.0f;
+        /// <summary>
+        /// Estrategia de detección de colisiones espaciales.
+        /// </summary>
+        public enum SpatialValidationMethod
+        {
+            [Tooltip("Validación matemática pura por AABB (Bounds.Intersects). Determinista, sin asignación de memoria y sin sobrecarga de PhysX.")]
+            BoundsIntersects,
+
+            [Tooltip("Validación física en escena mediante Physics.OverlapBox. Requiere colliders y sincronización con PhysX.")]
+            PhysicsOverlapBox
+        }
+
+        /// <summary>
+        /// Representa un enchufe libre en el mapa pendiente de recibir una conexión.
+        /// </summary>
+        private struct OpenSocketEntry
+        {
+            public Transform SocketTransform;
+            public ModuleConnector ParentConnector;
+
+            public OpenSocketEntry(Transform socket, ModuleConnector connector)
+            {
+                SocketTransform = socket;
+                ParentConnector = connector;
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // CONSTANTES ARQUITECTÓNICAS (ESPECIFICACIÓN GRID 4x4)
+        // ════════════════════════════════════════════════════════════════════
+
+        public const float StandardCellSize = 4.0f;
         public const float StandardWallHeight = 3.2f;
         public const float StandardCeilingHeight = 3.2f;
 
@@ -31,6 +66,23 @@ namespace DemenciaNoLimite.Level
         /// Contenedor de compatibilidad con jefes y sistemas analíticos de piso.
         /// </summary>
         public FloorLayout LastGeneratedLayout { get; private set; } = new FloorLayout();
+
+        // ════════════════════════════════════════════════════════════════════
+        // CONFIGURACIÓN DE CONCIENCIA ESPACIAL (OVERLAP PREVENTION)
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Conciencia Espacial (Overlap Prevention)")]
+        [Tooltip("Método utilizado para comprobar si el volumen de un nuevo módulo colisiona con módulos ya existentes.")]
+        [SerializeField] private SpatialValidationMethod _validationMethod = SpatialValidationMethod.BoundsIntersects;
+
+        [Tooltip("Margen de tolerancia (skin width) hacia adentro para permitir que muros contiguos en las puertas no generen falsos positivos de colisión.")]
+        [SerializeField] private float _boundsTolerance = 0.15f;
+
+        [Tooltip("Cantidad máxima de piezas aleatorias alternativas a intentar en un socket antes de forzar el sellado con deadEnd.")]
+        [SerializeField] private int _maxRetriesPerSocket = 10;
+
+        [Tooltip("Máscara de capas físicas para Physics.OverlapBox (en caso de usar dicho método).")]
+        [SerializeField] private LayerMask _physicsLayerMask = ~0;
 
         // ════════════════════════════════════════════════════════════════════
         // CONFIGURACIÓN DE SEMILLA Y LÍMITES
@@ -71,7 +123,7 @@ namespace DemenciaNoLimite.Level
         [Tooltip("Cruces en T, bifurcaciones y esquinas de 90 grados.")]
         public List<GameObject> intersections = new List<GameObject>();
 
-        [Tooltip("Paredes ciegas y cierres para sellar enchufes abiertos al alcanzar maxModules.")]
+        [Tooltip("Paredes ciegas y cierres para sellar enchufes abiertos al alcanzar maxModules o por falta de espacio.")]
         public List<GameObject> deadEnds = new List<GameObject>();
 
         [Tooltip("Salas seguras con puntos de respiro o mercaderes.")]
@@ -84,26 +136,14 @@ namespace DemenciaNoLimite.Level
         private System.Random _rng;
         private Transform _cityRoot;
         private readonly List<OpenSocketEntry> _activeOpenSockets = new List<OpenSocketEntry>();
+        private readonly List<Bounds> _placedModuleBounds = new List<Bounds>();
         private int _spawnedModulesCount;
         private bool _isGenerating;
 
         public bool IsGenerating => _isGenerating;
         public string ActiveSeed => _levelSeed;
-
-        /// <summary>
-        /// Representa un enchufe libre en el mapa pendiente de recibir una conexión.
-        /// </summary>
-        private struct OpenSocketEntry
-        {
-            public Transform SocketTransform;
-            public ModuleConnector ParentConnector;
-
-            public OpenSocketEntry(Transform socket, ModuleConnector connector)
-            {
-                SocketTransform = socket;
-                ParentConnector = connector;
-            }
-        }
+        public SpatialValidationMethod ActiveValidationMethod => _validationMethod;
+        public int PlacedBoundsCount => _placedModuleBounds.Count;
 
         // ════════════════════════════════════════════════════════════════════
         // CICLO DE VIDA MONOBEHAVIOUR
@@ -118,11 +158,11 @@ namespace DemenciaNoLimite.Level
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // GENERACIÓN PROCEDURAL (WFC POR SOCKETS)
+        // GENERACIÓN PROCEDURAL CON CONCIENCIA ESPACIAL
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Inicia la generación determinista de la ciudad a partir de la semilla.
+        /// Inicia la generación determinista de la ciudad con prevención de solapamientos (Overlap Prevention).
         /// </summary>
         [ContextMenu("Generar Ciudad Procedural")]
         public void GenerateCitySector()
@@ -133,7 +173,7 @@ namespace DemenciaNoLimite.Level
             LimpiarCiudadPrevia();
             InicializarSemilla();
 
-            Debug.Log($"[LevelGenerator] Iniciando generación de Sector Cero con semilla: '{_levelSeed}'...");
+            Debug.Log($"[LevelGenerator] Iniciando generación de Sector Cero con semilla: '{_levelSeed}' (Validación: {_validationMethod}, Grid: {StandardCellSize}x{StandardCellSize})...");
 
             // 1. INSTANCIACIÓN DE LA SALA INICIAL (START ROOM) EN EL ORIGEN
             GameObject startModule = InstanciarStartRoom();
@@ -144,11 +184,23 @@ namespace DemenciaNoLimite.Level
                 return;
             }
 
+            // Registrar el volumen de la sala de inicio
+            ModuleConnector startConnector = startModule.GetComponent<ModuleConnector>();
+            if (startConnector != null)
+            {
+                Bounds startBounds = startConnector.CalculateWorldBounds(startModule.transform.position, startModule.transform.rotation);
+                _placedModuleBounds.Add(startBounds);
+            }
+            if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
+            {
+                Physics.SyncTransforms();
+            }
+
             // Registrar los enchufes de la sala inicial
             RegistrarSocketsDeModulo(startModule);
             _spawnedModulesCount = 1;
 
-            // 2. BUCLE DE EXPANSIÓN POR ENCHUFES
+            // 2. BUCLE DE EXPANSIÓN POR ENCHUFES CON LOOK-AHEAD Y PREVENCIÓN DE SOLAPAMIENTO
             while (_spawnedModulesCount < _maxModules && _activeOpenSockets.Count > 0)
             {
                 // Seleccionar un socket abierto disponible de la frontera
@@ -158,92 +210,303 @@ namespace DemenciaNoLimite.Level
 
                 if (originEntry.SocketTransform == null) continue;
 
-                // Elegir el tipo de módulo a ensamblar
-                GameObject selectedPrefab = SeleccionarPrefabParaFrontera();
-                if (selectedPrefab == null) continue;
+                bool modulePlaced = false;
 
-                // Instanciar y acoplar el nuevo módulo alineando sus enchufes matemáticamente
-                GameObject newModule = AcoplarModuloASocket(selectedPrefab, originEntry.SocketTransform);
-                if (newModule != null)
+                // Intentar hasta _maxRetriesPerSocket veces con piezas aleatorias de las listas principales
+                for (int attempt = 0; attempt < _maxRetriesPerSocket; attempt++)
                 {
-                    _spawnedModulesCount++;
-                    RegistrarSocketsDeModulo(newModule);
+                    GameObject candidatePrefab = SeleccionarPrefabParaFrontera();
+                    if (candidatePrefab == null) continue;
+
+                    // Pre-validar espacio (Look-Ahead): Simula rotación/posición y comprueba Bounds o Physics
+                    if (IntentarAcoplarModulo(candidatePrefab, originEntry.SocketTransform, out GameObject newModuleInstance, out Bounds placedBounds))
+                    {
+                        _spawnedModulesCount++;
+                        _placedModuleBounds.Add(placedBounds);
+                        RegistrarSocketsDeModulo(newModuleInstance);
+                        modulePlaced = true;
+                        break; // ¡Pieza aceptada sin solapamiento!
+                    }
+                }
+
+                // 3. RECHAZO Y FALLBACK OBLIGATORIO:
+                // Si ninguna pieza de las listas principales cabe en ese espacio (bloqueo por solapamiento),
+                // sellar obligatoriamente ese enchufe con un deadEnd (muro ciego) para no dejar huecos al vacío.
+                if (!modulePlaced)
+                {
+                    SellarSocketIndividual(originEntry.SocketTransform);
                 }
             }
 
-            // 3. CIERRE DE FRONTERAS (SELLADO CON DEAD ENDS)
+            // 4. CIERRE DE FRONTERAS (SELLADO FINAL CON DEAD ENDS)
             SellarEnchufesRestantes();
 
             _isGenerating = false;
-            Debug.Log($"[LevelGenerator] Ciudad generada con éxito ({_spawnedModulesCount} módulos).");
+            Debug.Log($"[LevelGenerator] Ciudad generada con éxito ({_spawnedModulesCount} módulos estructurales, {_placedModuleBounds.Count} volúmenes registrados).");
 
-            // 4. INTEGRACIÓN CRÍTICA CON IA: Notificación al Event Bus
-            // Dispara el horneado asíncrono en ProceduralNavMeshBuilder sin congelar el hilo principal
+            // 5. INTEGRACIÓN CRÍTICA CON IA: Notificación al Event Bus para horneado de NavMesh
             GameEvents.FireMapGenerationCompleted();
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // MATEMÁTICAS DE ALINEACIÓN DE SOCKETS
+        // PRE-VALIDACIÓN ESPACIAL Y ACOPLAMIENTO (LOOK-AHEAD)
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Acopla un nuevo módulo a un socket de origen alineando posición y rotación con precisión matemática.
+        /// Simula matemáticamente la posición y rotación del nuevo módulo en el socket de origen.
+        /// Si no solapa con piezas existentes, confirma e instancia el módulo.
         /// </summary>
-        /// <param name="prefab">Prefab del módulo que se va a instanciar.</param>
-        /// <param name="originSocket">Transform del enchufe existente al cual acoplarse.</param>
-        /// <returns>Instancia creada del módulo acoplado.</returns>
-        private GameObject AcoplarModuloASocket(GameObject prefab, Transform originSocket)
+        private bool IntentarAcoplarModulo(
+            GameObject prefab,
+            Transform originSocket,
+            out GameObject instantiatedModule,
+            out Bounds finalWorldBounds)
         {
-            // Instanciamos el nuevo GameObject temporalmente en el origen
-            GameObject newModuleInstance = Instantiate(prefab, _cityRoot);
-            ModuleConnector newConnector = newModuleInstance.GetComponent<ModuleConnector>();
+            instantiatedModule = null;
+            finalWorldBounds = default;
 
-            if (newConnector == null || !newConnector.HasAvailableSockets)
+            if (prefab == null || originSocket == null) return false;
+
+            ModuleConnector candidateConnector = prefab.GetComponent<ModuleConnector>();
+
+            // Si el prefab carece de sockets definidos, validar posición directa
+            if (candidateConnector == null || !candidateConnector.HasAvailableSockets)
             {
-                // Si el prefab carece de sockets definidos, colocarlo directamente
-                newModuleInstance.transform.position = originSocket.position;
-                newModuleInstance.transform.rotation = originSocket.rotation;
-                return newModuleInstance;
+                Vector3 directPos = originSocket.position;
+                Quaternion directRot = originSocket.rotation;
+                Bounds localB = candidateConnector != null 
+                    ? candidateConnector.GetLocalBounds() 
+                    : new Bounds(new Vector3(0f, 2f, 0f), new Vector3(StandardCellSize, StandardCellSize, StandardCellSize));
+
+                if (!ComprobarEspacioLibre(directPos, directRot, localB, out Bounds simulatedBounds))
+                {
+                    return false; // Choca -> Rechazado
+                }
+
+                instantiatedModule = Instantiate(prefab, directPos, directRot, _cityRoot);
+                finalWorldBounds = simulatedBounds;
+
+                if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
+                {
+                    Physics.SyncTransforms();
+                }
+                return true;
             }
 
-            // Seleccionamos un socket de entrada en el nuevo módulo
-            Transform targetSocket = newConnector.ConsumeRandomSocket(_rng);
-            if (targetSocket == null)
+            // Probamos los sockets disponibles en el candidato en orden pseudoaleatorio
+            List<Transform> candidateSockets = new List<Transform>(candidateConnector.availableSockets);
+            ShuffleList(candidateSockets, _rng);
+
+            for (int i = 0; i < candidateSockets.Count; i++)
             {
-                return newModuleInstance;
+                Transform targetSocketOnPrefab = candidateSockets[i];
+                if (targetSocketOnPrefab == null) continue;
+
+                // ── SIMULACIÓN MATEMÁTICA SIN INSTANCIAR EN ESCENA ───────────
+                if (SimularTransformacionModulo(originSocket, targetSocketOnPrefab, prefab.transform, out Vector3 simPos, out Quaternion simRot))
+                {
+                    Bounds localBounds = candidateConnector.GetLocalBounds();
+
+                    // Pre-validación espacial (Look-Ahead)
+                    if (ComprobarEspacioLibre(simPos, simRot, localBounds, out Bounds simulatedBounds))
+                    {
+                        // ¡Espacio confirmado! Se procede a instanciar el módulo de manera definitiva
+                        instantiatedModule = Instantiate(prefab, simPos, simRot, _cityRoot);
+                        finalWorldBounds = simulatedBounds;
+
+                        ModuleConnector newConnector = instantiatedModule.GetComponent<ModuleConnector>();
+                        if (newConnector != null)
+                        {
+                            // Encontramos el socket equivalente en la instancia recién creada para consumirlo
+                            Transform instanceTargetSocket = EncontrarSocketEquivalente(newConnector, targetSocketOnPrefab.name, i);
+                            if (instanceTargetSocket != null)
+                            {
+                                newConnector.RemoveSocket(instanceTargetSocket);
+                            }
+                        }
+
+                        if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
+                        {
+                            Physics.SyncTransforms();
+                        }
+
+                        return true;
+                    }
+                }
             }
 
-            // ── CÁLCULO MATEMÁTICO DE ROTACIÓN ─────────────────────────────────
-            // Dos sockets deben quedar enfrentados: El forward del socket de destino
-            // debe apuntar exactamente en sentido inverso (-originSocket.forward).
+            return false; // Ninguna rotación o socket del candidato cupo en el espacio
+        }
+
+        /// <summary>
+        /// Calcula la posición y rotación que adoptaría el módulo padre para conectar targetSocket con originSocket.
+        /// </summary>
+        private bool SimularTransformacionModulo(
+            Transform originSocket,
+            Transform targetSocketOnPrefab,
+            Transform prefabRoot,
+            out Vector3 simulatedPosition,
+            out Quaternion simulatedRotation)
+        {
+            // Obtener coordenadas locales del socket respecto a la raíz del prefab (incluso si está anidado)
+            Vector3 socketLocalPos;
+            Quaternion socketLocalRot;
+            ModuleConnector.GetSocketRelativeTransform(prefabRoot, targetSocketOnPrefab, out socketLocalPos, out socketLocalRot);
+
+            // Dos sockets deben quedar enfrentados: El forward del enchufe de destino debe ser -originSocket.forward
             Vector3 desiredForward = -originSocket.forward;
-            Quaternion targetRotation = Quaternion.LookRotation(desiredForward, originSocket.up);
+            Vector3 desiredUp = originSocket.up;
 
-            // Calculamos la rotación final del padre compensando la rotación local del socket hijo:
+            if (Mathf.Abs(Vector3.Dot(desiredForward, desiredUp)) > 0.99f)
+            {
+                desiredUp = Vector3.Cross(desiredForward, Vector3.right);
+                if (desiredUp.sqrMagnitude < 0.01f)
+                {
+                    desiredUp = Vector3.Cross(desiredForward, Vector3.forward);
+                }
+                desiredUp.Normalize();
+            }
+
+            Quaternion targetRotation = Quaternion.LookRotation(desiredForward, desiredUp);
+
             // R_parent = Q_target * Inverse(Socket_localRotation)
-            Quaternion parentRotation = targetRotation * Quaternion.Inverse(targetSocket.localRotation);
-            newModuleInstance.transform.rotation = parentRotation;
+            simulatedRotation = targetRotation * Quaternion.Inverse(socketLocalRot);
 
-            // ── CÁLCULO MATEMÁTICO DE TRASLACIÓN ──────────────────────────────
-            // Con el módulo rotado, el offset del socket respecto al pivote es:
-            // WorldOffset = R_parent * Socket_localPosition
-            // Por lo tanto, para que Socket coincida en originSocket.position:
-            // Pos_parent = Pos_origin - WorldOffset
-            Vector3 socketWorldOffset = parentRotation * targetSocket.localPosition;
-            newModuleInstance.transform.position = originSocket.position - socketWorldOffset;
+            // Pos_parent = Pos_origin - (R_parent * Socket_localPosition)
+            Vector3 socketWorldOffset = simulatedRotation * socketLocalPos;
+            simulatedPosition = originSocket.position - socketWorldOffset;
 
-            // El socket target ya quedó acoplado y no debe recibir conexiones adicionales
-            newConnector.RemoveSocket(targetSocket);
+            return true;
+        }
 
-            return newModuleInstance;
+        /// <summary>
+        /// Comprueba si el volumen proyectado del módulo está libre de colisiones o solapamientos.
+        /// </summary>
+        private bool ComprobarEspacioLibre(Vector3 worldPos, Quaternion worldRot, Bounds localBounds, out Bounds simulatedWorldBounds)
+        {
+            simulatedWorldBounds = ModuleConnector.TransformBounds(localBounds, worldPos, worldRot);
+
+            if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
+            {
+                return !ComprobarSolapamientoPhysics(worldPos, worldRot, localBounds);
+            }
+            else
+            {
+                return !ComprobarSolapamientoBounds(simulatedWorldBounds);
+            }
+        }
+
+        /// <summary>
+        /// Validación puramente geométrica mediante Bounds.Intersects aplicando tolerancia (skin width).
+        /// </summary>
+        private bool ComprobarSolapamientoBounds(Bounds candidateBounds)
+        {
+            // Contrae ligeramente el bounds candidato para tolerar juntas de puertas en paredes compartidas
+            Vector3 candidateContractedSize = candidateBounds.size - new Vector3(_boundsTolerance * 2f, _boundsTolerance * 2f, _boundsTolerance * 2f);
+            if (candidateContractedSize.x <= 0f || candidateContractedSize.y <= 0f || candidateContractedSize.z <= 0f)
+            {
+                candidateContractedSize = candidateBounds.size * 0.9f;
+            }
+            Bounds contractedCandidate = new Bounds(candidateBounds.center, candidateContractedSize);
+
+            for (int i = 0; i < _placedModuleBounds.Count; i++)
+            {
+                Bounds placed = _placedModuleBounds[i];
+                Vector3 placedContractedSize = placed.size - new Vector3(_boundsTolerance * 2f, _boundsTolerance * 2f, _boundsTolerance * 2f);
+                if (placedContractedSize.x <= 0f || placedContractedSize.y <= 0f || placedContractedSize.z <= 0f)
+                {
+                    placedContractedSize = placed.size * 0.9f;
+                }
+                Bounds contractedPlaced = new Bounds(placed.center, placedContractedSize);
+
+                if (contractedCandidate.Intersects(contractedPlaced))
+                {
+                    return true; // Solapamiento geométrico detectado
+                }
+            }
+
+            return false; // Espacio libre de solapamiento
+        }
+
+        /// <summary>
+        /// Validación física mediante Physics.OverlapBox contra los colliders ya asentados en la escena.
+        /// </summary>
+        private bool ComprobarSolapamientoPhysics(Vector3 worldPos, Quaternion worldRot, Bounds localBounds)
+        {
+            Vector3 worldCenter = worldPos + (worldRot * localBounds.center);
+            Vector3 halfExtents = (localBounds.size * 0.5f) - new Vector3(_boundsTolerance, _boundsTolerance, _boundsTolerance);
+            if (halfExtents.x <= 0f || halfExtents.y <= 0f || halfExtents.z <= 0f)
+            {
+                halfExtents = localBounds.extents * 0.9f;
+            }
+
+            Collider[] hits = Physics.OverlapBox(worldCenter, halfExtents, worldRot, _physicsLayerMask, QueryTriggerInteraction.Ignore);
+            return hits != null && hits.Length > 0;
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // CIERRE DE FRONTERAS (DEAD ENDS)
+        // SELLADO DE ENCHUFES (DEAD ENDS / MUROS CIEGOS)
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Recorre todos los enchufes que quedaron expuestos al aire libre y los sella con muros ciegos.
+        /// Sella un enchufe individual expuesto o rechazado instanciando obligatoriamente un deadEnd (muro ciego).
+        /// </summary>
+        private void SellarSocketIndividual(Transform openSocket)
+        {
+            if (openSocket == null) return;
+
+            if (deadEnds == null || deadEnds.Count == 0)
+            {
+                Debug.LogWarning("[LevelGenerator] No hay prefabs configurados en 'deadEnds' para sellar el enchufe al vacío.");
+                return;
+            }
+
+            GameObject deadEndPrefab = deadEnds[_rng.Next(0, deadEnds.Count)];
+            if (deadEndPrefab == null) return;
+
+            ModuleConnector deadEndConnector = deadEndPrefab.GetComponent<ModuleConnector>();
+            if (deadEndConnector != null && deadEndConnector.HasAvailableSockets)
+            {
+                Transform targetSocket = deadEndConnector.availableSockets[0];
+                if (SimularTransformacionModulo(openSocket, targetSocket, deadEndPrefab.transform, out Vector3 simPos, out Quaternion simRot))
+                {
+                    GameObject deadEndInstance = Instantiate(deadEndPrefab, simPos, simRot, _cityRoot);
+                    deadEndInstance.name = "DeadEnd_Fallback";
+
+                    ModuleConnector instConnector = deadEndInstance.GetComponent<ModuleConnector>();
+                    if (instConnector != null)
+                    {
+                        Transform instSocket = EncontrarSocketEquivalente(instConnector, targetSocket.name, 0);
+                        if (instSocket != null) instConnector.RemoveSocket(instSocket);
+
+                        Bounds deadEndBounds = instConnector.CalculateWorldBounds(simPos, simRot);
+                        _placedModuleBounds.Add(deadEndBounds);
+                    }
+
+                    if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
+                    {
+                        Physics.SyncTransforms();
+                    }
+                    return;
+                }
+            }
+
+            // Fallback directo si el muro ciego no tiene ModuleConnector: colocar directamente en el socket
+            GameObject directDeadEnd = Instantiate(deadEndPrefab, openSocket.position, openSocket.rotation, _cityRoot);
+            directDeadEnd.name = "DeadEnd_Fallback_Direct";
+            if (deadEndConnector != null)
+            {
+                _placedModuleBounds.Add(deadEndConnector.CalculateWorldBounds(openSocket.position, openSocket.rotation));
+            }
+
+            if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
+            {
+                Physics.SyncTransforms();
+            }
+        }
+
+        /// <summary>
+        /// Recorre todos los enchufes que quedaron expuestos al finalizar la generación y los sella con muros ciegos.
         /// </summary>
         private void SellarEnchufesRestantes()
         {
@@ -254,17 +517,14 @@ namespace DemenciaNoLimite.Level
                 return;
             }
 
-            Debug.Log($"[LevelGenerator] Sellando {_activeOpenSockets.Count} enchufes con muros ciegos (deadEnds)...");
+            Debug.Log($"[LevelGenerator] Sellando {_activeOpenSockets.Count} enchufes restantes con muros ciegos (deadEnds)...");
 
             for (int i = 0; i < _activeOpenSockets.Count; i++)
             {
                 OpenSocketEntry entry = _activeOpenSockets[i];
-                if (entry.SocketTransform == null) continue;
-
-                GameObject deadEndPrefab = deadEnds[_rng.Next(0, deadEnds.Count)];
-                if (deadEndPrefab != null)
+                if (entry.SocketTransform != null)
                 {
-                    AcoplarModuloASocket(deadEndPrefab, entry.SocketTransform);
+                    SellarSocketIndividual(entry.SocketTransform);
                 }
             }
 
@@ -272,11 +532,11 @@ namespace DemenciaNoLimite.Level
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // SELECCIÓN Y REGISTRO
+        // SELECCIÓN Y REGISTRO DE MÓDULOS
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Selecciona un prefab aleatorio respetando probabilidades de cruces y salas de descanso.
+        /// Selecciona un prefab aleatorio respetando probabilidades de cruces y salas seguras.
         /// </summary>
         private GameObject SeleccionarPrefabParaFrontera()
         {
@@ -335,6 +595,47 @@ namespace DemenciaNoLimite.Level
         }
 
         /// <summary>
+        /// Encuentra el socket equivalente en una instancia recién clonada coincidiendo por nombre o índice.
+        /// </summary>
+        private Transform EncontrarSocketEquivalente(ModuleConnector connector, string socketName, int preferredIndex)
+        {
+            if (connector == null || connector.availableSockets == null || connector.availableSockets.Count == 0)
+                return null;
+
+            for (int i = 0; i < connector.availableSockets.Count; i++)
+            {
+                Transform s = connector.availableSockets[i];
+                if (s != null && s.name == socketName)
+                {
+                    return s;
+                }
+            }
+
+            if (preferredIndex >= 0 && preferredIndex < connector.availableSockets.Count)
+            {
+                return connector.availableSockets[preferredIndex];
+            }
+
+            return connector.availableSockets[0];
+        }
+
+        /// <summary>
+        /// Mezcla determinista de una lista mediante el algoritmo de Fisher-Yates.
+        /// </summary>
+        private void ShuffleList<T>(List<T> list, System.Random rng)
+        {
+            int n = list.Count;
+            while (n > 1)
+            {
+                n--;
+                int k = rng.Next(n + 1);
+                T value = list[k];
+                list[k] = list[n];
+                list[n] = value;
+            }
+        }
+
+        /// <summary>
         /// Configura el generador pseudoaleatorio determinista.
         /// </summary>
         private void InicializarSemilla()
@@ -349,7 +650,7 @@ namespace DemenciaNoLimite.Level
         }
 
         /// <summary>
-        /// Elimina módulos generados previamente para permitir regeneración limpia en tiempo de ejecución.
+        /// Elimina módulos generados previamente para permitir regeneración limpia en tiempo de ejecución o edición.
         /// </summary>
         private void LimpiarCiudadPrevia()
         {
@@ -369,7 +670,41 @@ namespace DemenciaNoLimite.Level
             }
 
             _activeOpenSockets.Clear();
+            _placedModuleBounds.Clear();
             _spawnedModulesCount = 0;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // DEPURACIÓN VISUAL EN EDITOR (GIZMOS)
+        // ════════════════════════════════════════════════════════════════════
+
+        private void OnDrawGizmosSelected()
+        {
+            // Dibuja los volúmenes de todos los módulos ya colocados
+            if (_placedModuleBounds != null && _placedModuleBounds.Count > 0)
+            {
+                Gizmos.color = new Color(0f, 1f, 0.6f, 0.25f);
+                for (int i = 0; i < _placedModuleBounds.Count; i++)
+                {
+                    Bounds b = _placedModuleBounds[i];
+                    Gizmos.DrawWireCube(b.center, b.size);
+                }
+            }
+
+            // Dibuja los enchufes abiertos que queden en la frontera
+            if (_activeOpenSockets != null && _activeOpenSockets.Count > 0)
+            {
+                Gizmos.color = Color.yellow;
+                for (int i = 0; i < _activeOpenSockets.Count; i++)
+                {
+                    Transform socket = _activeOpenSockets[i].SocketTransform;
+                    if (socket != null)
+                    {
+                        Gizmos.DrawWireSphere(socket.position, 0.3f);
+                        Gizmos.DrawRay(socket.position, socket.forward * 2f);
+                    }
+                }
+            }
         }
     }
 }

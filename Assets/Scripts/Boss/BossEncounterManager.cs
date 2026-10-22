@@ -9,6 +9,7 @@ using UnityEngine;
 using DemenciaNoLimite.Core;
 using DemenciaNoLimite.Core.Data;
 using DemenciaNoLimite.Core.Events;
+using DemenciaNoLimite.Level;
 
 namespace DemenciaNoLimite.Boss
 {

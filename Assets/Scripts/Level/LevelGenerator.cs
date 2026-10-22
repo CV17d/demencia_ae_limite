@@ -11,6 +11,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using DemenciaNoLimite.Core;
 using DemenciaNoLimite.Core.Events;
 
 namespace DemenciaNoLimite.Level
@@ -25,6 +26,11 @@ namespace DemenciaNoLimite.Level
         public const float StandardCellSize = 3.0f;
         public const float StandardWallHeight = 3.2f;
         public const float StandardCeilingHeight = 3.2f;
+
+        /// <summary>
+        /// Contenedor de compatibilidad con jefes y sistemas analíticos de piso.
+        /// </summary>
+        public FloorLayout LastGeneratedLayout { get; private set; } = new FloorLayout();
 
         // ════════════════════════════════════════════════════════════════════
         // CONFIGURACIÓN DE SEMILLA Y LÍMITES

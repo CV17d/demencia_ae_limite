@@ -4,7 +4,7 @@
 // You can drop this script onto ANY empty GameObject in an empty scene,
 // or check "AutoBootOnPlay", and it will programmatically construct:
 //   1. Directional Sun & Ambient Lighting
-//   2. Core Managers GameObject (GameManager, LevelGenerator, LevelBuilder, etc.)
+//   2. Core Managers GameObject (GameManager, LevelGenerator, etc.)
 //   3. Player FPS Rig (CharacterController, Camera, WeaponHandler, Starting Weapon)
 //   4. UI & Debug HUD overlay (Health, Sanity, Floors, Ammo, Fichas)
 //   5. Automatically boots Floor 1 and starts the run!
@@ -89,8 +89,8 @@ namespace DemenciaNoLimite
 
             // 1. Core Systems
             var gm = managerGo.AddComponent<GameManager>();
-            var levelGen = managerGo.AddComponent<LevelGenerator>();
-            var levelBuilder = managerGo.AddComponent<LevelBuilder>();
+            var levelGen = managerGo.AddComponent<DemenciaNoLimite.Level.LevelGenerator>();
+
             var aiDirector = managerGo.AddComponent<AIDirector>();
             var bossMath = managerGo.AddComponent<AdaptiveBossController>();
             var elevator = managerGo.AddComponent<ElevatorEventSystem>();
@@ -107,8 +107,9 @@ namespace DemenciaNoLimite
             managerGo.AddComponent<ScreenShakeController>();
 
             // Wire references directly to eliminate runtime lookup delays
-            gm.SetReferences(aiDirector, levelGen, levelBuilder, elevator, degradation);
-            levelBuilder.SetSpawners(enemySpawner, hazardSpawner);
+            gm.SetReferences(aiDirector, levelGen, elevator, degradation);
+            levelGen.GenerateCitySector();
+
 
             // 4. Populate default sample pacts & merchant items into ElevatorEventSystem
             PopulateElevatorSampleData(elevator);

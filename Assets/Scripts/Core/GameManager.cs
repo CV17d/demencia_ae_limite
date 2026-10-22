@@ -2,7 +2,7 @@
 // GameManager.cs — Central Run Lifecycle & 30-Floor Tower Teleportation Orchestrator
 // ============================================================================
 // Controls: PlayerStats, EnemyBuffState, run state machine, and floor progression.
-// Coordinates: LevelGenerator, LevelBuilder, AIDirector, ElevatorEventSystem.
+// Coordinates: LevelGenerator, AIDirector, ElevatorEventSystem.
 //
 // New Pre-Generation Architecture:
 //   - All 30 floors are pre-generated vertically at game start (Floor N at Y = (N-1)*100).
@@ -80,7 +80,6 @@ namespace DemenciaNoLimite.Core
         [Header("System References")]
         [SerializeField] private AIDirector _aiDirector;
         [SerializeField] private LevelGenerator _levelGenerator;
-        [SerializeField] private LevelBuilder _levelBuilder;
         [SerializeField] private ElevatorEventSystem _elevatorSystem;
         [SerializeField] private MentalDegradationSystem _degradationSystem;
 
@@ -92,7 +91,6 @@ namespace DemenciaNoLimite.Core
 
             if (_aiDirector == null) _aiDirector = FindAnyObjectByType<AIDirector>();
             if (_levelGenerator == null) _levelGenerator = FindAnyObjectByType<LevelGenerator>();
-            if (_levelBuilder == null) _levelBuilder = FindAnyObjectByType<LevelBuilder>();
             if (_elevatorSystem == null) _elevatorSystem = FindAnyObjectByType<ElevatorEventSystem>();
             if (_degradationSystem == null) _degradationSystem = FindAnyObjectByType<MentalDegradationSystem>();
         }
@@ -100,13 +98,11 @@ namespace DemenciaNoLimite.Core
         public void SetReferences(
             AIDirector aiDirector,
             LevelGenerator levelGenerator,
-            LevelBuilder levelBuilder,
             ElevatorEventSystem elevatorSystem,
             MentalDegradationSystem degradationSystem)
         {
             _aiDirector = aiDirector;
             _levelGenerator = levelGenerator;
-            _levelBuilder = levelBuilder;
             _elevatorSystem = elevatorSystem;
             _degradationSystem = degradationSystem;
         }
@@ -121,7 +117,7 @@ namespace DemenciaNoLimite.Core
         /// </summary>
         public void StartNewRun()
         {
-            Debug.Log("[GameManager] Initializing 30-floor Pre-Generated Tower run...");
+            Debug.Log("[GameManager] Initializing procedural city sector run...");
 
             Player.ResetForNewRun();
             EnemyBuffs.Reset();
@@ -130,11 +126,11 @@ namespace DemenciaNoLimite.Core
 
             GameEvents.FireRunStarted();
 
-            // Ensure LevelBuilder has pre-generated all 30 floors stacked at Y=(N-1)*100
-            if (_levelBuilder == null) _levelBuilder = FindAnyObjectByType<LevelBuilder>();
-            if (_levelBuilder != null)
+            // Inicia la generación procedural del sector urbano mediante el nuevo generador modular
+            if (_levelGenerator == null) _levelGenerator = FindAnyObjectByType<LevelGenerator>();
+            if (_levelGenerator != null)
             {
-                _levelBuilder.PreGenerateEntireTower();
+                _levelGenerator.GenerateCitySector();
             }
 
             TeleportToFloor(1);
@@ -189,14 +185,8 @@ namespace DemenciaNoLimite.Core
 
             GameEvents.FireFloorCleared(targetFloorNumber - 1);
 
-            // Get pre-generated world spawn coordinates for this floor
+            // Posición de spawn en el origen del sector generado
             Vector3 worldSpawn = Vector3.up * FloorConfig.GetFloorElevation(targetFloorNumber);
-            if (_levelBuilder == null) _levelBuilder = FindAnyObjectByType<LevelBuilder>();
-            if (_levelBuilder != null)
-            {
-                worldSpawn = _levelBuilder.GetFloorSpawnPosition(targetFloorNumber);
-            }
-
             SafelyTeleportPlayer(worldSpawn);
 
             // Update State

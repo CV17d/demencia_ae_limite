@@ -166,7 +166,7 @@ namespace DemenciaNoLimite.Horror
         private void ApplyParanoiaPenalty(bool success)
         {
             // El jugador pierde estamina por la descarga de adrenalina
-            if (PlayerController.Instance != null)
+            if (PlayerManager.Instance != null || PlayerController.Instance != null)
             {
                 // Penalización mayor si se falla el QTE imaginario
                 float penalty = success ? _staminaDrainAmount * 0.5f : _staminaDrainAmount;

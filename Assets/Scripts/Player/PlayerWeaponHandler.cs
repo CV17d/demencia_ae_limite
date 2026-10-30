@@ -24,6 +24,8 @@ namespace DemenciaNoLimite.Player
         [SerializeField] private Camera _playerCamera;
         [SerializeField] private Transform _firePoint;
         [SerializeField] private PlayerController _controller;
+        [SerializeField] private PlayerCamera _playerFpsCamera;
+        [SerializeField] private PlayerManager _playerManager;
 
         [Header("Targeting & Layer Configuration")]
         [Tooltip("Specific LayerMask for detecting enemies.")]
@@ -46,6 +48,8 @@ namespace DemenciaNoLimite.Player
         {
             _inventory = GetComponent<PlayerInventory>();
             if (_controller == null) _controller = GetComponent<PlayerController>();
+            if (_playerFpsCamera == null) _playerFpsCamera = GetComponentInChildren<PlayerCamera>();
+            if (_playerManager == null) _playerManager = GetComponent<PlayerManager>();
 
             ResolveCamera();
             ResolveEnemyLayerMask();
@@ -151,6 +155,14 @@ namespace DemenciaNoLimite.Player
             if (_controller != null)
             {
                 _controller.ApplyRecoil(data.RecoilStrength, data.SpreadAngle);
+            }
+            else if (_playerFpsCamera != null)
+            {
+                _playerFpsCamera.ApplyRecoil(data.RecoilStrength, data.SpreadAngle);
+            }
+            else if (_playerManager != null)
+            {
+                _playerManager.ApplyRecoil(data.RecoilStrength, data.SpreadAngle);
             }
 
             switch (data.Type)

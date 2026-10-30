@@ -59,6 +59,8 @@ namespace DemenciaNoLimite.Level
 
             bool isPlayer = other.CompareTag("Player") ||
                             other.GetComponentInParent<PlayerController>() != null ||
+                            other.GetComponentInParent<DemenciaNoLimite.Player.FirstPersonController>() != null ||
+                            other.GetComponentInParent<DemenciaNoLimite.Player.PlayerManager>() != null ||
                             (other.attachedRigidbody != null && other.attachedRigidbody.CompareTag("Player"));
 
             if (!isPlayer) return;

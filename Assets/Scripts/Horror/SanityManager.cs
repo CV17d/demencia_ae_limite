@@ -235,7 +235,9 @@ namespace DemenciaNoLimite.Horror
         /// </summary>
         private void SpawnPhantomEnemyBehindPlayer()
         {
-            Transform playerTransform = PlayerController.Instance != null ? PlayerController.Instance.transform : null;
+            Transform playerTransform = PlayerManager.Instance != null ? PlayerManager.Instance.transform :
+                (PlayerController.Instance != null ? PlayerController.Instance.transform :
+                GameObject.FindGameObjectWithTag("Player")?.transform);
             if (playerTransform == null) return;
 
             // Determinar el vector inverso de visión (a espaldas de la cámara o jugador)

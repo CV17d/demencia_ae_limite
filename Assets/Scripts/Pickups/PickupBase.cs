@@ -67,7 +67,10 @@ namespace DemenciaNoLimite.Pickups
 
         protected virtual void OnTriggerEnter(Collider other)
         {
-            if (other.CompareTag("Player") || other.GetComponentInParent<DemenciaNoLimite.Player.PlayerController>() != null)
+            if (other.CompareTag("Player") ||
+                other.GetComponentInParent<DemenciaNoLimite.Player.PlayerController>() != null ||
+                other.GetComponentInParent<DemenciaNoLimite.Player.FirstPersonController>() != null ||
+                other.GetComponentInParent<DemenciaNoLimite.Player.PlayerManager>() != null)
             {
                 GameObject playerGo = other.gameObject;
                 if (CanPickup(playerGo))

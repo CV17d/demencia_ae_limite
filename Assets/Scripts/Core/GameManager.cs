@@ -205,6 +205,20 @@ namespace DemenciaNoLimite.Core
 
         public void SafelyTeleportPlayer(Vector3 worldPos)
         {
+            var pm = FindAnyObjectByType<Player.PlayerManager>();
+            if (pm != null)
+            {
+                pm.Teleport(worldPos, Quaternion.identity);
+                return;
+            }
+
+            var fpc = FindAnyObjectByType<Player.FirstPersonController>();
+            if (fpc != null)
+            {
+                fpc.Teleport(worldPos, Quaternion.identity);
+                return;
+            }
+
             var pc = FindAnyObjectByType<PlayerController>();
             if (pc != null)
             {

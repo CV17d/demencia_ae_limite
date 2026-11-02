@@ -9,7 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4112507649819443754}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Salida
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -40,7 +40,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 3100377460447774237}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Entrada
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -71,7 +71,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 7234143928004464180}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Salida1
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -144,6 +144,10 @@ PrefabInstance:
     - target: {fileID: 919132149155446097, guid: 4e540878451a9c1468ff45667686b6e0, type: 3}
       propertyPath: m_Name
       value: SM_Arena_Ensamblaje_20x24x12
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 4e540878451a9c1468ff45667686b6e0, type: 3}
+      propertyPath: m_Layer
+      value: 3
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

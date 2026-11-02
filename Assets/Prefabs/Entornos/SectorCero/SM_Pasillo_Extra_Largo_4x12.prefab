@@ -9,7 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 8432035370510496480}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Entrada
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -40,7 +40,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 6582466794224574958}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Salida
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -113,6 +113,10 @@ PrefabInstance:
     - target: {fileID: 919132149155446097, guid: 86b041724aca60f45a643d454b66bc1d, type: 3}
       propertyPath: m_Name
       value: SM_Pasillo_Extra_Largo_4x12
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 86b041724aca60f45a643d454b66bc1d, type: 3}
+      propertyPath: m_Layer
+      value: 3
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

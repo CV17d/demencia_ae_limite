@@ -9,7 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 3383361263462607463}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Norte
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -82,6 +82,10 @@ PrefabInstance:
     - target: {fileID: 919132149155446097, guid: 435387fb30dd88e438021f4b71844941, type: 3}
       propertyPath: m_Name
       value: SM_Elevador_Carga_8x8
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 435387fb30dd88e438021f4b71844941, type: 3}
+      propertyPath: m_Layer
+      value: 3
       objectReference: {fileID: 0}
     m_RemovedComponents:
     - {fileID: 3451118302482216456, guid: 435387fb30dd88e438021f4b71844941, type: 3}

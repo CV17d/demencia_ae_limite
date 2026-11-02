@@ -129,7 +129,7 @@ GameObject:
   m_Component:
   - component: {fileID: 149184446}
   - component: {fileID: 149184447}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: GeneradorDeCiudad
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -145,7 +145,7 @@ Transform:
   m_GameObject: {fileID: 149184445}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 32.44872, y: 100, z: 3.56545}
+  m_LocalPosition: {x: 32.44872, y: 0, z: 3.56545}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -168,7 +168,10 @@ MonoBehaviour:
   _maxRetriesPerSocket: 10
   _physicsLayerMask:
     serializedVersion: 2
-    m_Bits: 0
+    m_Bits: 8
+  pisoActual: 1
+  pisoMaximo: 30
+  modulosExtraPorPiso: 2
   _levelSeed: SECTOR_ZERO_ALPHA
   _randomizeSeedOnStart: 1
   _maxModules: 30
@@ -203,6 +206,7 @@ MonoBehaviour:
   - {fileID: 1462577617452253122, guid: 716e4d6b48f067043aa79295a73d03b9, type: 3}
   - {fileID: 1015431058970482816, guid: c67bcc7ac481a284cbeabceca6b77f99, type: 3}
   - {fileID: 5745187035614272519, guid: 124a9c99995084b47b12d7b610e75d00, type: 3}
+  muroCiegoPrefab: {fileID: 4537341435753013215, guid: bd32d9f424320a74db6eae6e66e34573, type: 3}
   deadEnds:
   - {fileID: 1186317374068745850, guid: 588d8d278eeedc54faa7ff9b9bdc729d, type: 3}
   - {fileID: 3870470552613090322, guid: db83860e106c74e4c828c293f531e8a8, type: 3}

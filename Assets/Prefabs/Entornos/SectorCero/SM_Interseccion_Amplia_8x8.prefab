@@ -9,7 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 309397917471126693}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Salida3
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -40,7 +40,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 4365436638833092985}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Entrada
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -71,7 +71,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 753126515187430800}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Salida2
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -102,7 +102,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 3318497810301862624}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Salida1
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -175,6 +175,10 @@ PrefabInstance:
     - target: {fileID: 919132149155446097, guid: d7f0e7bfd5b18e648ba541b3a44164a5, type: 3}
       propertyPath: m_Name
       value: SM_Interseccion_Amplia_8x8
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: d7f0e7bfd5b18e648ba541b3a44164a5, type: 3}
+      propertyPath: m_Layer
+      value: 3
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

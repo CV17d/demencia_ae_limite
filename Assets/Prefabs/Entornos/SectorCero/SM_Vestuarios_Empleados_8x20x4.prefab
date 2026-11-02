@@ -9,7 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 446016642285975018}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Salida
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -40,7 +40,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1061933968516004802}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Entrada
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -113,6 +113,10 @@ PrefabInstance:
     - target: {fileID: 919132149155446097, guid: 8f8d3c068ee19e949aa6eff9023a8d01, type: 3}
       propertyPath: m_Name
       value: SM_Vestuarios_Empleados_8x20x4
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 8f8d3c068ee19e949aa6eff9023a8d01, type: 3}
+      propertyPath: m_Layer
+      value: 3
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

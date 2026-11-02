@@ -9,7 +9,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 413829799503235688}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Entrada
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -40,7 +40,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 2303644620531095176}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Conector_Salida
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -113,6 +113,10 @@ PrefabInstance:
     - target: {fileID: 919132149155446097, guid: f535b5d33a29fee4eb109c1730a1ad75, type: 3}
       propertyPath: m_Name
       value: SM_Archivos_Alargados_8x24x4
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: f535b5d33a29fee4eb109c1730a1ad75, type: 3}
+      propertyPath: m_Layer
+      value: 3
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

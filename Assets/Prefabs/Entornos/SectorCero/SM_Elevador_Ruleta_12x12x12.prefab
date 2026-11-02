@@ -1,5 +1,36 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
+--- !u!1 &8636170837407970199
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3976150881671879666}
+  m_Layer: 0
+  m_Name: Conector_Entrada
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &3976150881671879666
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8636170837407970199}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: -0.7071068, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: -6, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1962854691935993024}
+  m_LocalEulerAnglesHint: {x: 0, y: -90, z: 0}
 --- !u!1001 &2069347456208919339
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -14,11 +45,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 5107f77c15594ca43916c9647b923ffb, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0
+      value: -0.65
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 5107f77c15594ca43916c9647b923ffb, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 0
+      value: 2.08
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 5107f77c15594ca43916c9647b923ffb, type: 3}
       propertyPath: m_LocalRotation.w
@@ -54,6 +85,69 @@ PrefabInstance:
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
-    m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedGameObjects:
+    - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 5107f77c15594ca43916c9647b923ffb, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 3976150881671879666}
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 5107f77c15594ca43916c9647b923ffb, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 508399944476867617}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 5107f77c15594ca43916c9647b923ffb, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 4778068059063957687}
   m_SourcePrefab: {fileID: 100100000, guid: 5107f77c15594ca43916c9647b923ffb, type: 3}
+--- !u!1 &1186317374068745850 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: 5107f77c15594ca43916c9647b923ffb, type: 3}
+  m_PrefabInstance: {fileID: 2069347456208919339}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &508399944476867617
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1186317374068745850}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 07b58bea6bf2cc645b0af276af1ab2ab, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DemenciaNoLimite.Level.ModuleConnector
+  availableSockets:
+  - {fileID: 3976150881671879666}
+  _volumeCollider: {fileID: 4778068059063957687}
+  _manualBounds:
+    m_Center: {x: 0, y: 0, z: 0}
+    m_Extent: {x: 0, y: 0, z: 0}
+  _autoCalculateFromRenderers: 1
+  _cachedLocalBounds:
+    m_Center: {x: 0.048662663, y: 5.966666, z: -0.059461594}
+    m_Extent: {x: 6.2, y: 6.2333326, z: 6.2}
+  _hasCachedBounds: 1
+--- !u!65 &4778068059063957687
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1186317374068745850}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 12.4, y: 12.466666, z: 12.4}
+  m_Center: {x: 0.048662663, y: 5.9666667, z: -0.059461594}
+--- !u!4 &1962854691935993024 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 5107f77c15594ca43916c9647b923ffb, type: 3}
+  m_PrefabInstance: {fileID: 2069347456208919339}
+  m_PrefabAsset: {fileID: 0}

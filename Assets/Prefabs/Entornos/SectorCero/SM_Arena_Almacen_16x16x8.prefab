@@ -1,5 +1,36 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
+--- !u!1 &818987006020211772
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5062770880560819115}
+  m_Layer: 0
+  m_Name: Conector_Salida2
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5062770880560819115
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 818987006020211772}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
+  m_LocalPosition: {x: -2, y: 0, z: -8}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 6766293028003478864}
+  m_LocalEulerAnglesHint: {x: 0, y: 180, z: 0}
 --- !u!1 &3267460306484566044
 GameObject:
   m_ObjectHideFlags: 0
@@ -31,6 +62,37 @@ Transform:
   m_Children: []
   m_Father: {fileID: 6766293028003478864}
   m_LocalEulerAnglesHint: {x: 0, y: -90, z: 0}
+--- !u!1 &6478268526393376579
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6574828485611931699}
+  m_Layer: 0
+  m_Name: Conector_Salida3
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &6574828485611931699
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6478268526393376579}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0.7071068, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: 8, y: 0, z: -2}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 6766293028003478864}
+  m_LocalEulerAnglesHint: {x: 0, y: 90, z: 0}
 --- !u!1 &7159156117439814362
 GameObject:
   m_ObjectHideFlags: 0
@@ -123,10 +185,19 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 9f45236a7a339954a872af07631f9217, type: 3}
       insertIndex: -1
       addedObject: {fileID: 3154434408905149381}
+    - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 9f45236a7a339954a872af07631f9217, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 5062770880560819115}
+    - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 9f45236a7a339954a872af07631f9217, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 6574828485611931699}
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 9f45236a7a339954a872af07631f9217, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1147052023205604791}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 9f45236a7a339954a872af07631f9217, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 4821116293032111794}
   m_SourcePrefab: {fileID: 100100000, guid: 9f45236a7a339954a872af07631f9217, type: 3}
 --- !u!1 &6245757128253450218 stripped
 GameObject:
@@ -148,7 +219,9 @@ MonoBehaviour:
   availableSockets:
   - {fileID: 5066935485385946466}
   - {fileID: 3154434408905149381}
-  _volumeCollider: {fileID: 0}
+  - {fileID: 5062770880560819115}
+  - {fileID: 6574828485611931699}
+  _volumeCollider: {fileID: 4821116293032111794}
   _manualBounds:
     m_Center: {x: 0, y: 0, z: 0}
     m_Extent: {x: 0, y: 0, z: 0}
@@ -157,6 +230,27 @@ MonoBehaviour:
     m_Center: {x: 0.048662186, y: 3.9666665, z: -0.059461594}
     m_Extent: {x: 8.2, y: 4.233333, z: 8.2}
   _hasCachedBounds: 1
+--- !u!65 &4821116293032111794
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6245757128253450218}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 16.4, y: 8.466669, z: 16.400002}
+  m_Center: {x: 0.048662186, y: 3.9666665, z: -0.059461117}
 --- !u!4 &6766293028003478864 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 9f45236a7a339954a872af07631f9217, type: 3}

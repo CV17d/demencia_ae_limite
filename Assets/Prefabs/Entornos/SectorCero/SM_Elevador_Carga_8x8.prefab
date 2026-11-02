@@ -83,7 +83,8 @@ PrefabInstance:
       propertyPath: m_Name
       value: SM_Elevador_Carga_8x8
       objectReference: {fileID: 0}
-    m_RemovedComponents: []
+    m_RemovedComponents:
+    - {fileID: 3451118302482216456, guid: 435387fb30dd88e438021f4b71844941, type: 3}
     m_RemovedGameObjects: []
     m_AddedGameObjects:
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 435387fb30dd88e438021f4b71844941, type: 3}
@@ -96,6 +97,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 435387fb30dd88e438021f4b71844941, type: 3}
       insertIndex: -1
       addedObject: {fileID: 4988557896381652027}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 435387fb30dd88e438021f4b71844941, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 4790185111763055085}
   m_SourcePrefab: {fileID: 100100000, guid: 435387fb30dd88e438021f4b71844941, type: 3}
 --- !u!1 &1340554772734183054 stripped
 GameObject:
@@ -138,7 +142,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::DemenciaNoLimite.Level.ModuleConnector
   availableSockets:
   - {fileID: 3383361263462607463}
-  _volumeCollider: {fileID: 0}
+  _volumeCollider: {fileID: 4790185111763055085}
   _manualBounds:
     m_Center: {x: 0, y: 0, z: 0}
     m_Extent: {x: 0, y: 0, z: 0}
@@ -147,6 +151,27 @@ MonoBehaviour:
     m_Center: {x: 0.048662663, y: 3.9666665, z: -0.059461594}
     m_Extent: {x: 4.2, y: 4.233333, z: 4.2}
   _hasCachedBounds: 1
+--- !u!65 &4790185111763055085
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1340554772734183054}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 8.4, y: 8.466666, z: 8.4}
+  m_Center: {x: 0.048662663, y: 3.9666665, z: -0.059461594}
 --- !u!4 &1860351520964795444 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 435387fb30dd88e438021f4b71844941, type: 3}

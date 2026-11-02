@@ -145,7 +145,7 @@ Transform:
   m_GameObject: {fileID: 149184445}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 32.44872, y: -19.68702, z: 3.56545}
+  m_LocalPosition: {x: 32.44872, y: 100, z: 3.56545}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -163,25 +163,55 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1c0e160d7cc2cb543a2603fdc9fd177a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DemenciaNoLimite.Level.LevelGenerator
-  _validationMethod: 1
+  _validationMethod: 0
   _boundsTolerance: 0.15
   _maxRetriesPerSocket: 10
   _physicsLayerMask:
     serializedVersion: 2
     m_Bits: 0
   _levelSeed: SECTOR_ZERO_ALPHA
-  _randomizeSeedOnStart: 0
+  _randomizeSeedOnStart: 1
   _maxModules: 30
   _generateOnStart: 1
-  _intersectionChance: 0
-  _safeRoomChance: 0.15
+  _intersectionChance: 0.391
+  _safeRoomChance: 0.05
   startRoom:
   - {fileID: 1340554772734183054, guid: d2d286c95cac1f54e92d0647e021d0c2, type: 3}
   corridors:
+  - {fileID: 705001318062270903, guid: 8b014d184e014944b9099eb3481d0dc3, type: 3}
+  - {fileID: 8991510261218850426, guid: 493fb27f5e9c86b4096eec20b81e800c, type: 3}
+  - {fileID: 4457257718372888512, guid: ed21e712102567a459def87a896c4096, type: 3}
+  - {fileID: 5609167054493166272, guid: 17ee7ecd339cb2948b494a6162b0941a, type: 3}
+  - {fileID: 3773939817362598173, guid: 5827a013f2069f546b53882ab25be060, type: 3}
+  - {fileID: 7707925320883104598, guid: a278d26dfc479054c8a6488192119d4d, type: 3}
+  - {fileID: 6565772442397076135, guid: 0c85cb3c92776eb47b682e698768d1b4, type: 3}
+  - {fileID: 1251099033120696416, guid: 88cb42af89ea5f04b9599ea6bd1ce28b, type: 3}
   - {fileID: 1495388997813395337, guid: 39da0adf0cab1324ab3dbf187763d88b, type: 3}
-  intersections: []
-  deadEnds: []
-  safeRooms: []
+  - {fileID: 1391138689981245972, guid: cf340d0de199b0f4a8afca673194c7fa, type: 3}
+  - {fileID: 632541487602598420, guid: 1b494f73476f98649a8ca0aaf8dacf38, type: 3}
+  - {fileID: 1803951758667914056, guid: 6f0b77b9c53507745bee2ac7c2ef5a79, type: 3}
+  - {fileID: 1932652779001786862, guid: 1384a2373ae365f4591719c46da7cc29, type: 3}
+  - {fileID: 5813322361084139138, guid: 1f1110b43b5b67e48b0e051c5b1a49b2, type: 3}
+  - {fileID: 3575474017887056757, guid: 94b17a1313b27984e89ac55841336bb8, type: 3}
+  - {fileID: 498819220099996248, guid: e4f60d7745c02584d951d44a704df83d, type: 3}
+  - {fileID: 9021256604374012994, guid: 86cb830b871a0a146a0edc56ab83d67a, type: 3}
+  intersections:
+  - {fileID: 6245757128253450218, guid: 46265619d2177a746923756f5e0fb1d4, type: 3}
+  - {fileID: 8465212699157617617, guid: fa63993260b0d5147aab3f20a00f552c, type: 3}
+  - {fileID: 8561043452100549759, guid: 278150bc667891e44a377acafdcd4566, type: 3}
+  - {fileID: 1981567514408641188, guid: cbade81168d957a49bd4582a1c355217, type: 3}
+  - {fileID: 1462577617452253122, guid: 716e4d6b48f067043aa79295a73d03b9, type: 3}
+  - {fileID: 1015431058970482816, guid: c67bcc7ac481a284cbeabceca6b77f99, type: 3}
+  - {fileID: 5745187035614272519, guid: 124a9c99995084b47b12d7b610e75d00, type: 3}
+  deadEnds:
+  - {fileID: 1186317374068745850, guid: 588d8d278eeedc54faa7ff9b9bdc729d, type: 3}
+  - {fileID: 3870470552613090322, guid: db83860e106c74e4c828c293f531e8a8, type: 3}
+  - {fileID: 4915600839295202354, guid: a6b1efb08521b7548ad86101a366f53f, type: 3}
+  - {fileID: 6509354848154525726, guid: e1d994d14be93bf48a11c51e5178d1a0, type: 3}
+  safeRooms:
+  - {fileID: 4633616214568869042, guid: 1638a3b23ee24a34fb48410005ebc221, type: 3}
+  - {fileID: 2527140532100479584, guid: 54d60c513ac763d4a9f84fef8c56e518, type: 3}
+  - {fileID: 1610234208537150043, guid: 2a78b508501c8884489dfd82784d0bdf, type: 3}
 --- !u!1 &161611532
 GameObject:
   m_ObjectHideFlags: 0

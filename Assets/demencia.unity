@@ -170,7 +170,7 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 8
   pisoActual: 1
-  pisoMaximo: 30
+  pisoMaximo: 100
   modulosExtraPorPiso: 2
   _levelSeed: SECTOR_ZERO_ALPHA
   _randomizeSeedOnStart: 1
@@ -207,6 +207,9 @@ MonoBehaviour:
   - {fileID: 1015431058970482816, guid: c67bcc7ac481a284cbeabceca6b77f99, type: 3}
   - {fileID: 5745187035614272519, guid: 124a9c99995084b47b12d7b610e75d00, type: 3}
   muroCiegoPrefab: {fileID: 4537341435753013215, guid: bd32d9f424320a74db6eae6e66e34573, type: 3}
+  elevadorSalidaPrefabs:
+  - {fileID: 2744617920362788624, guid: ed51b0bd4c386834387ca3faa56e812f, type: 3}
+  - {fileID: 1186317374068745850, guid: 588d8d278eeedc54faa7ff9b9bdc729d, type: 3}
   deadEnds:
   - {fileID: 1186317374068745850, guid: 588d8d278eeedc54faa7ff9b9bdc729d, type: 3}
   - {fileID: 3870470552613090322, guid: db83860e106c74e4c828c293f531e8a8, type: 3}

@@ -138,9 +138,9 @@ namespace DemenciaNoLimite.Level
         [Tooltip("Prefab del muro ciego modelado en Blender para sellar sockets que queden abiertos al finalizar la generación.")]
         [SerializeField] private GameObject muroCiegoPrefab;
 
-        [Header("Meta del Nivel (Elevador de Salida)")]
-        [Tooltip("Prefab del elevador de salida que conduce al siguiente piso.")]
-        [SerializeField] private GameObject elevadorSalidaPrefab;
+        [Header("Meta del Nivel (Elevadores de Salida)")]
+        [Tooltip("Lista de prefabs de elevadores de salida para elegir aleatoriamente el que conduce al siguiente piso.")]
+        [SerializeField] private List<GameObject> elevadorSalidaPrefabs = new List<GameObject>();
 
         [Tooltip("Paredes ciegas y cierres para sellar enchufes abiertos al alcanzar maxModules o por falta de espacio.")]
         public List<GameObject> deadEnds = new List<GameObject>();
@@ -155,9 +155,17 @@ namespace DemenciaNoLimite.Level
         private System.Random _rng;
         private Transform _cityRoot;
         private readonly List<OpenSocketEntry> _activeOpenSockets = new List<OpenSocketEntry>();
+        private List<Transform> _rejectedSockets = new List<Transform>();
         private readonly List<Bounds> _placedModuleBounds = new List<Bounds>();
         private int _spawnedModulesCount;
         private bool _isGenerating;
+
+        // Estado temporal para congelar y proteger al jugador durante la reconstrucción del nivel
+        private CharacterController _frozenCC;
+        private Rigidbody _frozenRB;
+        private bool _wasKinematic;
+        private bool _wasUseGravity;
+        private GameObject _cachedPlayerGo;
 
         public bool IsGenerating => _isGenerating;
         public string ActiveSeed => _levelSeed;
@@ -170,6 +178,11 @@ namespace DemenciaNoLimite.Level
         // ════════════════════════════════════════════════════════════════════
         // CICLO DE VIDA MONOBEHAVIOUR
         // ════════════════════════════════════════════════════════════════════
+
+        private void Awake()
+        {
+            ObtenerOInicializarCityRoot();
+        }
 
         private void Start()
         {
@@ -191,9 +204,15 @@ namespace DemenciaNoLimite.Level
         {
             if (_isGenerating) return;
 
+            // Congelar y resguardar al jugador antes de purgar el nivel
+            CongelarJugadorParaTransicion();
+
             LimpiarNivelActual();
             InicializarSemilla();
             ConstruirPiso();
+
+            // Reposicionar y reactivar al jugador con físicas 100% sincronizadas
+            ReposicionarYReactivarJugador();
         }
 
         /// <summary>
@@ -215,7 +234,10 @@ namespace DemenciaNoLimite.Level
                 return;
             }
 
-            // 1. Incrementar pisoActual
+            // 1. Congelar física, controles y resguardar provisionalmente al jugador antes de destruir el piso anterior
+            CongelarJugadorParaTransicion();
+
+            // 2. Incrementar pisoActual
             pisoActual++;
 
             // Sincronizar con el GameManager si está presente
@@ -224,24 +246,24 @@ namespace DemenciaNoLimite.Level
                 GameManager.Instance.TransitionToFloor(pisoActual);
             }
 
-            // 2. Limpieza completa del nivel anterior
+            // 3. Limpieza completa del nivel anterior
             LimpiarNivelActual();
 
-            // 3. Forzar cambio de semilla única para el nuevo piso
+            // 4. Forzar cambio de semilla única para el nuevo piso
             _levelSeed = $"SECTOR_{pisoActual:D2}_{Guid.NewGuid().ToString().Substring(0, 6).ToUpper()}";
             int seedHash = _levelSeed.GetHashCode();
             _rng = new System.Random(seedHash);
 
-            // 4. (Opcional) Aumentar ligeramente MaxModules para que los pisos más profundos sean más grandes
+            // 5. (Opcional) Aumentar ligeramente MaxModules para que los pisos más profundos sean más grandes
             _maxModules += modulosExtraPorPiso;
 
             Debug.Log($"[LevelGenerator] Descendiendo al Piso {pisoActual}/{pisoMaximo} (Nueva Semilla: '{_levelSeed}', MaxMódulos: {_maxModules})...");
 
-            // 5. Invocar la construcción del nuevo piso (ejecuta el bucle principal y dispara GameEvents.FireMapGenerationCompleted)
+            // 6. Invocar la construcción del nuevo piso (ejecuta el bucle principal y dispara GameEvents.FireMapGenerationCompleted)
             ConstruirPiso();
 
-            // 6. Reposicionar al jugador de forma segura en la nueva sala inicial
-            ReposicionarJugadorEnInicio();
+            // 7. Reposicionar y reactivar de forma 100% segura al jugador tras finalizar y sincronizar físicas
+            ReposicionarYReactivarJugador();
         }
 
         /// <summary>
@@ -270,10 +292,8 @@ namespace DemenciaNoLimite.Level
                 Bounds startBounds = startConnector.CalculateWorldBounds(startModule.transform.position, startModule.transform.rotation);
                 _placedModuleBounds.Add(startBounds);
             }
-            if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
-            {
-                Physics.SyncTransforms();
-            }
+            // Sincronización inmediata con PhysX para asegurar que los colisionadores de la sala inicial estén activos
+            Physics.SyncTransforms();
 
             // Registrar los enchufes de la sala inicial
             RegistrarSocketsDeModulo(startModule);
@@ -311,13 +331,12 @@ namespace DemenciaNoLimite.Level
                     }
                 }
 
-                // 3. RECHAZO Y SELLADO OBLIGATORIO DE CONECTOR HUÉRFANO:
-                // Si agotó todos los reintentos (MaxRetriesPerSocket) por colisión espacial y ninguna pieza cupo,
-                // forzar obligatoriamente la instanciación de muroCiegoPrefab en las coordenadas de ese socket
-                // antes de descartarlo de la lista para evitar pasillos abiertos intermedios.
+                // 3. RECHAZO POR FALTA DE ESPACIO (COLISIÓN ESPACIAL):
+                // Si ninguna pieza de las listas principales cupo tras agotar los reintentos,
+                // guardamos el socket en _rejectedSockets para la consolidación final de la salida.
                 if (!modulePlaced)
                 {
-                    SellarSocketIndividual(originEntry.SocketTransform);
+                    _rejectedSockets.Add(originEntry.SocketTransform);
                 }
 
                 // Descartar definitivamente el socket procesado de la lista activa
@@ -327,6 +346,9 @@ namespace DemenciaNoLimite.Level
             // 4. CIERRE DE FRONTERAS (SELLADO FINAL DE CONECTORES ABIERTOS)
             SellarConectoresAbiertos();
 
+            // Sincronización global obligatoria de colisionadores antes de hornear NavMesh o posicionar al jugador
+            Physics.SyncTransforms();
+
             _isGenerating = false;
             Debug.Log($"[LevelGenerator] Piso {pisoActual} generado con éxito ({_spawnedModulesCount} módulos estructurales, {_placedModuleBounds.Count} volúmenes registrados).");
 
@@ -335,33 +357,163 @@ namespace DemenciaNoLimite.Level
         }
 
         /// <summary>
-        /// Reposiciona al jugador en el origen de la nueva sala inicial para evitar caídas al vacío.
+        /// Congela temporalmente la física, el movimiento y desactiva el CharacterController / Rigidbody
+        /// del jugador, moviéndolo provisionalmente a un punto neutro seguro para evitar que caiga al vacío
+        /// mientras se destruye la geometría del nivel anterior y se construye el nuevo piso.
         /// </summary>
-        private void ReposicionarJugadorEnInicio()
+        private void CongelarJugadorParaTransicion()
         {
-            Vector3 spawnPosition = new Vector3(0f, 1.5f, 0f);
+            _cachedPlayerGo = null;
+            _frozenCC = null;
+            _frozenRB = null;
 
             if (PlayerManager.Instance != null)
             {
-                PlayerManager.Instance.Teleport(spawnPosition, Quaternion.identity);
-                return;
+                _cachedPlayerGo = PlayerManager.Instance.gameObject;
+                PlayerManager.Instance.SetPlayerFrozen(true);
+            }
+            else
+            {
+                _cachedPlayerGo = GameObject.FindGameObjectWithTag("Player");
             }
 
-            if (GameManager.Instance != null)
+            if (_cachedPlayerGo == null) return;
+
+            // 1. Congelar y deshabilitar CharacterController para que no caiga por gravedad
+            _frozenCC = _cachedPlayerGo.GetComponent<CharacterController>();
+            if (_frozenCC != null)
             {
-                GameManager.Instance.SafelyTeleportPlayer(spawnPosition);
-                return;
+                _frozenCC.enabled = false;
             }
 
-            var player = GameObject.FindGameObjectWithTag("Player");
-            if (player != null)
+            // 2. Congelar y neutralizar Rigidbody si existe
+            _frozenRB = _cachedPlayerGo.GetComponent<Rigidbody>();
+            if (_frozenRB != null)
             {
-                var cc = player.GetComponent<CharacterController>();
-                if (cc != null) cc.enabled = false;
-                player.transform.position = spawnPosition;
-                player.transform.rotation = Quaternion.identity;
-                if (cc != null) cc.enabled = true;
+                _wasKinematic = _frozenRB.isKinematic;
+                _wasUseGravity = _frozenRB.useGravity;
+#if UNITY_6000_0_OR_NEWER
+                _frozenRB.linearVelocity = Vector3.zero;
+#else
+                _frozenRB.velocity = Vector3.zero;
+#endif
+                _frozenRB.angularVelocity = Vector3.zero;
+                _frozenRB.isKinematic = true;
+                _frozenRB.useGravity = false;
             }
+
+            // 3. Desactivar FirstPersonController si está presente
+            var fpc = _cachedPlayerGo.GetComponent<FirstPersonController>();
+            if (fpc != null)
+            {
+                fpc.SetMovementEnabled(false);
+            }
+
+            // 4. Mover al jugador provisionalmente al origen seguro suspendido
+            _cachedPlayerGo.transform.SetPositionAndRotation(new Vector3(0f, 2f, 0f), Quaternion.identity);
+
+            Debug.Log("[LevelGenerator] Jugador congelado y resguardado provisionalmente antes de destruir _cityRoot.");
+        }
+
+        /// <summary>
+        /// Reposiciona al jugador en el origen de la nueva sala inicial, sincroniza las físicas
+        /// al 100% y reactiva su CharacterController/Rigidbody y controles tras finalizar la generación.
+        /// </summary>
+        private void ReposicionarYReactivarJugador()
+        {
+            Vector3 spawnPosition = new Vector3(0f, 1.5f, 0f);
+
+            // Intentar buscar punto de spawn explícito en la nueva StartRoom si existe
+            Transform startRoomObj = _cityRoot != null ? _cityRoot.Find("StartRoom_SectorZero") : null;
+            if (startRoomObj != null)
+            {
+                Transform customSpawn = startRoomObj.Find("SpawnPoint") ?? startRoomObj.Find("PlayerSpawn");
+                if (customSpawn != null)
+                {
+                    spawnPosition = customSpawn.position;
+                }
+            }
+
+            // Asegurar que las colisiones y transformaciones del nuevo piso estén 100% actualizadas en PhysX
+            Physics.SyncTransforms();
+
+            if (_cachedPlayerGo == null)
+            {
+                if (PlayerManager.Instance != null)
+                {
+                    _cachedPlayerGo = PlayerManager.Instance.gameObject;
+                }
+                else
+                {
+                    _cachedPlayerGo = GameObject.FindGameObjectWithTag("Player");
+                }
+            }
+
+            if (_cachedPlayerGo != null)
+            {
+                // 1. Ubicar físicamente al jugador en la posición de inicio
+                _cachedPlayerGo.transform.SetPositionAndRotation(spawnPosition, Quaternion.identity);
+
+                // Sincronizar la transformación de la cápsula en PhysX antes de reactivar colisiones
+                Physics.SyncTransforms();
+
+                // 2. Reactivar CharacterController
+                if (_frozenCC != null)
+                {
+                    _frozenCC.enabled = true;
+                }
+                else
+                {
+                    var cc = _cachedPlayerGo.GetComponent<CharacterController>();
+                    if (cc != null) cc.enabled = true;
+                }
+
+                // 3. Restaurar Rigidbody si estaba presente
+                if (_frozenRB != null)
+                {
+                    _frozenRB.isKinematic = _wasKinematic;
+                    _frozenRB.useGravity = _wasUseGravity;
+#if UNITY_6000_0_OR_NEWER
+                    _frozenRB.linearVelocity = Vector3.zero;
+#else
+                    _frozenRB.velocity = Vector3.zero;
+#endif
+                    _frozenRB.angularVelocity = Vector3.zero;
+                }
+
+                // 4. Reactivar FirstPersonController
+                var fpc = _cachedPlayerGo.GetComponent<FirstPersonController>();
+                if (fpc != null)
+                {
+                    fpc.SetMovementEnabled(true);
+                    fpc.Teleport(spawnPosition, Quaternion.identity);
+                }
+
+                // 5. Descongelar PlayerManager
+                if (PlayerManager.Instance != null)
+                {
+                    PlayerManager.Instance.SetPlayerFrozen(false);
+                    PlayerManager.Instance.Teleport(spawnPosition, Quaternion.identity);
+                }
+                else if (GameManager.Instance != null)
+                {
+                    GameManager.Instance.SafelyTeleportPlayer(spawnPosition);
+                }
+
+                Debug.Log($"[LevelGenerator] Jugador reactivado y posicionado con éxito en {spawnPosition} con físicas sincronizadas.");
+            }
+
+            _cachedPlayerGo = null;
+            _frozenCC = null;
+            _frozenRB = null;
+        }
+
+        /// <summary>
+        /// Método de compatibilidad hacia atrás: invoca ReposicionarYReactivarJugador().
+        /// </summary>
+        private void ReposicionarJugadorEnInicio()
+        {
+            ReposicionarYReactivarJugador();
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -399,13 +551,14 @@ namespace DemenciaNoLimite.Level
                     return false; // Choca -> Rechazado
                 }
 
-                instantiatedModule = Instantiate(prefab, directPos, directRot, _cityRoot);
-                finalWorldBounds = simulatedBounds;
+                Transform root = ObtenerOInicializarCityRoot();
+                instantiatedModule = Instantiate(prefab, directPos, directRot, root);
+                instantiatedModule.name = $"{prefab.name}_{_spawnedModulesCount}";
+                instantiatedModule.transform.SetPositionAndRotation(directPos, directRot);
+                instantiatedModule.transform.localScale = Vector3.one;
+                Physics.SyncTransforms();
 
-                if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
-                {
-                    Physics.SyncTransforms();
-                }
+                finalWorldBounds = simulatedBounds;
                 return true;
             }
 
@@ -427,7 +580,13 @@ namespace DemenciaNoLimite.Level
                     if (ComprobarEspacioLibre(simPos, simRot, localBounds, out Bounds simulatedBounds))
                     {
                         // ¡Espacio confirmado! Se procede a instanciar el módulo de manera definitiva
-                        instantiatedModule = Instantiate(prefab, simPos, simRot, _cityRoot);
+                        Transform root = ObtenerOInicializarCityRoot();
+                        instantiatedModule = Instantiate(prefab, simPos, simRot, root);
+                        instantiatedModule.name = $"{prefab.name}_{_spawnedModulesCount}";
+                        instantiatedModule.transform.SetPositionAndRotation(simPos, simRot);
+                        instantiatedModule.transform.localScale = Vector3.one;
+                        Physics.SyncTransforms();
+
                         finalWorldBounds = simulatedBounds;
 
                         // Decoración temática determinista si el módulo cuenta con ThematicPropSpawner
@@ -446,11 +605,6 @@ namespace DemenciaNoLimite.Level
                             {
                                 newConnector.RemoveSocket(instanceTargetSocket);
                             }
-                        }
-
-                        if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
-                        {
-                            Physics.SyncTransforms();
                         }
 
                         return true;
@@ -594,51 +748,85 @@ namespace DemenciaNoLimite.Level
                 }
             }
 
-            Transform parentContainer = _cityRoot != null ? _cityRoot : transform;
+            Transform parentContainer = ObtenerOInicializarCityRoot();
 
             // Instanciación directa en las coordenadas y orientación exactas del socket rechazado
             GameObject muro = Instantiate(prefabToUse, openSocket.position, openSocket.rotation, parentContainer);
             muro.name = $"MuroCiego_Rechazo_{openSocket.name}";
-
-            if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
-            {
-                Physics.SyncTransforms();
-            }
+            muro.transform.SetPositionAndRotation(openSocket.position, openSocket.rotation);
+            muro.transform.localScale = Vector3.one;
+            Physics.SyncTransforms();
         }
 
         /// <summary>
-        /// Rutina de cierre final: Selecciona aleatoriamente un socket abierto para instanciar
-        /// el elevadorSalidaPrefab (meta del piso) y sella todos los conectores restantes con muroCiegoPrefab.
+        /// Rutina de cierre final: Consolida todos los conectores pendientes (frontera activa + rechazados por falta de espacio),
+        /// garantiza la colocación aleatoria de un elevador de la lista elevadorSalidaPrefabs y sella el resto con muroCiegoPrefab.
         /// </summary>
         private void SellarConectoresAbiertos()
         {
-            if (_activeOpenSockets == null || _activeOpenSockets.Count == 0)
-                return;
+            // 1. Consolidar todos los conectores disponibles en una sola lista unificada
+            List<Transform> todosLosConectores = new List<Transform>();
 
-            Transform parentContainer = _cityRoot != null ? _cityRoot : transform;
-
-            // 1. Instanciación de la meta del nivel (Elevador de Salida) en un socket aleatorio
-            if (elevadorSalidaPrefab != null && _activeOpenSockets.Count > 0)
+            if (_activeOpenSockets != null)
             {
-                int exitIndex = _rng != null ? _rng.Next(0, _activeOpenSockets.Count) : UnityEngine.Random.Range(0, _activeOpenSockets.Count);
-                OpenSocketEntry exitEntry = _activeOpenSockets[exitIndex];
-
-                if (exitEntry.SocketTransform != null)
+                for (int i = 0; i < _activeOpenSockets.Count; i++)
                 {
-                    GameObject exitElevator = Instantiate(elevadorSalidaPrefab, exitEntry.SocketTransform.position, exitEntry.SocketTransform.rotation, parentContainer);
-                    exitElevator.name = $"ElevadorSalida_{exitEntry.SocketTransform.name}";
-                    Debug.Log($"[LevelGenerator] Elevador de salida instanciado con éxito en conector '{exitEntry.SocketTransform.name}'.");
+                    if (_activeOpenSockets[i].SocketTransform != null)
+                    {
+                        todosLosConectores.Add(_activeOpenSockets[i].SocketTransform);
+                    }
+                }
+            }
+
+            if (_rejectedSockets != null)
+            {
+                for (int i = 0; i < _rejectedSockets.Count; i++)
+                {
+                    if (_rejectedSockets[i] != null)
+                    {
+                        todosLosConectores.Add(_rejectedSockets[i]);
+                    }
+                }
+            }
+
+            if (todosLosConectores.Count == 0)
+            {
+                Debug.LogWarning("[LevelGenerator] No hay conectores disponibles ni rechazados para procesar el cierre del nivel.");
+                _activeOpenSockets.Clear();
+                _rejectedSockets.Clear();
+                return;
+            }
+
+            Transform parentContainer = ObtenerOInicializarCityRoot();
+
+            // 2. Selección aleatoria de un conector para instanciar el elevador de salida (meta del nivel)
+            if (elevadorSalidaPrefabs != null && elevadorSalidaPrefabs.Count > 0)
+            {
+                int exitIndex = _rng != null ? _rng.Next(0, todosLosConectores.Count) : UnityEngine.Random.Range(0, todosLosConectores.Count);
+                Transform exitSocket = todosLosConectores[exitIndex];
+
+                int modelIndex = _rng != null ? _rng.Next(0, elevadorSalidaPrefabs.Count) : UnityEngine.Random.Range(0, elevadorSalidaPrefabs.Count);
+                GameObject selectedElevatorPrefab = elevadorSalidaPrefabs[modelIndex];
+
+                if (exitSocket != null && selectedElevatorPrefab != null)
+                {
+                    GameObject exitElevator = Instantiate(selectedElevatorPrefab, exitSocket.position, exitSocket.rotation, parentContainer);
+                    exitElevator.name = $"ElevadorSalida_{exitSocket.name}";
+                    exitElevator.transform.SetPositionAndRotation(exitSocket.position, exitSocket.rotation);
+                    exitElevator.transform.localScale = Vector3.one;
+                    Physics.SyncTransforms();
+                    Debug.Log($"[LevelGenerator] Elevador de salida '{selectedElevatorPrefab.name}' instanciado con éxito en conector consolidado '{exitSocket.name}'.");
                 }
 
-                // Consumir el socket asignado a la salida para no taparlo con un muro ciego
-                _activeOpenSockets.RemoveAt(exitIndex);
+                // Consumir el conector seleccionado para la salida para no taparlo con un muro ciego
+                todosLosConectores.RemoveAt(exitIndex);
             }
-            else if (elevadorSalidaPrefab == null)
+            else
             {
-                Debug.LogWarning("[LevelGenerator] No se ha asignado 'elevadorSalidaPrefab' en el Inspector. El nivel se sellará sin elevador de salida.");
+                Debug.LogWarning("[LevelGenerator] No se han asignado prefabs en 'elevadorSalidaPrefabs' en el Inspector. El nivel se sellará sin salida.");
             }
 
-            // 2. Sellado del resto de conectores abiertos con muros ciegos
+            // 3. Sellado del resto de conectores de la lista unificada con muros ciegos
             GameObject prefabToUse = muroCiegoPrefab;
             if (prefabToUse == null)
             {
@@ -650,29 +838,32 @@ namespace DemenciaNoLimite.Level
                 {
                     Debug.LogWarning("[LevelGenerator] No se ha asignado 'muroCiegoPrefab' ni prefabs en 'deadEnds' para sellar los conectores restantes.");
                     _activeOpenSockets.Clear();
+                    _rejectedSockets.Clear();
                     return;
                 }
             }
 
-            Debug.Log($"[LevelGenerator] Sellando {_activeOpenSockets.Count} conectores restantes con '{prefabToUse.name}'...");
+            Debug.Log($"[LevelGenerator] Sellando {todosLosConectores.Count} conectores restantes con '{prefabToUse.name}'...");
 
-            for (int i = 0; i < _activeOpenSockets.Count; i++)
+            for (int i = 0; i < todosLosConectores.Count; i++)
             {
-                OpenSocketEntry entry = _activeOpenSockets[i];
-                if (entry.SocketTransform == null) continue;
+                Transform socket = todosLosConectores[i];
+                if (socket == null) continue;
 
-                // Instancia el tapón en la posición y rotación exactas del socket abierto
-                GameObject muro = Instantiate(prefabToUse, entry.SocketTransform.position, entry.SocketTransform.rotation, parentContainer);
-                muro.name = $"MuroCiego_{entry.SocketTransform.name}_{i}";
-            }
-
-            // 3. Limpieza final de la estructura de sockets disponibles
-            _activeOpenSockets.Clear();
-
-            if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
-            {
+                GameObject muro = Instantiate(prefabToUse, socket.position, socket.rotation, parentContainer);
+                muro.name = $"MuroCiego_{socket.name}_{i}";
+                muro.transform.SetPositionAndRotation(socket.position, socket.rotation);
+                muro.transform.localScale = Vector3.one;
                 Physics.SyncTransforms();
             }
+
+            // 4. Limpieza final de todas las estructuras de conectores
+            _activeOpenSockets.Clear();
+            _rejectedSockets.Clear();
+            todosLosConectores.Clear();
+
+            // Sincronización obligatoria final de colisionadores físicos
+            Physics.SyncTransforms();
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -708,15 +899,21 @@ namespace DemenciaNoLimite.Level
         }
 
         /// <summary>
-        /// Instancia el StartRoom inicial en el origen.
+        /// Instancia el StartRoom inicial en el origen garantizando escala unitaria y sincronización física.
         /// </summary>
         private GameObject InstanciarStartRoom()
         {
             if (startRoom == null || startRoom.Count == 0) return null;
 
+            Transform root = ObtenerOInicializarCityRoot();
             GameObject prefab = startRoom[_rng.Next(0, startRoom.Count)];
-            GameObject instance = Instantiate(prefab, Vector3.zero, Quaternion.identity, _cityRoot);
+            GameObject instance = Instantiate(prefab, Vector3.zero, Quaternion.identity, root);
             instance.name = "StartRoom_SectorZero";
+
+            // Blindaje de escala y colisionadores físicos
+            instance.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            instance.transform.localScale = Vector3.one;
+            Physics.SyncTransforms();
 
             ThematicPropSpawner propSpawner = instance.GetComponent<ThematicPropSpawner>();
             if (propSpawner != null)
@@ -801,11 +998,10 @@ namespace DemenciaNoLimite.Level
         }
 
         /// <summary>
-        /// Destruye todos los GameObjects hijos dentro del contenedor raíz (_cityRoot)
-        /// y limpia las listas de rastreo para liberar memoria antes de reconstruir el nivel.
+        /// Obtiene o inicializa el contenedor raíz del nivel asegurando transformación identidad
+        /// (Vector3.zero, Quaternion.identity, localScale Vector3.one) para evitar distorsiones de rotación en sockets.
         /// </summary>
-        [ContextMenu("Limpiar Nivel Actual")]
-        public void LimpiarNivelActual()
+        private Transform ObtenerOInicializarCityRoot()
         {
             if (_cityRoot == null)
             {
@@ -816,6 +1012,23 @@ namespace DemenciaNoLimite.Level
                 }
                 _cityRoot = rootGo.transform;
             }
+
+            _cityRoot.SetParent(null);
+            _cityRoot.position = Vector3.zero;
+            _cityRoot.rotation = Quaternion.identity;
+            _cityRoot.localScale = Vector3.one;
+
+            return _cityRoot;
+        }
+
+        /// <summary>
+        /// Destruye todos los GameObjects hijos dentro del contenedor raíz (_cityRoot)
+        /// y limpia las listas de rastreo para liberar memoria antes de reconstruir el nivel.
+        /// </summary>
+        [ContextMenu("Limpiar Nivel Actual")]
+        public void LimpiarNivelActual()
+        {
+            ObtenerOInicializarCityRoot();
 
             // Destrucción limpia de los módulos hijos en tiempo de juego o edición
             for (int i = _cityRoot.childCount - 1; i >= 0; i--)
@@ -837,13 +1050,12 @@ namespace DemenciaNoLimite.Level
 
             // Limpieza de estructuras de datos y listas de rastreo
             _activeOpenSockets.Clear();
+            _rejectedSockets.Clear();
             _placedModuleBounds.Clear();
             _spawnedModulesCount = 0;
 
-            if (_validationMethod == SpatialValidationMethod.PhysicsOverlapBox)
-            {
-                Physics.SyncTransforms();
-            }
+            // Sincronización inmediata con el motor PhysX para purgar colisionadores destruidos
+            Physics.SyncTransforms();
 
             Debug.Log("[LevelGenerator] LimpiarNivelActual: Módulos y volúmenes anteriores destruidos correctamente.");
         }

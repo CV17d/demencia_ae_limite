@@ -50,7 +50,7 @@ namespace DemenciaNoLimite
             EnsureUI();
 
             // Link managers to GameManager if needed
-            var gm = GameManager.Instance;
+            var gm = GameManager.Instance ?? FindAnyObjectByType<GameManager>();
             if (gm != null)
             {
                 // Start run on next frame so all Awakes/Starts finish cleanly
@@ -89,7 +89,11 @@ namespace DemenciaNoLimite
 
             // 1. Core Systems
             var gm = managerGo.AddComponent<GameManager>();
-            var levelGen = managerGo.AddComponent<DemenciaNoLimite.Level.LevelGenerator>();
+            var levelGen = FindAnyObjectByType<DemenciaNoLimite.Level.LevelGenerator>();
+            if (levelGen == null)
+            {
+                levelGen = managerGo.AddComponent<DemenciaNoLimite.Level.LevelGenerator>();
+            }
 
             var aiDirector = managerGo.AddComponent<AIDirector>();
             var bossMath = managerGo.AddComponent<AdaptiveBossController>();
@@ -108,7 +112,6 @@ namespace DemenciaNoLimite
 
             // Wire references directly to eliminate runtime lookup delays
             gm.SetReferences(aiDirector, levelGen, elevator, degradation);
-            levelGen.GenerateCitySector();
 
 
             // 4. Populate default sample pacts & merchant items into ElevatorEventSystem

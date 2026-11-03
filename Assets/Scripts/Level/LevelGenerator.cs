@@ -182,13 +182,23 @@ namespace DemenciaNoLimite.Level
         private void Awake()
         {
             ObtenerOInicializarCityRoot();
+#if UNITY_EDITOR
+            if (startRoom == null || startRoom.Count == 0)
+            {
+                AutoCargarPrefabsEditor();
+            }
+#endif
         }
 
         private void Start()
         {
             if (_generateOnStart)
             {
-                GenerateCitySector();
+                // Si hay un GameBootstrapper activo en la escena, él coordinará el inicio de la run.
+                if (FindAnyObjectByType<GameBootstrapper>() == null)
+                {
+                    GenerateCitySector();
+                }
             }
         }
 
@@ -277,6 +287,12 @@ namespace DemenciaNoLimite.Level
             Debug.Log($"[LevelGenerator] Iniciando generación de Sector Cero (Piso {pisoActual}) con semilla: '{_levelSeed}' (Validación: {_validationMethod}, Grid: {StandardCellSize}x{StandardCellSize})...");
 
             // 1. INSTANCIACIÓN DE LA SALA INICIAL (START ROOM) EN EL ORIGEN
+#if UNITY_EDITOR
+            if (startRoom == null || startRoom.Count == 0)
+            {
+                AutoCargarPrefabsEditor();
+            }
+#endif
             GameObject startModule = InstanciarStartRoom();
             if (startModule == null)
             {
@@ -1029,6 +1045,12 @@ namespace DemenciaNoLimite.Level
         public void LimpiarNivelActual()
         {
             ObtenerOInicializarCityRoot();
+#if UNITY_EDITOR
+            if (startRoom == null || startRoom.Count == 0)
+            {
+                AutoCargarPrefabsEditor();
+            }
+#endif
 
             // Destrucción limpia de los módulos hijos en tiempo de juego o edición
             for (int i = _cityRoot.childCount - 1; i >= 0; i--)
@@ -1100,5 +1122,79 @@ namespace DemenciaNoLimite.Level
                 }
             }
         }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// Carga automáticamente el catálogo completo de prefabs modulares desde la carpeta del proyecto
+        /// si las listas del inspector están vacías (blindaje contra escenas nuevas o componentes añadidos dinámicamente).
+        /// </summary>
+        [ContextMenu("Auto-Cargar Prefabs (Sector Cero)")]
+        public void AutoCargarPrefabsEditor()
+        {
+            if (startRoom != null && startRoom.Count > 0) return;
+
+            string folder = "Assets/Prefabs/Entornos/SectorCero";
+            if (!UnityEditor.AssetDatabase.IsValidFolder(folder)) return;
+
+            string[] guids = UnityEditor.AssetDatabase.FindAssets("t:Prefab", new[] { folder });
+            if (guids == null || guids.Length == 0) return;
+
+            Debug.Log($"[LevelGenerator] Auto-cargando catálogo de {guids.Length} prefabs modulares desde '{folder}'...");
+
+            startRoom = new List<GameObject>();
+            corridors = new List<GameObject>();
+            intersections = new List<GameObject>();
+            elevadorSalidaPrefabs = new List<GameObject>();
+            deadEnds = new List<GameObject>();
+            safeRooms = new List<GameObject>();
+
+            foreach (string guid in guids)
+            {
+                string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
+                GameObject prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (prefab == null) continue;
+
+                string name = prefab.name;
+
+                if (name.Contains("SM_Elevador_Carga_8x8"))
+                {
+                    startRoom.Add(prefab);
+                }
+                else if (name.Contains("SM_Elevador_Mercader") || name.Contains("SM_Elevador_Ruleta"))
+                {
+                    elevadorSalidaPrefabs.Add(prefab);
+                    if (!deadEnds.Contains(prefab)) deadEnds.Add(prefab);
+                }
+                else if (name.Contains("SM_Muro_Ciego") || name.Contains("Tapon_Definitivo"))
+                {
+                    muroCiegoPrefab = prefab;
+                }
+                else if (name.Contains("Armeria_Oculta") || name.Contains("Refugio_Vertical") || name.Contains("Sala_Monitoreo"))
+                {
+                    safeRooms.Add(prefab);
+                }
+                else if (name.Contains("Habitacion_Rehen") || name.Contains("Laboratorio_Clandestino") || name.Contains("Oficina_Seguridad"))
+                {
+                    deadEnds.Add(prefab);
+                }
+                else if (name.Contains("Cruce") || name.Contains("Interseccion") || name.Contains("Arena_Hangar") || name.Contains("Arena_Ensamblaje") || name.Contains("Arena_Almacen") || name.Contains("Recibidor_Amplio") || name.Contains("Servidores"))
+                {
+                    intersections.Add(prefab);
+                }
+                else
+                {
+                    corridors.Add(prefab);
+                }
+            }
+
+            if (muroCiegoPrefab == null)
+            {
+                var tapon = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Entornos/SectorCero/Tapon_Definitivo.prefab");
+                if (tapon != null) muroCiegoPrefab = tapon;
+            }
+
+            Debug.Log($"[LevelGenerator] Catálogo modular cargado con éxito: StartRoom={startRoom.Count}, Pasillos={corridors.Count}, Cruces={intersections.Count}, Salidas={elevadorSalidaPrefabs.Count}, DeadEnds={deadEnds.Count}, SafeRooms={safeRooms.Count}");
+        }
+#endif
     }
 }

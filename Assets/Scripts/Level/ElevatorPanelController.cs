@@ -426,10 +426,7 @@ namespace DemenciaNoLimite.Level
             }
 
             // 2. Sonido inicial: Switch/relé electromagnético
-            if (_audioSource != null && _relayClickClip != null)
-            {
-                _audioSource.PlayOneShot(_relayClickClip, 1.0f);
-            }
+            ReproducirAudioSeguro(_relayClickClip, 1.0f);
 
             // Pequeña pausa de tensión de 0.22s antes del arranque del motor
             yield return new WaitForSeconds(0.22f);
@@ -438,20 +435,8 @@ namespace DemenciaNoLimite.Level
             ActivarParpadeoAgresivoLuces(true);
 
             // 4. Sonido de arranque de motor y vibración de cámara
-            if (_audioSource != null)
-            {
-                if (_motorStartClip != null)
-                {
-                    _audioSource.PlayOneShot(_motorStartClip, 1.0f);
-                }
-
-                if (_engineLoopClip != null)
-                {
-                    _audioSource.clip = _engineLoopClip;
-                    _audioSource.loop = true;
-                    _audioSource.Play();
-                }
-            }
+            ReproducirAudioSeguro(_motorStartClip, 1.0f);
+            IniciarLoopAudioSeguro(_engineLoopClip);
 
             // Sacudida de cámara (Screen Shake) por la tracción mecánica
             if (ScreenShakeController.Instance != null && _cameraShakeTrauma > 0f)
@@ -477,11 +462,7 @@ namespace DemenciaNoLimite.Level
             }
 
             Debug.Log("[ElevatorPanelController] Secuencia mecánica completada. Ejecutando cambio de piso...");
-            if (_audioSource != null && _audioSource.isPlaying && _engineLoopClip != null && _audioSource.clip == _engineLoopClip)
-            {
-                _audioSource.Stop();
-                _audioSource.loop = false;
-            }
+            DetenerLoopAudioSeguro();
 
             _isSequenceCompleted = true;
             _isActivating = false;
@@ -544,6 +525,45 @@ namespace DemenciaNoLimite.Level
                     var orig = _originalLightParams[i];
                     light.SetDynamicParameters(orig.minInt, orig.maxInt, orig.minWait, orig.maxWait, orig.blackout);
                 }
+            }
+        }
+
+        private void ReproducirAudioSeguro(AudioClip clip, float volumen = 1.0f)
+        {
+            if (_audioSource == null) return;
+
+            if (clip != null)
+            {
+                _audioSource.PlayOneShot(clip, volumen);
+            }
+            else
+            {
+                Debug.Log("[ElevatorPanelController] Clip de audio no asignado (placeholder), continuando sin sonido...");
+            }
+        }
+
+        private void IniciarLoopAudioSeguro(AudioClip clip)
+        {
+            if (_audioSource == null) return;
+
+            if (clip != null)
+            {
+                _audioSource.clip = clip;
+                _audioSource.loop = true;
+                _audioSource.Play();
+            }
+            else
+            {
+                Debug.Log("[ElevatorPanelController] Clip de bucle de motor no asignado (placeholder), omitiendo loop...");
+            }
+        }
+
+        private void DetenerLoopAudioSeguro()
+        {
+            if (_audioSource != null && _audioSource.isPlaying)
+            {
+                _audioSource.Stop();
+                _audioSource.loop = false;
             }
         }
 

@@ -7,11 +7,18 @@
 // Responsabilidades:
 // - Detección de proximidad y orientación del jugador (Trigger + Raycast opcional).
 // - Retroalimentación visual en pantalla (UI OnGUI / Canvas).
-// - Detección de entrada de usuario (Tecla [E] por defecto).
+// - Secuencia de activación con bloqueo temporal de movimiento del jugador.
+// - Reproducción de efectos mecánicos (relés, arranque de motor y vibración de cámara).
+// - Activación de parpadeo eléctrico agresivo en las luces de cabina (LightFlicker).
 // ============================================================================
 
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
+using DemenciaNoLimite.Environment;
+using DemenciaNoLimite.Horror;
+using DemenciaNoLimite.Player;
 
 namespace DemenciaNoLimite.Level
 {
@@ -52,16 +59,74 @@ namespace DemenciaNoLimite.Level
         [SerializeField] private GameObject _externalPromptUI;
 
         // ════════════════════════════════════════════════════════════════════
-        // ESTADO INTERNO
+        // SECUENCIA DE AUDIO, LUCES Y BLOQUEO DEL JUGADOR
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Tiempos de Secuencia")]
+        [Tooltip("Duración en segundos de la secuencia mecánica antes de ejecutar el cambio de piso.")]
+        [Range(1f, 8f)]
+        [SerializeField] private float _sequenceDuration = 2.6f;
+
+        [Tooltip("Si está activo, congela el movimiento del jugador mientras la secuencia esté en marcha.")]
+        [SerializeField] private bool _lockPlayerMovement = true;
+
+        [Header("Efectos de Audio Mecánico")]
+        [Tooltip("AudioSource para efectos 3D. Si no se asigna, se busca o añade automáticamente.")]
+        [SerializeField] private AudioSource _audioSource;
+
+        [Tooltip("Clip de sonido al accionar el interruptor/relé inicial.")]
+        [SerializeField] private AudioClip _relayClickClip;
+
+        [Tooltip("Clip de arranque del motor de tracción y engranajes pesados.")]
+        [SerializeField] private AudioClip _motorStartClip;
+
+        [Tooltip("Clip de zumbido continuo o traqueteo de descenso.")]
+        [SerializeField] private AudioClip _engineLoopClip;
+
+        [Header("Comportamiento de Iluminación (LightFlicker)")]
+        [Tooltip("Luces de la cabina del elevador que parpadearán violentamente durante la activación.")]
+        [SerializeField] private List<LightFlicker> _cabinLights = new List<LightFlicker>();
+
+        [Tooltip("Frecuencia mínima de espera en parpadeo agresivo (segundos).")]
+        [SerializeField] private float _aggressiveMinWait = 0.015f;
+
+        [Tooltip("Frecuencia máxima de espera en parpadeo agresivo (segundos).")]
+        [SerializeField] private float _aggressiveMaxWait = 0.05f;
+
+        [Tooltip("Probabilidad de apagón instantáneo durante el arranque del motor (0.0 a 1.0).")]
+        [Range(0f, 1f)]
+        [SerializeField] private float _aggressiveBlackoutChance = 0.45f;
+
+        [Header("Efectos de Cámara (Screen Shake)")]
+        [Tooltip("Intensidad de trauma aplicado a la cámara por la vibración del motor.")]
+        [Range(0f, 1f)]
+        [SerializeField] private float _cameraShakeTrauma = 0.40f;
+
+        // ════════════════════════════════════════════════════════════════════
+        // ESTADO INTERNO Y CACHÉ
         // ════════════════════════════════════════════════════════════════════
 
         private Collider _triggerCollider;
         private Transform _playerTransform;
         private Camera _mainCamera;
+        private FirstPersonController _cachedPlayerController;
+        private CharacterController _cachedCharacterController;
+
         private bool _isPlayerInTrigger = false;
         private bool _isPlayerLookingAtPanel = false;
         private bool _isActivating = false;
         private bool _isSequenceCompleted = false;
+
+        // Caché de parámetros de iluminación originales para restauración
+        private struct LightOriginalParams
+        {
+            public float minInt;
+            public float maxInt;
+            public float minWait;
+            public float maxWait;
+            public float blackout;
+        }
+        private readonly List<LightOriginalParams> _originalLightParams = new List<LightOriginalParams>();
 
         // ════════════════════════════════════════════════════════════════════
         // EVENTOS PÚBLICOS
@@ -73,9 +138,14 @@ namespace DemenciaNoLimite.Level
         public event Action<bool> OnPlayerProximityChanged;
 
         /// <summary>
-        /// Se dispara al presionar con éxito la tecla de interacción.
+        /// Se dispara al iniciar la secuencia de activación mecánica del panel.
         /// </summary>
-        public event Action OnPanelInteracted;
+        public event Action OnPanelActivationStarted;
+
+        /// <summary>
+        /// Se dispara al completarse la secuencia mecánica previa al cambio de piso.
+        /// </summary>
+        public event Action OnPanelSequenceFinished;
 
         // ════════════════════════════════════════════════════════════════════
         // PROPIEDADES PÚBLICAS
@@ -98,6 +168,8 @@ namespace DemenciaNoLimite.Level
                 _triggerCollider.isTrigger = true;
             }
 
+            InicializarAudioSource();
+            LocalizarLucesCabina();
             _mainCamera = Camera.main;
         }
 
@@ -124,7 +196,63 @@ namespace DemenciaNoLimite.Level
 
                 if (IsPlayerInRange && Input.GetKeyDown(_interactKey))
                 {
-                    EjecutarInteraccion();
+                    IniciarSecuenciaActivacion();
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // INICIALIZACIÓN Y CACHÉ
+        // ════════════════════════════════════════════════════════════════════
+
+        private void InicializarAudioSource()
+        {
+            if (_audioSource == null)
+            {
+                _audioSource = GetComponent<AudioSource>();
+            }
+
+            if (_audioSource == null)
+            {
+                _audioSource = gameObject.AddComponent<AudioSource>();
+                _audioSource.playOnAwake = false;
+                _audioSource.spatialBlend = 1.0f; // Audio 3D industrial
+                _audioSource.minDistance = 2.0f;
+                _audioSource.maxDistance = 16.0f;
+                _audioSource.rolloffMode = AudioRolloffMode.Linear;
+            }
+        }
+
+        private void LocalizarLucesCabina()
+        {
+            if (_cabinLights == null || _cabinLights.Count == 0)
+            {
+                _cabinLights = new List<LightFlicker>();
+
+                // 1. Buscar en hijos directos
+                _cabinLights.AddRange(GetComponentsInChildren<LightFlicker>());
+
+                // 2. Si no hay en hijos, buscar en la raíz del prefab del elevador
+                if (_cabinLights.Count == 0 && transform.root != null)
+                {
+                    _cabinLights.AddRange(transform.root.GetComponentsInChildren<LightFlicker>());
+                }
+            }
+
+            // Guardar configuración original de las luces
+            _originalLightParams.Clear();
+            foreach (var light in _cabinLights)
+            {
+                if (light != null)
+                {
+                    _originalLightParams.Add(new LightOriginalParams
+                    {
+                        minInt = light.MinIntensity,
+                        maxInt = light.MaxIntensity,
+                        minWait = light.MinWaitTime,
+                        maxWait = light.MaxWaitTime,
+                        blackout = light.BlackoutChance
+                    });
                 }
             }
         }
@@ -139,6 +267,7 @@ namespace DemenciaNoLimite.Level
 
             _playerTransform = other.transform;
             _isPlayerInTrigger = true;
+            CachearComponentesJugador(other.gameObject);
             ActualizarVerificacionVisual();
 
             OnPlayerProximityChanged?.Invoke(IsPlayerInRange);
@@ -161,7 +290,24 @@ namespace DemenciaNoLimite.Level
         {
             if (other.CompareTag(_playerTag)) return true;
             if (other.attachedRigidbody != null && other.attachedRigidbody.CompareTag(_playerTag)) return true;
+            if (other.GetComponentInParent<FirstPersonController>() != null) return true;
+            if (other.GetComponentInParent<PlayerManager>() != null) return true;
             return false;
+        }
+
+        private void CachearComponentesJugador(GameObject playerObj)
+        {
+            _cachedPlayerController = playerObj.GetComponentInParent<FirstPersonController>();
+            if (_cachedPlayerController == null && PlayerManager.Instance != null)
+            {
+                _cachedPlayerController = PlayerManager.Instance.Controller;
+            }
+
+            _cachedCharacterController = playerObj.GetComponentInParent<CharacterController>();
+            if (_cachedCharacterController == null && PlayerManager.Instance != null)
+            {
+                _cachedCharacterController = PlayerManager.Instance.CharacterController;
+            }
         }
 
         private void ActualizarVerificacionVisual()
@@ -181,7 +327,6 @@ namespace DemenciaNoLimite.Level
                 return;
             }
 
-            // Vector desde la cámara del jugador hacia el panel
             Vector3 dirToPanel = (transform.position - _mainCamera.transform.position).normalized;
             float angle = Vector3.Angle(_mainCamera.transform.forward, dirToPanel);
 
@@ -204,15 +349,139 @@ namespace DemenciaNoLimite.Level
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // PROCESAMIENTO DE INTERACCIÓN
+        // SECUENCIA DE ACTIVACIÓN MECÁNICA Y AUDIO-VISUAL
         // ════════════════════════════════════════════════════════════════════
 
-        private void EjecutarInteraccion()
+        /// <summary>
+        /// Inicia la rutina de activación del elevador bloqueando al jugador,
+        /// desatando chispazos en las luces y arrancando el motor mecánico.
+        /// </summary>
+        public void IniciarSecuenciaActivacion()
         {
             if (_isActivating || _isSequenceCompleted) return;
 
-            Debug.Log($"[ElevatorPanelController] Jugador interactuó con el panel '{name}' mediante tecla [{_interactKey}].");
-            OnPanelInteracted?.Invoke();
+            StartCoroutine(RutinaSecuenciaActivacion());
+        }
+
+        private IEnumerator RutinaSecuenciaActivacion()
+        {
+            _isActivating = true;
+            ActualizarUIExterna();
+
+            Debug.Log($"[ElevatorPanelController] Iniciando secuencia de arranque de elevador en '{name}'...");
+            OnPanelActivationStarted?.Invoke();
+
+            // 1. Bloquear temporalmente el movimiento físico del jugador
+            if (_lockPlayerMovement)
+            {
+                BloquearMovimientoJugador(true);
+            }
+
+            // 2. Sonido inicial: Switch/relé electromagnético
+            if (_audioSource != null && _relayClickClip != null)
+            {
+                _audioSource.PlayOneShot(_relayClickClip, 1.0f);
+            }
+
+            // Pequeña pausa de tensión de 0.2 segundos antes del impacto del motor
+            yield return new WaitForSeconds(0.22f);
+
+            // 3. Activar parpadeo violento y errático en las luces de cabina (LightFlicker)
+            ActivarParpadeoAgresivoLuces(true);
+
+            // 4. Sonido de arranque de motor y vibración de cámara
+            if (_audioSource != null)
+            {
+                if (_motorStartClip != null)
+                {
+                    _audioSource.PlayOneShot(_motorStartClip, 1.0f);
+                }
+
+                if (_engineLoopClip != null)
+                {
+                    _audioSource.clip = _engineLoopClip;
+                    _audioSource.loop = true;
+                    _audioSource.Play();
+                }
+            }
+
+            // Sacudida de cámara (Screen Shake) por la tracción mecánica
+            if (ScreenShakeController.Instance != null && _cameraShakeTrauma > 0f)
+            {
+                ScreenShakeController.Instance.AddTrauma(_cameraShakeTrauma);
+            }
+
+            // Esperar el grueso de la secuencia de viaje/arranque
+            float remainingTime = Mathf.Max(0.5f, _sequenceDuration - 0.22f);
+            float timer = 0f;
+
+            while (timer < remainingTime)
+            {
+                timer += Time.deltaTime;
+
+                // Micro-temblores continuos durante el descenso
+                if (ScreenShakeController.Instance != null && timer % 0.4f < Time.deltaTime)
+                {
+                    ScreenShakeController.Instance.AddTrauma(0.08f);
+                }
+
+                yield return null;
+            }
+
+            Debug.Log("[ElevatorPanelController] Secuencia mecánica completada. Notificando finalización...");
+            if (_audioSource != null && _audioSource.isPlaying && _engineLoopClip != null && _audioSource.clip == _engineLoopClip)
+            {
+                _audioSource.Stop();
+                _audioSource.loop = false;
+            }
+
+            _isSequenceCompleted = true;
+            _isActivating = false;
+
+            OnPanelSequenceFinished?.Invoke();
+        }
+
+        private void BloquearMovimientoJugador(bool bloquear)
+        {
+            if (_cachedPlayerController == null && PlayerManager.Instance != null)
+            {
+                _cachedPlayerController = PlayerManager.Instance.Controller;
+            }
+
+            if (_cachedPlayerController != null)
+            {
+                _cachedPlayerController.SetMovementEnabled(!bloquear);
+            }
+
+            if (_cachedCharacterController == null && PlayerManager.Instance != null)
+            {
+                _cachedCharacterController = PlayerManager.Instance.CharacterController;
+            }
+        }
+
+        private void ActivarParpadeoAgresivoLuces(bool agresivo)
+        {
+            for (int i = 0; i < _cabinLights.Count; i++)
+            {
+                var light = _cabinLights[i];
+                if (light == null) continue;
+
+                if (agresivo)
+                {
+                    light.SetDynamicParameters(
+                        0.0f,
+                        light.MaxIntensity * 1.35f,
+                        _aggressiveMinWait,
+                        _aggressiveMaxWait,
+                        _aggressiveBlackoutChance
+                    );
+                }
+                else if (i < _originalLightParams.Count)
+                {
+                    var orig = _originalLightParams[i];
+                    light.SetDynamicParameters(orig.minInt, orig.maxInt, orig.minWait, orig.maxWait, orig.blackout);
+                }
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -226,28 +495,23 @@ namespace DemenciaNoLimite.Level
             if (_mainCamera == null) _mainCamera = Camera.main;
             if (_mainCamera == null) return;
 
-            // Proyección al espacio de pantalla centrada sobre el panel físico
             Vector3 worldAnchor = transform.position + Vector3.up * 0.25f;
             Vector3 screenPos = _mainCamera.WorldToScreenPoint(worldAnchor);
 
-            // Descartar si el panel queda detrás de la cámara
             if (screenPos.z < 0.2f || screenPos.z > 20f) return;
 
             float alpha = Mathf.Clamp01(1f - (screenPos.z / 15f));
             float boxWidth = 280f;
             float boxHeight = 58f;
             float posX = (Screen.width * 0.5f) - (boxWidth * 0.5f);
-            float posY = Screen.height * 0.68f; // Posicionado ergonómicamente bajo la retícula central
+            float posY = Screen.height * 0.68f;
 
-            // Fondo translúcido de grado industrial
             GUI.color = new Color(0.04f, 0.05f, 0.06f, alpha * 0.85f);
             GUI.Box(new Rect(posX, posY, boxWidth, boxHeight), GUIContent.none);
 
-            // Borde superior iluminado (estilo terminal de Sector Cero)
             GUI.color = new Color(0.2f, 0.85f, 0.95f, alpha * 0.9f);
             GUI.Box(new Rect(posX, posY, boxWidth, 2f), GUIContent.none);
 
-            // Texto de acción principal
             var styleTitle = new GUIStyle(GUI.skin.label)
             {
                 alignment = TextAnchor.MiddleCenter,
@@ -257,7 +521,6 @@ namespace DemenciaNoLimite.Level
             styleTitle.normal.textColor = new Color(0.95f, 0.95f, 0.95f, alpha);
             GUI.Label(new Rect(posX, posY + 6, boxWidth, 22), _promptActionText, styleTitle);
 
-            // Texto de tecla de interacción
             var styleSub = new GUIStyle(GUI.skin.label)
             {
                 alignment = TextAnchor.MiddleCenter,

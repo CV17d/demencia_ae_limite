@@ -88,6 +88,14 @@ namespace DemenciaNoLimite.Player
         [SerializeField] private float _floatRotateSpeed = 25f;
 
         // ════════════════════════════════════════════════════════════════════
+        // CONFIGURACIÓN DE ESTADO BASE Y PERMANENCIA
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Estado Base / Exploración Libre")]
+        [Tooltip("Estado por defecto durante la exploración regular del jugador. La mano permanece siempre visible.")]
+        [SerializeField] private HandState _defaultState = HandState.EquippedItem;
+
+        // ════════════════════════════════════════════════════════════════════
         // CONFIGURACIÓN DE EFECTO QUEMADURA (BURNED BY EXPLOSION)
         // ════════════════════════════════════════════════════════════════════
 
@@ -95,16 +103,16 @@ namespace DemenciaNoLimite.Player
         [Tooltip("Tiempo en segundos que permanece visible la mano quemada antes de restablecerse.")]
         [SerializeField] private float _burnDuration = 3.0f;
 
-        [Tooltip("Estado al que regresará la mano tras finalizar la duración de la quemadura.")]
-        [SerializeField] private HandState _stateAfterBurn = HandState.Hidden;
+        [Tooltip("Estado al que regresará la mano tras finalizar la duración de la quemadura (nunca Hidden).")]
+        [SerializeField] private HandState _stateAfterBurn = HandState.EquippedItem;
 
         // ════════════════════════════════════════════════════════════════════
         // ESTADO INTERNO
         // ════════════════════════════════════════════════════════════════════
 
         [Header("Estado Actual (Solo Lectura)")]
-        [SerializeField] private HandState _currentState = HandState.Hidden;
-        private HandState _previousState = HandState.Hidden;
+        [SerializeField] private HandState _currentState = HandState.EquippedItem;
+        private HandState _previousState = HandState.EquippedItem;
 
         private GameObject _currentFloatingItemInstance;
         private Coroutine _burnCoroutine;
@@ -129,11 +137,13 @@ namespace DemenciaNoLimite.Player
         // ════════════════════════════════════════════════════════════════════
 
         public HandState CurrentState => _currentState;
+        public HandState DefaultState => _defaultState;
         public Transform FloatingItemAnchor => _floatingItemAnchor;
         public GameObject CurrentFloatingItem => _currentFloatingItemInstance;
         public bool IsHoldingItem => _currentState == HandState.HoldingItem;
         public bool IsEquipped => _currentState == HandState.EquippedItem;
         public bool IsBurned => _currentState == HandState.BurnedByExplosion;
+        public bool IsVisible => _currentState != HandState.Hidden;
 
         // ════════════════════════════════════════════════════════════════════
         // CICLO DE VIDA MONOBEHAVIOUR
@@ -146,9 +156,19 @@ namespace DemenciaNoLimite.Player
             AsegurarPuntoDeAnclaje();
         }
 
+        private void OnEnable()
+        {
+            SuscribirEventosInventario();
+        }
+
         private void Start()
         {
-            // Aplicar el estado inicial configurado
+            // Garantizar que la mano comience siempre visible en el estado base configurado
+            if (_currentState == HandState.Hidden)
+            {
+                _currentState = (_defaultState != HandState.Hidden) ? _defaultState : HandState.EquippedItem;
+            }
+
             ActualizarVisualesEstado(_currentState);
         }
 
@@ -163,6 +183,8 @@ namespace DemenciaNoLimite.Player
 
         private void OnDisable()
         {
+            DesuscribirEventosInventario();
+
             if (_burnCoroutine != null)
             {
                 StopCoroutine(_burnCoroutine);
@@ -252,9 +274,11 @@ namespace DemenciaNoLimite.Player
         }
 
         /// <summary>
-        /// Destruye y remueve cualquier ítem flotante actualmente instanciado en la palma.
+        /// Destruye y remueve cualquier ítem flotante actualmente instanciado en la palma,
+        /// y opcionalmente retorna la mano al estado base visible (EquippedItem / exploración).
         /// </summary>
-        public void ClearFloatingItem()
+        /// <param name="returnToDefaultState">Si es true y la mano estaba en HoldingItem, retorna al estado base visible.</param>
+        public void ClearFloatingItem(bool returnToDefaultState = true)
         {
             if (_currentFloatingItemInstance != null)
             {
@@ -274,6 +298,37 @@ namespace DemenciaNoLimite.Player
             if (_floatingItemAnchor != null)
             {
                 _floatingItemAnchor.localPosition = _anchorBaseLocalPosition;
+            }
+
+            if (returnToDefaultState && _currentState == HandState.HoldingItem)
+            {
+                SetHandState(_defaultState != HandState.Hidden ? _defaultState : HandState.EquippedItem);
+            }
+        }
+
+        /// <summary>
+        /// Restablece la mano al estado base visible de exploración libre (EquippedItem / mano empuñada base).
+        /// </summary>
+        public void ResetToDefaultHand()
+        {
+            ClearFloatingItem(returnToDefaultState: false);
+            SetHandState(_defaultState != HandState.Hidden ? _defaultState : HandState.EquippedItem);
+        }
+
+        /// <summary>
+        /// Oculta o restaura la mano exclusivamente para eventos especiales (cinemáticas o menús modales).
+        /// En el gameplay regular, la mano permanece renderizada de forma permanente.
+        /// </summary>
+        /// <param name="hide">True para ocultar en cinemática (Hidden); False para restaurar la vista base visible.</param>
+        public void SetCinematicHidden(bool hide)
+        {
+            if (hide)
+            {
+                SetHandState(HandState.Hidden);
+            }
+            else if (_currentState == HandState.Hidden)
+            {
+                SetHandState(_defaultState != HandState.Hidden ? _defaultState : HandState.EquippedItem);
             }
         }
 
@@ -360,9 +415,44 @@ namespace DemenciaNoLimite.Player
 
             _burnCoroutine = null;
 
-            // Retornar al estado previo si era válido o al configurado por defecto
-            HandState targetState = (_previousState != HandState.BurnedByExplosion) ? _previousState : _stateAfterBurn;
+            // Retornar al estado previo si era un estado visible válido; de lo contrario, usar _stateAfterBurn (o _defaultState) garantizando que nunca sea Hidden
+            HandState fallback = (_stateAfterBurn != HandState.Hidden && _stateAfterBurn != HandState.BurnedByExplosion)
+                ? _stateAfterBurn
+                : (_defaultState != HandState.Hidden ? _defaultState : HandState.EquippedItem);
+
+            HandState targetState = (_previousState != HandState.BurnedByExplosion && _previousState != HandState.Hidden)
+                ? _previousState
+                : fallback;
+
             SetHandState(targetState);
+        }
+
+        private void SuscribirEventosInventario()
+        {
+            PlayerInventory inventory = GetComponentInParent<PlayerInventory>() ?? FindAnyObjectByType<PlayerInventory>();
+            if (inventory != null)
+            {
+                inventory.OnActiveWeaponChanged -= HandleActiveWeaponChanged;
+                inventory.OnActiveWeaponChanged += HandleActiveWeaponChanged;
+            }
+        }
+
+        private void DesuscribirEventosInventario()
+        {
+            PlayerInventory inventory = GetComponentInParent<PlayerInventory>() ?? FindAnyObjectByType<PlayerInventory>();
+            if (inventory != null)
+            {
+                inventory.OnActiveWeaponChanged -= HandleActiveWeaponChanged;
+            }
+        }
+
+        private void HandleActiveWeaponChanged(WeaponSlotInstance weapon)
+        {
+            // Al cambiar de arma, si la mano no está en quemadura ni inspeccionando ítem, mostrar la mano empuñada
+            if (_currentState != HandState.BurnedByExplosion && _currentState != HandState.HoldingItem && _currentState != HandState.Hidden)
+            {
+                SetHandState(HandState.EquippedItem);
+            }
         }
 
         private void ActualizarAnimacionItemFlotante()

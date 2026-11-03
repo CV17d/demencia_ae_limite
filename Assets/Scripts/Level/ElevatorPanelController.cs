@@ -10,18 +10,29 @@
 // - Secuencia de activación con bloqueo temporal de movimiento del jugador.
 // - Reproducción de efectos mecánicos (relés, arranque de motor y vibración de cámara).
 // - Activación de parpadeo eléctrico agresivo en las luces de cabina (LightFlicker).
+// - Comunicación directa con el sistema de pisos procedural (LevelGenerator / GameManager)
+//   para ejecutar la transición al siguiente nivel o piso de la torre.
 // ============================================================================
 
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Events;
+using DemenciaNoLimite.Core;
 using DemenciaNoLimite.Environment;
 using DemenciaNoLimite.Horror;
 using DemenciaNoLimite.Player;
 
 namespace DemenciaNoLimite.Level
 {
+    public enum ElevatorDirection
+    {
+        SiguientePiso,
+        BajarPiso,
+        SubirPiso
+    }
+
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Collider))]
     public class ElevatorPanelController : MonoBehaviour
@@ -103,6 +114,20 @@ namespace DemenciaNoLimite.Level
         [SerializeField] private float _cameraShakeTrauma = 0.40f;
 
         // ════════════════════════════════════════════════════════════════════
+        // INTEGRACIÓN CON EL SISTEMA DE PISOS / TORRE
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Transición de Pisos")]
+        [Tooltip("Dirección del desplazamiento en la torre/sector.")]
+        [SerializeField] private ElevatorDirection _direction = ElevatorDirection.SiguientePiso;
+
+        [Tooltip("Referencia explícita a LevelGenerator. Si no se asigna, se buscará automáticamente en la escena.")]
+        [SerializeField] private LevelGenerator _levelGenerator;
+
+        [Tooltip("Evento de Unity configurable desde el Inspector para disparar cinemáticas o integraciones personalizadas.")]
+        [SerializeField] private UnityEvent _onFloorTransitionInvoked;
+
+        // ════════════════════════════════════════════════════════════════════
         // ESTADO INTERNO Y CACHÉ
         // ════════════════════════════════════════════════════════════════════
 
@@ -147,6 +172,11 @@ namespace DemenciaNoLimite.Level
         /// </summary>
         public event Action OnPanelSequenceFinished;
 
+        /// <summary>
+        /// Se dispara en el momento exacto en que se solicita la transición de piso. Provee el piso destino.
+        /// </summary>
+        public event Action<int> OnFloorTransitionTriggered;
+
         // ════════════════════════════════════════════════════════════════════
         // PROPIEDADES PÚBLICAS
         // ════════════════════════════════════════════════════════════════════
@@ -155,6 +185,7 @@ namespace DemenciaNoLimite.Level
         public bool IsActivating => _isActivating;
         public bool IsSequenceCompleted => _isSequenceCompleted;
         public KeyCode InteractKey => _interactKey;
+        public ElevatorDirection Direction { get => _direction; set => _direction = value; }
 
         // ════════════════════════════════════════════════════════════════════
         // CICLO DE VIDA MONOBEHAVIOUR
@@ -170,6 +201,7 @@ namespace DemenciaNoLimite.Level
 
             InicializarAudioSource();
             LocalizarLucesCabina();
+            ResolverGeneradorDeNivel();
             _mainCamera = Camera.main;
         }
 
@@ -178,6 +210,11 @@ namespace DemenciaNoLimite.Level
             if (_mainCamera == null)
             {
                 _mainCamera = Camera.main;
+            }
+
+            if (_levelGenerator == null)
+            {
+                ResolverGeneradorDeNivel();
             }
 
             if (_externalPromptUI != null)
@@ -204,6 +241,14 @@ namespace DemenciaNoLimite.Level
         // ════════════════════════════════════════════════════════════════════
         // INICIALIZACIÓN Y CACHÉ
         // ════════════════════════════════════════════════════════════════════
+
+        private void ResolverGeneradorDeNivel()
+        {
+            if (_levelGenerator == null)
+            {
+                _levelGenerator = FindAnyObjectByType<LevelGenerator>();
+            }
+        }
 
         private void InicializarAudioSource()
         {
@@ -371,6 +416,9 @@ namespace DemenciaNoLimite.Level
             Debug.Log($"[ElevatorPanelController] Iniciando secuencia de arranque de elevador en '{name}'...");
             OnPanelActivationStarted?.Invoke();
 
+            // Desactivar temporalmente cualquier sensor pasivo en el mismo prefab para evitar doble disparo
+            DesactivarTriggersSecundarios();
+
             // 1. Bloquear temporalmente el movimiento físico del jugador
             if (_lockPlayerMovement)
             {
@@ -383,7 +431,7 @@ namespace DemenciaNoLimite.Level
                 _audioSource.PlayOneShot(_relayClickClip, 1.0f);
             }
 
-            // Pequeña pausa de tensión de 0.2 segundos antes del impacto del motor
+            // Pequeña pausa de tensión de 0.22s antes del arranque del motor
             yield return new WaitForSeconds(0.22f);
 
             // 3. Activar parpadeo violento y errático en las luces de cabina (LightFlicker)
@@ -411,7 +459,7 @@ namespace DemenciaNoLimite.Level
                 ScreenShakeController.Instance.AddTrauma(_cameraShakeTrauma);
             }
 
-            // Esperar el grueso de la secuencia de viaje/arranque
+            // Esperar el tiempo de tensión mecánica
             float remainingTime = Mathf.Max(0.5f, _sequenceDuration - 0.22f);
             float timer = 0f;
 
@@ -428,7 +476,7 @@ namespace DemenciaNoLimite.Level
                 yield return null;
             }
 
-            Debug.Log("[ElevatorPanelController] Secuencia mecánica completada. Notificando finalización...");
+            Debug.Log("[ElevatorPanelController] Secuencia mecánica completada. Ejecutando cambio de piso...");
             if (_audioSource != null && _audioSource.isPlaying && _engineLoopClip != null && _audioSource.clip == _engineLoopClip)
             {
                 _audioSource.Stop();
@@ -439,6 +487,21 @@ namespace DemenciaNoLimite.Level
             _isActivating = false;
 
             OnPanelSequenceFinished?.Invoke();
+
+            // 5. Ejecutar la transición de piso en la torre procedural
+            EjecutarTransicionDePiso();
+        }
+
+        private void DesactivarTriggersSecundarios()
+        {
+            var exitTriggers = transform.root.GetComponentsInChildren<ElevatorExitTrigger>();
+            foreach (var exitTrigger in exitTriggers)
+            {
+                if (exitTrigger != null && exitTrigger.enabled)
+                {
+                    exitTrigger.enabled = false;
+                }
+            }
         }
 
         private void BloquearMovimientoJugador(bool bloquear)
@@ -482,6 +545,56 @@ namespace DemenciaNoLimite.Level
                     light.SetDynamicParameters(orig.minInt, orig.maxInt, orig.minWait, orig.maxWait, orig.blackout);
                 }
             }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // EJECUCIÓN DEL CAMBIO DE PISO PROCEDURAL
+        // ════════════════════════════════════════════════════════════════════
+
+        private void EjecutarTransicionDePiso()
+        {
+            int targetFloor = 1;
+
+            if (GameManager.Instance != null)
+            {
+                targetFloor = _direction == ElevatorDirection.BajarPiso
+                    ? GameManager.Instance.CurrentFloorNumber + 1
+                    : (_direction == ElevatorDirection.SubirPiso
+                        ? Mathf.Max(1, GameManager.Instance.CurrentFloorNumber - 1)
+                        : GameManager.Instance.CurrentFloorNumber + 1);
+            }
+            else if (_levelGenerator != null)
+            {
+                targetFloor = _levelGenerator.PisoActual + 1;
+            }
+
+            OnFloorTransitionTriggered?.Invoke(targetFloor);
+            _onFloorTransitionInvoked?.Invoke();
+
+            // 1. Prioridad: LevelGenerator si existe en escena (maneja regeneración procedural de Sector Cero)
+            if (_levelGenerator == null)
+            {
+                ResolverGeneradorDeNivel();
+            }
+
+            if (_levelGenerator != null)
+            {
+                Debug.Log($"[ElevatorPanelController] Solicitando GenerarSiguientePiso() a LevelGenerator (Piso actual: {_levelGenerator.PisoActual})...");
+                _levelGenerator.GenerarSiguientePiso();
+                return;
+            }
+
+            // 2. Alternativa: GameManager (arquitectura de torre por teletransporte vertical)
+            if (GameManager.Instance != null)
+            {
+                Debug.Log($"[ElevatorPanelController] Solicitando TeleportToFloor({targetFloor}) a GameManager...");
+                GameManager.Instance.TeleportToFloor(targetFloor);
+                BloquearMovimientoJugador(false);
+                return;
+            }
+
+            Debug.LogError("[ElevatorPanelController] No se encontró ni LevelGenerator ni GameManager en la escena para procesar el cambio de piso.");
+            BloquearMovimientoJugador(false);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -536,6 +649,22 @@ namespace DemenciaNoLimite.Level
         {
             Gizmos.color = Color.cyan;
             Gizmos.DrawWireSphere(transform.position, _interactionDistance);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // MENÚS CONTEXTUALES DE DEPURACIÓN EN EDITOR
+        // ════════════════════════════════════════════════════════════════════
+
+        [ContextMenu("Probar / Iniciar Secuencia de Activación")]
+        private void TestIniciarSecuencia()
+        {
+            IniciarSecuenciaActivacion();
+        }
+
+        [ContextMenu("Probar / Forzar Cambio de Piso")]
+        private void TestForzarCambioPiso()
+        {
+            EjecutarTransicionDePiso();
         }
     }
 }

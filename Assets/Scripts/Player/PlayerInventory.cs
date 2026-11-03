@@ -55,7 +55,7 @@ namespace DemenciaNoLimite.Player
             }
         }
 
-        public bool AddWeapon(WeaponData weaponData)
+        public bool AddWeapon(WeaponData weaponData, bool autoEquip = true)
         {
             if (weaponData == null) return false;
 
@@ -63,6 +63,10 @@ namespace DemenciaNoLimite.Player
             {
                 var instance = new WeaponSlotInstance(weaponData);
                 _slots.Add(instance);
+                if (autoEquip || _slots.Count == 1)
+                {
+                    EquipSlot(_slots.Count - 1);
+                }
                 return true;
             }
 

@@ -2,16 +2,24 @@
 // PlayerWeaponEquipManager.cs — Gestor de Equipamiento e Instanciamiento de Armas 3D
 // ============================================================================
 // Coordina la visualización en primera persona de los modelos 3D de las armas:
-// - Instancia y destruye prefabs 3D en el punto de anclaje (WeaponHolder).
-// - Asigna recursivamente la capa "Weapon" para filtrado de cámaras secundarias.
+// - Instancia y emparenta prefabs 3D directamente bajo el WeaponHolder de la Main Camera.
+// - Restablece posición local a cero (o offset frontal), rotación y escala a (1,1,1).
+// - Elimina/neutraliza componentes físicos (Colliders y Rigidbodies) para evitar colisiones.
+// - Carga automática de prefabs desde Assets/Prefabs/Entornos/Armas_Prefab/ o Resources.
+// - Asigna recursivamente la capa "Weapon" garantizando el cullingMask de la Main Camera.
 // - Sincroniza el estado de la mano 2D diegética (PlayerHandController -> HandState.EquippedItem).
-// - Escucha automáticamente los cambios de ranura de PlayerInventory.
+// - Escucha automáticamente cambios de ranura de PlayerInventory y recogidas de WorldItemPickup.
 // ============================================================================
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using DemenciaNoLimite.Core.Data;
+
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 #pragma warning disable CS0649
 
@@ -23,7 +31,7 @@ namespace DemenciaNoLimite.Player
     [Serializable]
     public class Weapon3DMapping
     {
-        [Tooltip("Identificador único del arma (ej. 'Pistola9mm', 'EscopetaTrinchera').")]
+        [Tooltip("Identificador único del arma (ej. 'bingala', 'revolver', 'demencia revolver', 'muak', 'trabeca').")]
         public string weaponId;
 
         [Tooltip("ScriptableObject de WeaponData opcional asociado al arma.")]
@@ -65,20 +73,20 @@ namespace DemenciaNoLimite.Player
         [Tooltip("Transform contenedor donde se anclan los modelos 3D de las armas directamente como hijo de la Main Camera.")]
         [SerializeField] private Transform _weaponHolder;
 
-        [Tooltip("Nombre de la capa para el modelo del arma (ej. 'Default' o 'Weapon').")]
-        [SerializeField] private string _weaponLayerName = "Default";
+        [Tooltip("Nombre de la capa para el modelo del arma (ej. 'Weapon' o 'Default').")]
+        [SerializeField] private string _weaponLayerName = "Weapon";
 
         [Tooltip("Asegura automáticamente que la Main Camera incluya esta capa en su cullingMask para que sea visible en pantalla.")]
         [SerializeField] private bool _ensureCameraCullingMask = true;
 
         [Tooltip("Posición local por defecto del WeaponHolder frente a la vista de la cámara.")]
-        [SerializeField] private Vector3 _defaultHolderPosition = new Vector3(0.24f, -0.20f, 0.45f);
+        [SerializeField] private Vector3 _defaultHolderPosition = new Vector3(0.22f, -0.18f, 0.42f);
 
         [Tooltip("Rotación local por defecto del WeaponHolder.")]
         [SerializeField] private Vector3 _defaultHolderRotation = Vector3.zero;
 
         // ════════════════════════════════════════════════════════════════════
-        // INTEGRACIÓN DIEGÉTICA Y ANIMACIÓN PROCEDIMENTAL (SWAY / BOB)
+        // INTEGRACIÓN DIEGÉTICA Y ANIMACIÓN PROCEDIMENTAL (SWAY)
         // ════════════════════════════════════════════════════════════════════
 
         [Header("Balanceo e Inercia Procedimental (Weapon Sway)")]
@@ -195,9 +203,7 @@ namespace DemenciaNoLimite.Player
 
         /// <summary>
         /// Equipa un arma mediante su ScriptableObject de WeaponData.
-        /// Instancia su modelo 3D, asigna la capa Weapon y sincroniza la mano 2D.
         /// </summary>
-        /// <param name="weaponData">Datos del arma a instanciar.</param>
         public void EquipWeapon(WeaponData weaponData)
         {
             if (weaponData == null)
@@ -206,23 +212,12 @@ namespace DemenciaNoLimite.Player
                 return;
             }
 
-            // Buscar mapeo por WeaponData o por WeaponID
-            Weapon3DMapping mapping = null;
-            if (!_mappingsByData.TryGetValue(weaponData, out mapping))
-            {
-                if (!string.IsNullOrEmpty(weaponData.WeaponID))
-                {
-                    _mappingsById.TryGetValue(weaponData.WeaponID, out mapping);
-                }
-            }
-
-            InstanciarModeloArma(mapping, weaponData, weaponData.WeaponID);
+            EquipWeaponExplicit(weaponData.WeaponID, weaponData, null);
         }
 
         /// <summary>
         /// Equipa un arma buscando su prefab por su identificador de texto.
         /// </summary>
-        /// <param name="weaponId">Identificador configurado en el catálogo.</param>
         public void EquipWeapon(string weaponId)
         {
             if (string.IsNullOrEmpty(weaponId))
@@ -231,8 +226,113 @@ namespace DemenciaNoLimite.Player
                 return;
             }
 
-            _mappingsById.TryGetValue(weaponId, out Weapon3DMapping mapping);
-            InstanciarModeloArma(mapping, mapping?.weaponData, weaponId);
+            EquipWeaponExplicit(weaponId, null, null);
+        }
+
+        /// <summary>
+        /// Equipa directamente un prefab asignado, asociándolo opcionalmente a un WeaponData o ID.
+        /// </summary>
+        public void EquipWeaponPrefab(GameObject prefab, WeaponData data = null, string weaponId = null)
+        {
+            if (prefab == null)
+            {
+                UnequipCurrentWeapon();
+                return;
+            }
+
+            string resolvedId = !string.IsNullOrEmpty(weaponId) ? weaponId : (data != null && !string.IsNullOrEmpty(data.WeaponID) ? data.WeaponID : prefab.name);
+            EquipWeaponExplicit(resolvedId, data, prefab);
+        }
+
+        /// <summary>
+        /// Método nuclear y robusto de equipamiento: resuelve mapping, busca prefab en proyecto si falta,
+        /// instancia limpio bajo WeaponHolder, resetea transform y neutraliza colisiones físicas.
+        /// </summary>
+        public void EquipWeaponExplicit(string weaponId, WeaponData data, GameObject explicitPrefab)
+        {
+            if (_mappingsById.Count == 0 && _weaponCatalog.Count > 0)
+            {
+                ReconstruirDiccionarios();
+            }
+
+            // 1. Limpiar cualquier modelo 3D previo instanciado
+            if (_currentSpawnedWeaponInstance != null)
+            {
+                Destroy(_currentSpawnedWeaponInstance);
+                _currentSpawnedWeaponInstance = null;
+            }
+
+            // 2. Asegurar que el WeaponHolder esté anclado bajo la Main Camera activa
+            Transform holder = AsegurarWeaponHolder();
+            if (holder == null)
+            {
+                Debug.LogError("[PlayerWeaponEquipManager] No se pudo encontrar ni crear WeaponHolder bajo la cámara principal.");
+                return;
+            }
+
+            // 3. Buscar correspondencia en el catálogo configurado
+            Weapon3DMapping mapping = BuscarMapping(weaponId, data);
+
+            // 4. Determinar prefab a instanciar (explícito > mapeado > búsqueda automática en proyecto)
+            GameObject prefabToUse = explicitPrefab ?? mapping?.weaponPrefab;
+            if (prefabToUse == null)
+            {
+                prefabToUse = BuscarPrefabEnProyecto(weaponId);
+            }
+
+            if (prefabToUse == null)
+            {
+                Debug.LogWarning($"[PlayerWeaponEquipManager] No se encontró prefab 3D para el arma identificada como '{weaponId}'. Sincronizando mano diegética.");
+                SincronizarManoDiegetica(HandState.EquippedItem);
+                return;
+            }
+
+            _currentEquippedWeaponData = data ?? mapping?.weaponData;
+            _currentEquippedWeaponId = !string.IsNullOrEmpty(weaponId) ? weaponId : (mapping?.weaponId ?? prefabToUse.name);
+
+            // 5. Instanciar limpiamente bajo WeaponHolder
+            _currentSpawnedWeaponInstance = Instantiate(prefabToUse, holder);
+            _currentSpawnedWeaponInstance.name = $"Weapon3D_{_currentEquippedWeaponId}";
+
+            // 6. Restablecer transform: posición local a cero (o offset), escala a (1,1,1) y orientación
+            Vector3 posOffset = (mapping != null && mapping.localPositionOffset != Vector3.zero) ? mapping.localPositionOffset : Vector3.zero;
+            Vector3 rotOffset = (mapping != null && mapping.localRotationOffset != Vector3.zero) ? mapping.localRotationOffset : Vector3.zero;
+            Vector3 scale = (mapping != null && mapping.localScale != Vector3.zero) ? mapping.localScale : Vector3.one;
+
+            _currentSpawnedWeaponInstance.transform.SetParent(holder, false);
+            _currentSpawnedWeaponInstance.transform.localPosition = posOffset;
+            _currentSpawnedWeaponInstance.transform.localScale = scale;
+
+            if (rotOffset != Vector3.zero)
+            {
+                _currentSpawnedWeaponInstance.transform.localRotation = Quaternion.Euler(rotOffset);
+            }
+            else
+            {
+                // Si no hay rotación de offset explícita, conservar la rotación nativa del prefab
+                _currentSpawnedWeaponInstance.transform.localRotation = prefabToUse.transform.localRotation;
+            }
+
+            // 7. Neutralizar colisiones físicas (Colliders y Rigidbodies) para que no interfieran con el jugador
+            NeutralizarFisicasArma(_currentSpawnedWeaponInstance);
+
+            // 8. Limpiar posibles scripts interactivos de suelo residuales en el viewmodel
+            EliminarComponentesInteractivos(_currentSpawnedWeaponInstance);
+
+            // 9. Asignar capa recursivamente a todos los hijos y garantizar cullingMask en la cámara
+            AsegurarCapaWeapon();
+            if (_cachedWeaponLayer >= 0)
+            {
+                AsignarCapaRecursiva(_currentSpawnedWeaponInstance, _cachedWeaponLayer);
+            }
+
+            // 10. Sincronizar mano 2D diegética al estado empuñado (EquippedItem)
+            SincronizarManoDiegetica(HandState.EquippedItem);
+
+            // 11. Notificar a observadores
+            OnWeaponEquipped?.Invoke(_currentSpawnedWeaponInstance, _currentEquippedWeaponData);
+
+            Debug.Log($"[PlayerWeaponEquipManager] Arma 3D '{_currentEquippedWeaponId}' instanciada exitosamente bajo '{holder.name}' (Padre: {holder.parent?.name}). PosLocal: {posOffset}, Escala: {scale}");
         }
 
         /// <summary>
@@ -249,81 +349,256 @@ namespace DemenciaNoLimite.Player
             _currentEquippedWeaponData = null;
             _currentEquippedWeaponId = "";
 
-            // Notificar a la mano diegética para mantener el estado de descanso
             SincronizarManoDiegetica(HandState.EquippedItem);
-
             OnWeaponUnequipped?.Invoke();
         }
 
-        private void InstanciarModeloArma(Weapon3DMapping mapping, WeaponData data, string weaponId)
+        // ════════════════════════════════════════════════════════════════════
+        // RESOLUCIÓN ROBUSTA DE MAPPINGS Y PREFABS
+        // ════════════════════════════════════════════════════════════════════
+
+        private Weapon3DMapping BuscarMapping(string weaponId, WeaponData data)
         {
-            // Limpiar arma previa si existía
-            if (_currentSpawnedWeaponInstance != null)
+            Weapon3DMapping mapping = null;
+
+            // 1. Coincidencia directa por objeto WeaponData
+            if (data != null && _mappingsByData.TryGetValue(data, out mapping))
             {
-                Destroy(_currentSpawnedWeaponInstance);
-                _currentSpawnedWeaponInstance = null;
+                return mapping;
             }
 
-            AsegurarWeaponHolder();
-
-            _currentEquippedWeaponData = data;
-            _currentEquippedWeaponId = weaponId;
-
-            GameObject prefabToUse = mapping?.weaponPrefab;
-            Vector3 posOffset = (mapping != null) ? mapping.localPositionOffset : Vector3.zero;
-            Vector3 rotOffset = (mapping != null) ? mapping.localRotationOffset : Vector3.zero;
-            Vector3 scale = (mapping != null && mapping.localScale != Vector3.zero) ? mapping.localScale : Vector3.one;
-
-            // Fallback automático por AssetDatabase (Editor) o Resources si el arma no fue mapeada en el Inspector
-            if (prefabToUse == null && !string.IsNullOrEmpty(weaponId))
+            // 2. Coincidencia directa por ID exacto
+            if (!string.IsNullOrEmpty(weaponId) && _mappingsById.TryGetValue(weaponId, out mapping))
             {
+                return mapping;
+            }
+
+            // 3. Búsqueda normalizada y flexible en el catálogo
+            if (!string.IsNullOrEmpty(weaponId))
+            {
+                string normQuery = NormalizarTexto(weaponId);
+
+                foreach (var item in _weaponCatalog)
+                {
+                    if (item == null) continue;
+
+                    string normId = NormalizarTexto(item.weaponId);
+                    if (!string.IsNullOrEmpty(normId) && (normId == normQuery || normId.Contains(normQuery) || normQuery.Contains(normId)))
+                    {
+                        return item;
+                    }
+
+                    if (item.weaponData != null)
+                    {
+                        string normDataId = NormalizarTexto(item.weaponData.WeaponID);
+                        string normDataName = NormalizarTexto(item.weaponData.DisplayName);
+                        if ((!string.IsNullOrEmpty(normDataId) && (normDataId == normQuery || normDataId.Contains(normQuery) || normQuery.Contains(normDataId))) ||
+                            (!string.IsNullOrEmpty(normDataName) && (normDataName == normQuery || normDataName.Contains(normQuery) || normQuery.Contains(normDataName))))
+                        {
+                            return item;
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Busca de forma robusta el prefab del arma en el proyecto (Editor y Runtime).
+        /// </summary>
+        public GameObject BuscarPrefabEnProyecto(string weaponId)
+        {
+            if (string.IsNullOrWhiteSpace(weaponId)) return null;
+
+            string normalizedQuery = NormalizarTexto(weaponId);
+
 #if UNITY_EDITOR
-                string[] searchFolders = new[] { "Assets/Prefabs/Entornos/Armas_Prefab" };
-                string[] guids = UnityEditor.AssetDatabase.FindAssets($"{weaponId} t:Prefab", searchFolders);
-                if (guids != null && guids.Length > 0)
-                {
-                    string assetPath = UnityEditor.AssetDatabase.GUIDToAssetPath(guids[0]);
-                    prefabToUse = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
-                }
-#endif
-                if (prefabToUse == null)
-                {
-                    prefabToUse = Resources.Load<GameObject>($"Weapons/{weaponId}") ??
-                                  Resources.Load<GameObject>($"Armas/{weaponId}") ??
-                                  Resources.Load<GameObject>(weaponId);
-                }
-            }
-
-            // Si se cuenta con un prefab 3D válido
-            if (prefabToUse != null && _weaponHolder != null)
+            // 1. Exploración exhaustiva en la carpeta de prefabs de armas
+            string folderPath = "Assets/Prefabs/Entornos/Armas_Prefab";
+            if (Directory.Exists(folderPath))
             {
-                _currentSpawnedWeaponInstance = Instantiate(prefabToUse, _weaponHolder);
-                _currentSpawnedWeaponInstance.name = $"Weapon3D_{weaponId}";
+                string[] files = Directory.GetFiles(folderPath, "*.prefab", SearchOption.AllDirectories);
 
-                // Configurar transform relativo
-                _currentSpawnedWeaponInstance.transform.localPosition = posOffset;
-                _currentSpawnedWeaponInstance.transform.localRotation = Quaternion.Euler(rotOffset);
-                _currentSpawnedWeaponInstance.transform.localScale = scale;
-
-                // Asignar capa de forma recursiva a todos los hijos y garantizar cullingMask en la Main Camera
-                AsegurarCapaWeapon();
-                if (_cachedWeaponLayer != -1)
+                // Prioridad 1: Coincidencia exacta por nombre de archivo
+                foreach (string file in files)
                 {
-                    AsignarCapaRecursiva(_currentSpawnedWeaponInstance, _cachedWeaponLayer);
+                    string fileName = Path.GetFileNameWithoutExtension(file);
+                    if (string.Equals(fileName, weaponId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var loaded = AssetDatabase.LoadAssetAtPath<GameObject>(file.Replace('\\', '/'));
+                        if (loaded != null) return loaded;
+                    }
                 }
 
-                // Desactivar colisiones físicas en el modelo del arma para no interferir con el CharacterController
-                NeutralizarFisicasArma(_currentSpawnedWeaponInstance);
+                // Prioridad 2: Coincidencia normalizada y por contención de texto
+                foreach (string file in files)
+                {
+                    string fileName = Path.GetFileNameWithoutExtension(file);
+                    string normFile = NormalizarTexto(fileName);
+                    if (!string.IsNullOrEmpty(normFile) && (normFile == normalizedQuery || normFile.Contains(normalizedQuery) || normalizedQuery.Contains(normFile)))
+                    {
+                        var loaded = AssetDatabase.LoadAssetAtPath<GameObject>(file.Replace('\\', '/'));
+                        if (loaded != null) return loaded;
+                    }
+                }
             }
 
-            // Sincronizar mano diegética 2D al estado empuñado (EquippedItem)
-            SincronizarManoDiegetica(HandState.EquippedItem);
+            // 2. Búsqueda en todo el proyecto mediante AssetDatabase
+            string[] guids = AssetDatabase.FindAssets($"{weaponId} t:Prefab", new[] { folderPath, "Assets/Prefabs" });
+            if (guids != null && guids.Length > 0)
+            {
+                string assetPath = AssetDatabase.GUIDToAssetPath(guids[0]);
+                var loaded = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+                if (loaded != null) return loaded;
+            }
 
-            OnWeaponEquipped?.Invoke(_currentSpawnedWeaponInstance, data);
+            // 3. Fallback a modelos FBX si no se ha generado prefab aún
+            string fbxFolder = "Assets/Art/3D/SectorCero/Modelos_Armas";
+            if (Directory.Exists(fbxFolder))
+            {
+                string[] fbxFiles = Directory.GetFiles(fbxFolder, "*.fbx", SearchOption.AllDirectories);
+                foreach (string file in fbxFiles)
+                {
+                    string fileName = Path.GetFileNameWithoutExtension(file);
+                    string normFile = NormalizarTexto(fileName);
+                    if (!string.IsNullOrEmpty(normFile) && (normFile == normalizedQuery || normFile.Contains(normalizedQuery) || normalizedQuery.Contains(normFile)))
+                    {
+                        var loaded = AssetDatabase.LoadAssetAtPath<GameObject>(file.Replace('\\', '/'));
+                        if (loaded != null) return loaded;
+                    }
+                }
+            }
+#endif
+
+            // Fallback en builds finales mediante Resources
+            GameObject resPrefab = Resources.Load<GameObject>($"Weapons/{weaponId}") ??
+                                   Resources.Load<GameObject>($"Armas/{weaponId}") ??
+                                   Resources.Load<GameObject>($"Prefabs/{weaponId}") ??
+                                   Resources.Load<GameObject>(weaponId);
+            return resPrefab;
+        }
+
+        private static string NormalizarTexto(string texto)
+        {
+            if (string.IsNullOrEmpty(texto)) return "";
+            var sb = new System.Text.StringBuilder();
+            foreach (char c in texto.ToLowerInvariant())
+            {
+                if (char.IsLetterOrDigit(c))
+                {
+                    sb.Append(c);
+                }
+            }
+            return sb.ToString();
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // ASIGNACIÓN RECURSIVA DE CAPA (WEAPON LAYER)
+        // ANCLAJE Y CONFIGURACIÓN DEL WEAPON HOLDER
+        // ════════════════════════════════════════════════════════════════════
+
+        public Transform AsegurarWeaponHolder()
+        {
+            Camera targetCam = ObtenerCamaraPrincipal();
+
+            if (targetCam != null)
+            {
+                _mainCamera = targetCam;
+
+                // Buscar WeaponHolder como hijo directo de la cámara
+                Transform existing = targetCam.transform.Find("WeaponHolder");
+                if (existing != null)
+                {
+                    _weaponHolder = existing;
+                }
+                else if (_weaponHolder != null && _weaponHolder.parent != targetCam.transform)
+                {
+                    // Si existía desvinculado o en otro transform, re-emparentarlo a la cámara activa
+                    _weaponHolder.SetParent(targetCam.transform, false);
+                    _weaponHolder.localPosition = _defaultHolderPosition;
+                    _weaponHolder.localRotation = Quaternion.Euler(_defaultHolderRotation);
+                    _weaponHolder.localScale = Vector3.one;
+                }
+                else if (_weaponHolder == null)
+                {
+                    GameObject holderGo = new GameObject("WeaponHolder");
+                    holderGo.transform.SetParent(targetCam.transform, false);
+                    holderGo.transform.localPosition = _defaultHolderPosition;
+                    holderGo.transform.localRotation = Quaternion.Euler(_defaultHolderRotation);
+                    holderGo.transform.localScale = Vector3.one;
+                    _weaponHolder = holderGo.transform;
+                }
+            }
+            else
+            {
+                // Fallback temporal bajo este GameObject si la cámara aún no está disponible
+                if (_weaponHolder == null)
+                {
+                    Transform existing = transform.Find("WeaponHolder");
+                    if (existing != null)
+                    {
+                        _weaponHolder = existing;
+                    }
+                    else
+                    {
+                        GameObject holderGo = new GameObject("WeaponHolder");
+                        holderGo.transform.SetParent(transform, false);
+                        holderGo.transform.localPosition = _defaultHolderPosition;
+                        holderGo.transform.localRotation = Quaternion.Euler(_defaultHolderRotation);
+                        _weaponHolder = holderGo.transform;
+                    }
+                }
+            }
+
+            if (_weaponHolder != null)
+            {
+                _holderInitialLocalPosition = _weaponHolder.localPosition;
+                _holderInitialLocalRotation = _weaponHolder.localRotation;
+            }
+
+            return _weaponHolder;
+        }
+
+        private Camera ObtenerCamaraPrincipal()
+        {
+            if (_mainCamera != null && _mainCamera.isActiveAndEnabled) return _mainCamera;
+
+            // 1. A través de PlayerManager
+            if (_playerManager != null && _playerManager.PlayerCamera != null)
+            {
+                _mainCamera = _playerManager.PlayerCamera.GetComponent<Camera>();
+                if (_mainCamera != null && _mainCamera.isActiveAndEnabled) return _mainCamera;
+            }
+
+            // 2. Camera.main nativa
+            if (Camera.main != null && Camera.main.isActiveAndEnabled)
+            {
+                _mainCamera = Camera.main;
+                return _mainCamera;
+            }
+
+            // 3. Buscar cámaras en la jerarquía del jugador o escena
+            var cameras = FindObjectsByType<Camera>(FindObjectsInactive.Exclude);
+            foreach (var cam in cameras)
+            {
+                if (cam.CompareTag("MainCamera"))
+                {
+                    _mainCamera = cam;
+                    return _mainCamera;
+                }
+            }
+
+            if (cameras.Length > 0)
+            {
+                _mainCamera = cameras[0];
+                return _mainCamera;
+            }
+
+            return null;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // ASIGNACIÓN RECURSIVA DE CAPA Y FILTRADO
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
@@ -357,7 +632,6 @@ namespace DemenciaNoLimite.Player
             }
             else
             {
-                // Fallback automático: usar la capa de la Main Camera o Default (0)
                 _cachedWeaponLayer = (cam != null) ? cam.gameObject.layer : 0;
             }
 
@@ -369,78 +643,50 @@ namespace DemenciaNoLimite.Player
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // ANCLAJE Y CONFIGURACIÓN DEL WEAPON HOLDER
+        // NEUTRALIZACIÓN DE FÍSICAS Y LIMPIEZA
         // ════════════════════════════════════════════════════════════════════
 
-        private void AsegurarWeaponHolder()
+        private void NeutralizarFisicasArma(GameObject weaponGo)
         {
-            if (_weaponHolder != null) return;
+            if (weaponGo == null) return;
 
-            // 1. Obtener directamente la cámara principal del jugador
-            Camera targetCam = ObtenerCamaraPrincipal();
-
-            if (targetCam != null)
+            // Desactivar y remover todos los colliders para evitar colisiones con el CharacterController
+            Collider[] colliders = weaponGo.GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < colliders.Length; i++)
             {
-                _mainCamera = targetCam;
-
-                Transform existing = targetCam.transform.Find("WeaponHolder");
-                if (existing != null)
+                if (colliders[i] != null)
                 {
-                    _weaponHolder = existing;
-                }
-                else
-                {
-                    GameObject holderGo = new GameObject("WeaponHolder");
-                    holderGo.transform.SetParent(targetCam.transform, false);
-                    holderGo.transform.localPosition = _defaultHolderPosition;
-                    holderGo.transform.localRotation = Quaternion.Euler(_defaultHolderRotation);
-                    holderGo.transform.localScale = Vector3.one;
-                    _weaponHolder = holderGo.transform;
-                }
-            }
-            else
-            {
-                // Si no hay cámara disponible de inmediato, crear un contenedor bajo este GameObject
-                Transform existing = transform.Find("WeaponHolder");
-                if (existing != null)
-                {
-                    _weaponHolder = existing;
-                }
-                else
-                {
-                    GameObject holderGo = new GameObject("WeaponHolder");
-                    holderGo.transform.SetParent(transform, false);
-                    holderGo.transform.localPosition = _defaultHolderPosition;
-                    holderGo.transform.localRotation = Quaternion.Euler(_defaultHolderRotation);
-                    _weaponHolder = holderGo.transform;
+                    colliders[i].enabled = false;
+                    Destroy(colliders[i]);
                 }
             }
 
-            if (_weaponHolder != null)
+            // Desactivar y remover Rigidbodies
+            Rigidbody[] rbs = weaponGo.GetComponentsInChildren<Rigidbody>(true);
+            for (int i = 0; i < rbs.Length; i++)
             {
-                _holderInitialLocalPosition = _weaponHolder.localPosition;
-                _holderInitialLocalRotation = _weaponHolder.localRotation;
+                if (rbs[i] != null)
+                {
+                    rbs[i].isKinematic = true;
+                    rbs[i].detectCollisions = false;
+                    Destroy(rbs[i]);
+                }
             }
         }
 
-        private Camera ObtenerCamaraPrincipal()
+        private void EliminarComponentesInteractivos(GameObject weaponGo)
         {
-            if (_mainCamera != null) return _mainCamera;
+            if (weaponGo == null) return;
 
-            // 1. A través de PlayerManager
-            if (_playerManager != null && _playerManager.PlayerCamera != null)
+            // Eliminar cualquier componente de recogida en el suelo que viniera adherido en el prefab
+            var pickups = weaponGo.GetComponentsInChildren<DemenciaNoLimite.Pickups.WorldItemPickup>(true);
+            for (int i = 0; i < pickups.Length; i++)
             {
-                _mainCamera = _playerManager.PlayerCamera.GetComponent<Camera>();
-                if (_mainCamera != null) return _mainCamera;
+                if (pickups[i] != null)
+                {
+                    Destroy(pickups[i]);
+                }
             }
-
-            // 2. Camera.main directa
-            _mainCamera = Camera.main;
-            if (_mainCamera != null) return _mainCamera;
-
-            // 3. Buscar componente Camera en el jugador o escena
-            _mainCamera = GetComponentInChildren<Camera>() ?? FindAnyObjectByType<Camera>();
-            return _mainCamera;
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -496,7 +742,7 @@ namespace DemenciaNoLimite.Player
         {
             if (activeSlot != null && activeSlot.Data != null)
             {
-                EquipWeapon(activeSlot.Data);
+                EquipWeaponExplicit(activeSlot.Data.WeaponID, activeSlot.Data, null);
             }
             else
             {
@@ -514,24 +760,6 @@ namespace DemenciaNoLimite.Player
             if (_playerHandController != null)
             {
                 _playerHandController.SetHandState(estadoDeseado);
-            }
-        }
-
-        private void NeutralizarFisicasArma(GameObject weaponGo)
-        {
-            if (weaponGo == null) return;
-
-            Collider[] colliders = weaponGo.GetComponentsInChildren<Collider>(true);
-            for (int i = 0; i < colliders.Length; i++)
-            {
-                colliders[i].enabled = false;
-            }
-
-            Rigidbody[] rbs = weaponGo.GetComponentsInChildren<Rigidbody>(true);
-            for (int i = 0; i < rbs.Length; i++)
-            {
-                rbs[i].isKinematic = true;
-                rbs[i].detectCollisions = false;
             }
         }
 

@@ -560,6 +560,7 @@ GameObject:
   - component: {fileID: 1319480054}
   - component: {fileID: 1319480053}
   - component: {fileID: 1319480052}
+  - component: {fileID: 1319480055}
   m_Layer: 0
   m_Name: Jugador
   m_TagString: Player
@@ -704,14 +705,192 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 70a255b2214243deb29dc3d1bb45ee00, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DemenciaNoLimite.Player.PlayerManager
-  _controller: {fileID: 0}
-  _playerCamera: {fileID: 0}
-  _characterController: {fileID: 0}
+  _controller: {fileID: 1319480053}
+  _playerCamera: {fileID: 488248388}
+  _characterController: {fileID: 1319480052}
   _health: {fileID: 0}
   _inventory: {fileID: 0}
   _weaponHandler: {fileID: 0}
+  _handController: {fileID: 0}
+  _weaponEquipManager: {fileID: 1319480055}
   _sanityManager: {fileID: 0}
   _gameManager: {fileID: 0}
+--- !u!114 &1319480055
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1319480047}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e787a30fe1600694d89106ee2c442023, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DemenciaNoLimite.Player.PlayerWeaponEquipManager
+  _weaponCatalog:
+  - weaponId: bingala
+    weaponData: {fileID: 0}
+    weaponPrefab: {fileID: 5213449628940997264, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+    localPositionOffset: {x: 0, y: 0, z: 0}
+    localRotationOffset: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  - weaponId: revolver
+    weaponData: {fileID: 0}
+    weaponPrefab: {fileID: 3393748940634398630, guid: c3f16e4f06f4ea848804d23252a73558, type: 3}
+    localPositionOffset: {x: 0, y: 0, z: 0}
+    localRotationOffset: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  - weaponId: muak
+    weaponData: {fileID: 0}
+    weaponPrefab: {fileID: 6901591607965511886, guid: 005466e1be3c4ef40ac9f07fe70a4dfb, type: 3}
+    localPositionOffset: {x: 0, y: 0, z: 0}
+    localRotationOffset: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  - weaponId: trabeca
+    weaponData: {fileID: 0}
+    weaponPrefab: {fileID: 8578978686285870837, guid: c7d8921f069a71245afc0bc641454601, type: 3}
+    localPositionOffset: {x: 0, y: 0, z: 0}
+    localRotationOffset: {x: 0, y: 0, z: 0}
+    localScale: {x: 1, y: 1, z: 1}
+  _mainCamera: {fileID: 0}
+  _weaponHolder: {fileID: 0}
+  _weaponLayerName: Weapon
+  _ensureCameraCullingMask: 1
+  _defaultHolderPosition: {x: 0.22, y: -0.18, z: 0.42}
+  _defaultHolderRotation: {x: 0, y: 0, z: 0}
+  _enableWeaponSway: 1
+  _swayAmount: 1.2
+  _maxSwayAmount: 0.05
+  _swaySmoothSpeed: 8
+  _playerManager: {fileID: 0}
+  _playerInventory: {fileID: 0}
+  _playerHandController: {fileID: 0}
+--- !u!1001 &1370770435
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 4832983058810128426, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4832983058810128426, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0.205
+      objectReference: {fileID: 0}
+    - target: {fileID: 4832983058810128426, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4832983058810128426, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4832983058810128426, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4832983058810128426, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4832983058810128426, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4832983058810128426, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4832983058810128426, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4832983058810128426, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5213449628940997264, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      propertyPath: m_Name
+      value: bingala
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 5213449628940997264, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1370770438}
+    - targetCorrespondingSourceObject: {fileID: 5213449628940997264, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1370770437}
+  m_SourcePrefab: {fileID: 100100000, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+--- !u!1 &1370770436 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 5213449628940997264, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
+  m_PrefabInstance: {fileID: 1370770435}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1370770437
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1370770436}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d464086123a1b0f48b8e8e4bb6d7e351, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DemenciaNoLimite.Pickups.WorldItemPickup
+  _itemType: 0
+  _itemName: "Pistola T\xE1ctica"
+  _itemDescription: 
+  _weaponData: {fileID: 0}
+  _amount: 1
+  _ammoType: 1
+  _healAmount: 25
+  _sanityRestoreAmount: 20
+  _interactKey: 101
+  _requireLookingAtItem: 1
+  _lookAtAngleThreshold: 65
+  _destroyOnPickup: 1
+  _pickupSound: {fileID: 0}
+  _pickupSoundVolume: 0.9
+  _enableIdleAnimation: 1
+  _bobSpeed: 2.2
+  _bobHeight: 0.06
+  _rotateSpeed: 25
+  _actionLabel: RECOGER
+  _externalPromptUI: {fileID: 0}
+  _showBuiltInHUD: 1
+  _onItemPickedUp:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!64 &1370770438
+MeshCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1370770436}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 5
+  m_Convex: 1
+  m_CookingOptions: 30
+  m_Mesh: {fileID: -1964908539759615522, guid: 92eba34c4e97735458696a65f89d8848, type: 3}
 --- !u!1 &1472183787
 GameObject:
   m_ObjectHideFlags: 0
@@ -949,3 +1128,4 @@ SceneRoots:
   - {fileID: 559382309}
   - {fileID: 1319480051}
   - {fileID: 1472183789}
+  - {fileID: 1370770435}

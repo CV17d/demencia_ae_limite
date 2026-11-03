@@ -4,7 +4,7 @@
 // Componente interactivo para objetos y armas situados en el entorno 3D.
 // Detecta la proximidad del jugador mediante Triggers físicos, proyecta avisos
 // diegéticos en pantalla ("Presiona [E] para recoger...") y coordina la entrega
-// del recurso con PlayerInventory, PlayerManager y PlayerHandController.
+// del recurso con PlayerInventory, PlayerWeaponEquipManager y PlayerHandController.
 // ============================================================================
 
 using System;
@@ -43,14 +43,20 @@ namespace DemenciaNoLimite.Pickups
         [Tooltip("Clasificación del recurso a recoger.")]
         [SerializeField] private WorldItemType _itemType = WorldItemType.Weapon;
 
-        [Tooltip("Nombre legible mostrado en el indicador HUD (ej. 'Pistola Táctica 9mm', 'Botiquín de Campaña').")]
+        [Tooltip("Nombre legible mostrado en el indicador HUD (ej. 'Bingala', 'Demencia Revólver', 'Muak', 'Trabeca').")]
         [SerializeField] private string _itemName = "Pistola Táctica";
 
         [Tooltip("Descripción narrativa u observaciones opcionales del ítem.")]
         [TextArea(2, 3)]
         [SerializeField] private string _itemDescription = "";
 
-        [Header("Datos de Arma (Solo si ItemType = Weapon)")]
+        [Header("Configuración de Arma 3D (Solo si ItemType = Weapon)")]
+        [Tooltip("Identificador único en el catálogo de armas (ej. 'bingala', 'revolver', 'demencia revolver', 'muak', 'trabeca'). Si está vacío, se deduce automáticamente del GameObject.")]
+        [SerializeField] private string _weaponId = "";
+
+        [Tooltip("Prefab 3D directo del arma a equipar (opcional). Si se asigna, se utiliza con máxima prioridad.")]
+        [SerializeField] private GameObject _weapon3DPrefab;
+
         [Tooltip("ScriptableObject con las estadísticas, balística y arquetipo del arma.")]
         [SerializeField] private WeaponData _weaponData;
 
@@ -150,6 +156,8 @@ namespace DemenciaNoLimite.Pickups
         public WorldItemType ItemType => _itemType;
         public string ItemName => _itemName;
         public string ItemDescription => _itemDescription;
+        public string WeaponId => ObtenerWeaponId();
+        public GameObject Weapon3DPrefab => _weapon3DPrefab;
         public WeaponData WeaponData => _weaponData;
         public bool IsPlayerInRange => _isPlayerInRange;
 
@@ -161,7 +169,7 @@ namespace DemenciaNoLimite.Pickups
         {
             _initialLocalPosition = transform.localPosition;
             AsegurarColliderTrigger();
-            SincronizarDatosArma();
+            AutoConfigurarNombreArma();
         }
 
         private void Start()
@@ -198,7 +206,89 @@ namespace DemenciaNoLimite.Pickups
 
         private void OnValidate()
         {
-            SincronizarDatosArma();
+            AutoConfigurarNombreArma();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // RESOLUCIÓN INTELIGENTE DE ID Y NOMBRE DE ARMA
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Resuelve de forma robusta y autónoma el identificador del arma, analizando campos serializados,
+        /// prefabs asignados, datos de ScriptableObject y nombres en la jerarquía (ej. 'bingala', 'demencia revolver').
+        /// </summary>
+        public string ObtenerWeaponId()
+        {
+            // 1. Si se configuró un ID explícito
+            if (!string.IsNullOrWhiteSpace(_weaponId))
+            {
+                return _weaponId.Trim();
+            }
+
+            // 2. Si se asignó un prefab 3D directo
+            if (_weapon3DPrefab != null && !string.IsNullOrWhiteSpace(_weapon3DPrefab.name))
+            {
+                return _weapon3DPrefab.name.Trim();
+            }
+
+            // 3. Si se asignó un WeaponData
+            if (_weaponData != null)
+            {
+                if (!string.IsNullOrWhiteSpace(_weaponData.WeaponID)) return _weaponData.WeaponID.Trim();
+                if (!string.IsNullOrWhiteSpace(_weaponData.DisplayName)) return _weaponData.DisplayName.Trim();
+                if (!string.IsNullOrWhiteSpace(_weaponData.name)) return _weaponData.name.Trim();
+            }
+
+            // 4. Analizar el nombre del propio GameObject (limpiando prefijos y sufijos de clonación/prefabs)
+            string cleanedGoName = gameObject.name
+                .Replace("(Clone)", "")
+                .Replace("Pickup_", "")
+                .Replace("Pickup", "")
+                .Replace("Item_", "")
+                .Replace("SM_", "")
+                .Replace("WP_", "")
+                .Replace("Arma_", "")
+                .Trim();
+
+            string lowerGo = cleanedGoName.ToLowerInvariant();
+            if (lowerGo.Contains("bingala")) return "bingala";
+            if (lowerGo.Contains("revolver") || lowerGo.Contains("demencia")) return "demencia revolver";
+            if (lowerGo.Contains("muak")) return "muak";
+            if (lowerGo.Contains("trabeca")) return "Trabeca";
+
+            // 5. Analizar el nombre legible si no es el placeholder genérico
+            if (!string.IsNullOrWhiteSpace(_itemName) && _itemName != "Pistola Táctica")
+            {
+                string lowerItem = _itemName.ToLowerInvariant();
+                if (lowerItem.Contains("bingala")) return "bingala";
+                if (lowerItem.Contains("revolver") || lowerItem.Contains("demencia")) return "demencia revolver";
+                if (lowerItem.Contains("muak")) return "muak";
+                if (lowerItem.Contains("trabeca")) return "Trabeca";
+                return _itemName.Replace(" ", "");
+            }
+
+            return cleanedGoName;
+        }
+
+        private void AutoConfigurarNombreArma()
+        {
+            if (_itemType != WorldItemType.Weapon) return;
+
+            string detectedId = ObtenerWeaponId();
+            if (string.IsNullOrEmpty(detectedId)) return;
+
+            // Si el nombre aún tiene el valor por defecto genérico "Pistola Táctica", adaptarlo diegéticamente
+            if (string.IsNullOrEmpty(_itemName) || _itemName == "Pistola Táctica")
+            {
+                if (detectedId.Equals("bingala", StringComparison.OrdinalIgnoreCase)) _itemName = "Bingala";
+                else if (detectedId.IndexOf("revolver", StringComparison.OrdinalIgnoreCase) >= 0 || detectedId.IndexOf("demencia", StringComparison.OrdinalIgnoreCase) >= 0) _itemName = "Demencia Revólver";
+                else if (detectedId.Equals("muak", StringComparison.OrdinalIgnoreCase)) _itemName = "Muak";
+                else if (detectedId.Equals("trabeca", StringComparison.OrdinalIgnoreCase)) _itemName = "Trabeca";
+                else
+                {
+                    _itemName = char.ToUpperInvariant(detectedId[0]) + detectedId.Substring(1);
+                }
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -286,7 +376,8 @@ namespace DemenciaNoLimite.Pickups
         }
 
         /// <summary>
-        /// Ejecuta la transferencia del ítem al jugador, actualiza la mano diegética y retira el objeto del mundo.
+        /// Ejecuta la transferencia del ítem al jugador, instancia el arma 3D en el WeaponHolder,
+        /// actualiza la mano diegética y retira el objeto del mundo.
         /// </summary>
         public void EjecutarRecogida()
         {
@@ -344,23 +435,55 @@ namespace DemenciaNoLimite.Pickups
 
         private void RecogerArma(PlayerManager pm, GameObject playerTarget)
         {
-            PlayerInventory inventory = pm != null ? pm.Inventory : playerTarget?.GetComponentInParent<PlayerInventory>();
+            string resolvedId = ObtenerWeaponId();
+            Debug.Log($"[WorldItemPickup] Procesando recogida de arma: '{resolvedId}' (GameObject: '{gameObject.name}')");
 
+            // 1. Resolver inventario del jugador
+            PlayerInventory inventory = pm != null ? pm.Inventory : playerTarget?.GetComponentInParent<PlayerInventory>();
+            if (inventory == null)
+            {
+                inventory = FindAnyObjectByType<PlayerInventory>();
+            }
+
+            // 2. Resolver gestor de equipamiento de armas 3D
+            PlayerWeaponEquipManager equipManager = pm != null ? pm.WeaponEquipManager : null;
+            if (equipManager == null && playerTarget != null)
+            {
+                equipManager = playerTarget.GetComponentInChildren<PlayerWeaponEquipManager>() ?? playerTarget.GetComponentInParent<PlayerWeaponEquipManager>();
+            }
+            if (equipManager == null)
+            {
+                equipManager = FindAnyObjectByType<PlayerWeaponEquipManager>();
+            }
+
+            // 3. Preparar o crear dinámicamente el WeaponData correspondiente
+            WeaponData weaponToEquip = _weaponData;
+            if (weaponToEquip == null)
+            {
+                weaponToEquip = ScriptableObject.CreateInstance<WeaponData>();
+                weaponToEquip.WeaponID = resolvedId;
+                weaponToEquip.DisplayName = !string.IsNullOrEmpty(_itemName) && _itemName != "Pistola Táctica" ? _itemName : resolvedId;
+                weaponToEquip.Type = _ammoType;
+            }
+            else if (string.IsNullOrEmpty(weaponToEquip.WeaponID))
+            {
+                weaponToEquip.WeaponID = resolvedId;
+            }
+
+            // 4. Agregar al inventario con equipamiento automático
             if (inventory != null)
             {
-                if (_weaponData != null)
-                {
-                    inventory.AddWeapon(_weaponData);
-                }
-                else
-                {
-                    // Fallback si no se asignó un ScriptableObject: crear uno básico en memoria
-                    WeaponData dynamicWeapon = ScriptableObject.CreateInstance<WeaponData>();
-                    dynamicWeapon.WeaponID = string.IsNullOrEmpty(_itemName) ? "GenericWeapon" : _itemName.Replace(" ", "");
-                    dynamicWeapon.DisplayName = _itemName;
-                    dynamicWeapon.Type = _ammoType;
-                    inventory.AddWeapon(dynamicWeapon);
-                }
+                inventory.AddWeapon(weaponToEquip, autoEquip: true);
+            }
+
+            // 5. Llamada directa y garantizada a PlayerWeaponEquipManager para instanciar el modelo 3D bajo el WeaponHolder
+            if (equipManager != null)
+            {
+                equipManager.EquipWeaponExplicit(resolvedId, weaponToEquip, _weapon3DPrefab);
+            }
+            else
+            {
+                Debug.LogWarning("[WorldItemPickup] No se encontró PlayerWeaponEquipManager en la escena para instanciar el arma 3D bajo la Main Camera.");
             }
         }
 
@@ -381,7 +504,6 @@ namespace DemenciaNoLimite.Pickups
             }
             else if (pm != null && pm.Health != null)
             {
-                // Alternativa directa si PlayerHealth dispone de curación
                 GameManager.Instance?.Player?.Heal(_healAmount);
             }
         }
@@ -404,8 +526,7 @@ namespace DemenciaNoLimite.Pickups
 
         private void RecogerObjetoGenerico(PlayerManager pm)
         {
-            // En objetos genéricos o llaves, se registra la recolección
-            // y se mantiene disponible para puertas u objetivos
+            // Registro para llaves u objetivos de misión
         }
 
         private void ActualizarManoJugador(PlayerManager pm)
@@ -418,7 +539,6 @@ namespace DemenciaNoLimite.Pickups
 
             if (hand != null)
             {
-                // Asegurar que la mano pase inmediatamente al estado de equipado visible
                 hand.SetHandState(HandState.EquippedItem);
             }
         }
@@ -490,17 +610,6 @@ namespace DemenciaNoLimite.Pickups
             }
         }
 
-        private void SincronizarDatosArma()
-        {
-            if (_itemType == WorldItemType.Weapon && _weaponData != null)
-            {
-                if (string.IsNullOrEmpty(_itemName) || _itemName == "Pistola Táctica")
-                {
-                    _itemName = !string.IsNullOrEmpty(_weaponData.DisplayName) ? _weaponData.DisplayName : _weaponData.name;
-                }
-            }
-        }
-
         // ════════════════════════════════════════════════════════════════════
         // INTERFAZ DE USUARIO (ON GUI — HUD DIEGÉTICO)
         // ════════════════════════════════════════════════════════════════════
@@ -530,7 +639,7 @@ namespace DemenciaNoLimite.Pickups
             GUI.color = new Color(0.04f, 0.06f, 0.08f, alpha * 0.88f);
             GUI.Box(new Rect(posX, posY, boxWidth, boxHeight), GUIContent.none);
 
-            // Borde superior cian/ámbar característico de Sector Cero
+            // Borde superior temático de Sector Cero
             Color accentColor = (_itemType == WorldItemType.Weapon) ? new Color(0.2f, 0.85f, 0.95f, alpha) :
                                 (_itemType == WorldItemType.Health) ? new Color(0.95f, 0.25f, 0.25f, alpha) :
                                 (_itemType == WorldItemType.SanitySerum) ? new Color(0.75f, 0.35f, 0.95f, alpha) :

@@ -165,7 +165,14 @@ namespace DemenciaNoLimite.Player
             if (_health == null) _health = GetComponent<PlayerHealth>();
             if (_inventory == null) _inventory = GetComponent<PlayerInventory>();
             if (_weaponHandler == null) _weaponHandler = GetComponent<PlayerWeaponHandler>();
-            if (_handController == null) _handController = GetComponentInChildren<PlayerHandController>();
+            if (_handController == null)
+            {
+                _handController = GetComponentInChildren<PlayerHandController>();
+                if (_handController == null)
+                {
+                    _handController = gameObject.AddComponent<PlayerHandController>();
+                }
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════

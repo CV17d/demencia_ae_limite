@@ -60,6 +60,16 @@ namespace DemenciaNoLimite.Player
         // COMPONENTES DE RENDERIZADO VISUAL
         // ════════════════════════════════════════════════════════════════════
 
+        [Header("Autogeneración de Canvas / UI (Cero Configuración Manual)")]
+        [Tooltip("Si está activo, crea automáticamente el Canvas y el objeto ManoPersonaje si no existen.")]
+        [SerializeField] private bool _autoGenerateCanvasIfMissing = true;
+
+        [Tooltip("Dimensiones por defecto de la imagen de la mano en el Canvas (1920x1080).")]
+        [SerializeField] private Vector2 _handSize = new Vector2(550f, 550f);
+
+        [Tooltip("Desplazamiento adicional (offset) relativo a la esquina inferior derecha.")]
+        [SerializeField] private Vector2 _handOffset = Vector2.zero;
+
         [Header("Renderizado Visual (UI o 2D en Cámara)")]
         [Tooltip("Componente Image de Canvas UI donde se proyecta la mano (Recomendado para HUD).")]
         [SerializeField] private Image _handImage;
@@ -490,7 +500,7 @@ namespace DemenciaNoLimite.Player
 
         private void AsegurarReferenciasRenderizado()
         {
-            if (_handImage == null)
+            if (_handImage == null && _handSpriteRenderer == null)
             {
                 _handImage = GetComponent<Image>();
                 if (_handImage == null)
@@ -499,7 +509,12 @@ namespace DemenciaNoLimite.Player
                 }
             }
 
-            if (_handSpriteRenderer == null)
+            if (_handImage == null && _handSpriteRenderer == null && _autoGenerateCanvasIfMissing)
+            {
+                AsegurarCanvasYRenderizadoPorCodigo();
+            }
+
+            if (_handSpriteRenderer == null && _handImage == null)
             {
                 _handSpriteRenderer = GetComponent<SpriteRenderer>();
                 if (_handSpriteRenderer == null)
@@ -509,11 +524,92 @@ namespace DemenciaNoLimite.Player
             }
         }
 
+        /// <summary>
+        /// Crea de forma 100% autónoma por código el Canvas, CanvasScaler y el objeto ManoPersonaje
+        /// anclado a la esquina inferior derecha con resolución base de 1920x1080.
+        /// </summary>
+        public void AsegurarCanvasYRenderizadoPorCodigo()
+        {
+            if (_handImage != null) return;
+
+            // 1. Buscar si ya existe un Canvas_Manos en la escena o bajo la cámara principal
+            Camera mainCam = Camera.main ?? GetComponentInChildren<Camera>() ?? FindAnyObjectByType<Camera>();
+            GameObject canvasGo = null;
+
+            if (mainCam != null)
+            {
+                Transform childCanvas = mainCam.transform.Find("Canvas_Manos");
+                if (childCanvas != null) canvasGo = childCanvas.gameObject;
+            }
+
+            if (canvasGo == null)
+            {
+                canvasGo = GameObject.Find("Canvas_Manos");
+            }
+
+            // 2. Si no existe, instanciar Canvas_Manos por código
+            if (canvasGo == null)
+            {
+                canvasGo = new GameObject("Canvas_Manos");
+                if (mainCam != null)
+                {
+                    canvasGo.transform.SetParent(mainCam.transform, false);
+                }
+
+                Canvas canvas = canvasGo.AddComponent<Canvas>();
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = 50;
+
+                CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
+                scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scaler.referenceResolution = new Vector2(1920f, 1080f);
+                scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+                scaler.matchWidthOrHeight = 0.5f;
+
+                canvasGo.AddComponent<GraphicRaycaster>();
+            }
+
+            // 3. Buscar o crear el objeto ManoPersonaje dentro del Canvas
+            Transform manoTransform = canvasGo.transform.Find("ManoPersonaje");
+            GameObject manoGo;
+            if (manoTransform != null)
+            {
+                manoGo = manoTransform.gameObject;
+            }
+            else
+            {
+                manoGo = new GameObject("ManoPersonaje");
+                manoGo.transform.SetParent(canvasGo.transform, false);
+            }
+
+            // 4. Configurar RectTransform anclado en la esquina inferior derecha
+            RectTransform rect = manoGo.GetComponent<RectTransform>() ?? manoGo.AddComponent<RectTransform>();
+            rect.anchorMin = new Vector2(1f, 0f);
+            rect.anchorMax = new Vector2(1f, 0f);
+            rect.pivot = new Vector2(1f, 0f);
+            rect.sizeDelta = _handSize;
+            rect.anchoredPosition = _handOffset;
+
+            // 5. Configurar componente Image
+            Image img = manoGo.GetComponent<Image>() ?? manoGo.AddComponent<Image>();
+            img.raycastTarget = false;
+            img.preserveAspect = true;
+
+            _handImage = img;
+
+            // 6. Asignar el sprite inicial si ya están disponibles
+            if (_handImage.sprite == null && _equippedHandSprite != null)
+            {
+                _handImage.sprite = _equippedHandSprite;
+            }
+        }
+
         private void AsegurarPuntoDeAnclaje()
         {
             if (_floatingItemAnchor == null)
             {
-                Transform existing = transform.Find("FloatingItemAnchor");
+                Transform parentToUse = (_handImage != null) ? _handImage.transform : transform;
+                Transform existing = parentToUse.Find("FloatingItemAnchor");
                 if (existing != null)
                 {
                     _floatingItemAnchor = existing;
@@ -521,8 +617,22 @@ namespace DemenciaNoLimite.Player
                 else
                 {
                     GameObject anchorGo = new GameObject("FloatingItemAnchor");
-                    anchorGo.transform.SetParent(transform, false);
-                    anchorGo.transform.localPosition = new Vector3(0f, 0.12f, 0f);
+                    anchorGo.transform.SetParent(parentToUse, false);
+
+                    if (parentToUse is RectTransform)
+                    {
+                        RectTransform anchorRect = anchorGo.AddComponent<RectTransform>();
+                        anchorRect.anchorMin = new Vector2(0.5f, 0.65f);
+                        anchorRect.anchorMax = new Vector2(0.5f, 0.65f);
+                        anchorRect.pivot = new Vector2(0.5f, 0.5f);
+                        anchorRect.anchoredPosition = Vector2.zero;
+                        anchorRect.sizeDelta = new Vector2(160f, 160f);
+                    }
+                    else
+                    {
+                        anchorGo.transform.localPosition = new Vector3(0f, 0.12f, 0f);
+                    }
+
                     _floatingItemAnchor = anchorGo.transform;
                 }
             }
@@ -567,6 +677,37 @@ namespace DemenciaNoLimite.Player
             if (resSprite != null) return resSprite;
 
             return null;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // AUTO-INICIALIZACIÓN GLOBAL EN RUNTIME (CERO CONFIGURACIÓN MANUAL)
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Inicializa o garantiza la existencia de PlayerHandController y su Canvas diegético en la escena.
+        /// </summary>
+        public static PlayerHandController ObtenerOInstanciarEnEscena()
+        {
+            PlayerHandController existing = FindAnyObjectByType<PlayerHandController>();
+            if (existing != null)
+            {
+                existing.AsegurarCanvasYRenderizadoPorCodigo();
+                return existing;
+            }
+
+            if (PlayerManager.Instance != null)
+            {
+                return PlayerManager.Instance.gameObject.AddComponent<PlayerHandController>();
+            }
+
+            Camera mainCam = Camera.main ?? FindAnyObjectByType<Camera>();
+            if (mainCam != null)
+            {
+                return mainCam.gameObject.AddComponent<PlayerHandController>();
+            }
+
+            GameObject handHost = new GameObject("PlayerHandController_Auto");
+            return handHost.AddComponent<PlayerHandController>();
         }
     }
 }

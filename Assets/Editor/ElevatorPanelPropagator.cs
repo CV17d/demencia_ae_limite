@@ -86,6 +86,50 @@ namespace DemenciaNoLimite.Editor
 
             return result;
         }
+
+        /// <summary>
+        /// Localiza o instancia de manera programática el GameObject hijo 'Panel_Control',
+        /// establece sus coordenadas locales frente a la cabina y configura su BoxCollider como Trigger.
+        /// </summary>
+        /// <param name="rootGo">Raíz del prefab del elevador cargado en memoria.</param>
+        /// <returns>Instancia del GameObject 'Panel_Control' debidamente configurado.</returns>
+        public static GameObject ConfigurarObjetoPanelControl(GameObject rootGo)
+        {
+            if (rootGo == null) return null;
+
+            // 1. Buscar si ya existe un hijo con el nombre asignado
+            Transform existingPanel = rootGo.transform.Find(PanelGameObjectName);
+            GameObject panelGo;
+
+            if (existingPanel != null)
+            {
+                panelGo = existingPanel.gameObject;
+            }
+            else
+            {
+                // Instanciar de manera limpia como hijo del prefab
+                panelGo = new GameObject(PanelGameObjectName);
+                panelGo.transform.SetParent(rootGo.transform, false);
+            }
+
+            // 2. Configurar posición relativa frente a la consola de la cabina
+            panelGo.transform.localPosition = DefaultLocalPosition;
+            panelGo.transform.localRotation = Quaternion.identity;
+            panelGo.transform.localScale = Vector3.one;
+
+            // 3. Añadir y configurar BoxCollider como Is Trigger
+            BoxCollider boxCollider = panelGo.GetComponent<BoxCollider>();
+            if (boxCollider == null)
+            {
+                boxCollider = panelGo.AddComponent<BoxCollider>();
+            }
+
+            boxCollider.isTrigger = true;
+            boxCollider.size = DefaultColliderSize;
+            boxCollider.center = Vector3.zero;
+
+            return panelGo;
+        }
     }
 }
 #endif

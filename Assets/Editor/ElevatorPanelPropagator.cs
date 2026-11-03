@@ -4,6 +4,7 @@
 // Herramienta de Editor para automatizar la inserción, configuración y guardado
 // del panel de control interactivo (Panel_Control + ElevatorPanelController)
 // en todos los prefabs de elevadores dentro de "Assets/Prefabs/Entornos/SectorCero/".
+// Incluye creación programática de la consola/botonera visual 3D sin collider.
 // ============================================================================
 
 #if UNITY_EDITOR
@@ -20,14 +21,20 @@ namespace DemenciaNoLimite.Editor
     {
         private const string TargetFolder = "Assets/Prefabs/Entornos/SectorCero";
         private const string PanelGameObjectName = "Panel_Control";
+        private const string VisualMeshGameObjectName = "Panel_Visual";
+        private const string ButtonLedGameObjectName = "Boton_Led";
+        private const string ElevatorMaterialPath = "Assets/Art/3D/Texturas/materiales/elevador carga.mat";
+
         private static readonly Vector3 DefaultLocalPosition = new Vector3(0f, 1.5f, 1.8f);
         private static readonly Vector3 DefaultColliderSize = new Vector3(1.6f, 2.2f, 1.6f);
+        private static readonly Vector3 ConsoleVisualScale = new Vector3(0.40f, 0.65f, 0.08f);
+        private static readonly Vector3 ButtonLedScale = new Vector3(0.40f, 0.25f, 0.25f);
+        private static readonly Vector3 ButtonLedLocalPos = new Vector3(0f, 0.12f, 0.52f);
 
         [MenuItem("Tools/Sector Cero/Añadir Panel a Elevadores", false, 110)]
         [MenuItem("Demencia/Sector Cero/Añadir Panel a Elevadores", false, 11)]
         public static void PropagarPanelesElevadores()
         {
-            // 1. Validar la existencia de la carpeta de prefabs
             if (!AssetDatabase.IsValidFolder(TargetFolder))
             {
                 EditorUtility.DisplayDialog(
@@ -38,7 +45,6 @@ namespace DemenciaNoLimite.Editor
                 return;
             }
 
-            // 2. Localizar todos los prefabs que corresponden a elevadores
             List<string> elevatorPrefabPaths = BuscarPrefabsElevadores();
             if (elevatorPrefabPaths.Count == 0)
             {
@@ -50,18 +56,32 @@ namespace DemenciaNoLimite.Editor
                 return;
             }
 
-            // 3. Confirmación interactiva previa con el usuario
             string nombresPrefabs = string.Join("\n • ", elevatorPrefabPaths.ConvertAll(Path.GetFileName));
             bool proceed = EditorUtility.DisplayDialog(
                 "Añadir Panel a Elevadores",
                 $"Se detectaron {elevatorPrefabPaths.Count} prefabs de elevadores en Sector Cero:\n\n • {nombresPrefabs}\n\n" +
-                "¿Deseas insertar/actualizar el objeto 'Panel_Control' con BoxCollider Trigger y ElevatorPanelController en cada uno de ellos?",
+                "¿Deseas insertar/actualizar el objeto 'Panel_Control' con su botonera 3D visual (sin collider), " +
+                "Trigger BoxCollider y ElevatorPanelController en cada uno de ellos?",
                 "Sí, Proceder",
                 "Cancelar"
             );
 
             if (!proceed) return;
 
+            ProcesarPrefabsElevadores(elevatorPrefabPaths, false);
+        }
+
+        /// <summary>
+        /// Ejecuta la propagación programática en modo silencioso o interactivo.
+        /// </summary>
+        public static int EjecutarPropagacionBatch(bool silencioso = true)
+        {
+            List<string> elevatorPrefabPaths = BuscarPrefabsElevadores();
+            return ProcesarPrefabsElevadores(elevatorPrefabPaths, silencioso);
+        }
+
+        private static int ProcesarPrefabsElevadores(List<string> elevatorPrefabPaths, bool silencioso)
+        {
             int updatedCount = 0;
             int errorCount = 0;
 
@@ -74,13 +94,15 @@ namespace DemenciaNoLimite.Editor
                     string path = elevatorPrefabPaths[i];
                     string fileName = Path.GetFileName(path);
 
-                    EditorUtility.DisplayProgressBar(
-                        "Configurando Paneles de Elevador",
-                        $"Procesando: {fileName} ({i + 1}/{elevatorPrefabPaths.Count})",
-                        (float)i / elevatorPrefabPaths.Count
-                    );
+                    if (!silencioso)
+                    {
+                        EditorUtility.DisplayProgressBar(
+                            "Configurando Paneles de Elevador",
+                            $"Procesando: {fileName} ({i + 1}/{elevatorPrefabPaths.Count})",
+                            (float)i / elevatorPrefabPaths.Count
+                        );
+                    }
 
-                    // 4. Cargar el contenido del prefab en memoria de forma no destructiva
                     GameObject rootGo = PrefabUtility.LoadPrefabContents(path);
                     if (rootGo == null)
                     {
@@ -91,16 +113,19 @@ namespace DemenciaNoLimite.Editor
 
                     try
                     {
-                        // 5. Configurar o crear el GameObject hijo 'Panel_Control' con su BoxCollider Trigger
+                        // 1. Configurar o crear el GameObject hijo 'Panel_Control' con su BoxCollider Trigger
                         GameObject panelGo = ConfigurarObjetoPanelControl(rootGo);
 
-                        // 6. Adjuntar o configurar el componente ElevatorPanelController
+                        // 2. Crear o actualizar el objeto visual 3D de la consola (asegurando remoción de colliders bloqueantes)
+                        ConfigurarObjetoVisualBotonera(panelGo);
+
+                        // 3. Adjuntar o configurar el componente ElevatorPanelController
                         ConfigurarComponenteControlador(panelGo);
 
-                        // 7. Persistir los cambios en el archivo .prefab del disco
+                        // 4. Persistir los cambios en el archivo .prefab del disco
                         PrefabUtility.SaveAsPrefabAsset(rootGo, path);
                         updatedCount++;
-                        Debug.Log($"[ElevatorPanelPropagator] Panel_Control configurado exitosamente en: '{fileName}'.");
+                        Debug.Log($"[ElevatorPanelPropagator] Panel_Control y modelo visual configurados en: '{fileName}'.");
                     }
                     catch (Exception ex)
                     {
@@ -109,7 +134,6 @@ namespace DemenciaNoLimite.Editor
                     }
                     finally
                     {
-                        // 8. Liberar la instancia de prefab contents de la memoria
                         PrefabUtility.UnloadPrefabContents(rootGo);
                     }
                 }
@@ -117,20 +141,27 @@ namespace DemenciaNoLimite.Editor
             finally
             {
                 AssetDatabase.StopAssetEditing();
-                EditorUtility.ClearProgressBar();
+                if (!silencioso)
+                {
+                    EditorUtility.ClearProgressBar();
+                }
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
             }
 
-            // 9. Resumen final para el usuario
-            EditorUtility.DisplayDialog(
-                "Propagación Completada",
-                $"Proceso finalizado exitosamente:\n\n" +
-                $" • Prefabs de elevador actualizados: {updatedCount}\n" +
-                (errorCount > 0 ? $" • Prefabs con errores: {errorCount}\n" : "") +
-                $"\nCada elevador cuenta ahora con su componente 'ElevatorPanelController' y Trigger de interacción.",
-                "Aceptar"
-            );
+            if (!silencioso)
+            {
+                EditorUtility.DisplayDialog(
+                    "Propagación Completada",
+                    $"Proceso finalizado exitosamente:\n\n" +
+                    $" • Prefabs de elevador actualizados: {updatedCount}\n" +
+                    (errorCount > 0 ? $" • Prefabs con errores: {errorCount}\n" : "") +
+                    $"\nCada elevador cuenta ahora con su modelo visual 3D (sin colisionador), BoxCollider Trigger y ElevatorPanelController.",
+                    "Aceptar"
+                );
+            }
+
+            return updatedCount;
         }
 
         /// <summary>
@@ -160,13 +191,10 @@ namespace DemenciaNoLimite.Editor
         /// Localiza o instancia de manera programática el GameObject hijo 'Panel_Control',
         /// establece sus coordenadas locales frente a la cabina y configura su BoxCollider como Trigger.
         /// </summary>
-        /// <param name="rootGo">Raíz del prefab del elevador cargado en memoria.</param>
-        /// <returns>Instancia del GameObject 'Panel_Control' debidamente configurado.</returns>
         public static GameObject ConfigurarObjetoPanelControl(GameObject rootGo)
         {
             if (rootGo == null) return null;
 
-            // 1. Buscar si ya existe un hijo con el nombre asignado
             Transform existingPanel = rootGo.transform.Find(PanelGameObjectName);
             GameObject panelGo;
 
@@ -176,17 +204,14 @@ namespace DemenciaNoLimite.Editor
             }
             else
             {
-                // Instanciar de manera limpia como hijo del prefab
                 panelGo = new GameObject(PanelGameObjectName);
                 panelGo.transform.SetParent(rootGo.transform, false);
             }
 
-            // 2. Configurar posición relativa frente a la consola de la cabina
             panelGo.transform.localPosition = DefaultLocalPosition;
             panelGo.transform.localRotation = Quaternion.identity;
             panelGo.transform.localScale = Vector3.one;
 
-            // 3. Añadir y configurar BoxCollider como Is Trigger
             BoxCollider boxCollider = panelGo.GetComponent<BoxCollider>();
             if (boxCollider == null)
             {
@@ -198,6 +223,93 @@ namespace DemenciaNoLimite.Editor
             boxCollider.center = Vector3.zero;
 
             return panelGo;
+        }
+
+        /// <summary>
+        /// Crea o actualiza un modelo visual 3D estilizado (consola/botonera de pared)
+        /// dentro de Panel_Control, garantizando de forma estricta la eliminación de
+        /// cualquier Collider propio para que no bloquee el BoxCollider Trigger del padre.
+        /// </summary>
+        public static GameObject ConfigurarObjetoVisualBotonera(GameObject panelGo)
+        {
+            if (panelGo == null) return null;
+
+            // 1. Verificar o crear el cuerpo principal de la consola
+            Transform existingVisual = panelGo.transform.Find(VisualMeshGameObjectName);
+            GameObject visualGo;
+
+            if (existingVisual != null)
+            {
+                visualGo = existingVisual.gameObject;
+            }
+            else
+            {
+                visualGo = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                visualGo.name = VisualMeshGameObjectName;
+                visualGo.transform.SetParent(panelGo.transform, false);
+            }
+
+            // 2. ELIMINACIÓN ESTRICTA DEL COLLIDER VISUAL
+            // Previene que el mesh sólido bloquee la entrada del jugador o altere el Trigger
+            RemoverColisionadoresRecursivamente(visualGo);
+
+            // 3. Configurar escala y orientación de consola delgada montada en pared
+            visualGo.transform.localPosition = Vector3.zero;
+            visualGo.transform.localRotation = Quaternion.identity;
+            visualGo.transform.localScale = ConsoleVisualScale;
+
+            // 4. Intentar asignar material de elevador industrial si está disponible en disco
+            AsignarMaterialVisual(visualGo, ElevatorMaterialPath);
+
+            // 5. Botonera / Luz indicadora frontal
+            Transform existingBtn = visualGo.transform.Find(ButtonLedGameObjectName);
+            GameObject btnGo;
+
+            if (existingBtn != null)
+            {
+                btnGo = existingBtn.gameObject;
+            }
+            else
+            {
+                btnGo = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                btnGo.name = ButtonLedGameObjectName;
+                btnGo.transform.SetParent(visualGo.transform, false);
+            }
+
+            RemoverColisionadoresRecursivamente(btnGo);
+            btnGo.transform.localPosition = ButtonLedLocalPos;
+            btnGo.transform.localRotation = Quaternion.identity;
+            btnGo.transform.localScale = ButtonLedScale;
+
+            return visualGo;
+        }
+
+        private static void RemoverColisionadoresRecursivamente(GameObject go)
+        {
+            if (go == null) return;
+
+            Collider[] colliders = go.GetComponentsInChildren<Collider>(true);
+            foreach (var col in colliders)
+            {
+                if (col != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(col);
+                }
+            }
+        }
+
+        private static void AsignarMaterialVisual(GameObject targetGo, string materialPath)
+        {
+            if (targetGo == null) return;
+
+            MeshRenderer mr = targetGo.GetComponent<MeshRenderer>();
+            if (mr == null) return;
+
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+            if (mat != null)
+            {
+                mr.sharedMaterial = mat;
+            }
         }
 
         /// <summary>

@@ -157,6 +157,8 @@ namespace DemenciaNoLimite.Level
         private readonly List<OpenSocketEntry> _activeOpenSockets = new List<OpenSocketEntry>();
         private List<Transform> _rejectedSockets = new List<Transform>();
         private readonly List<Bounds> _placedModuleBounds = new List<Bounds>();
+        private readonly List<GameObject> _spawnedModulesList = new List<GameObject>();
+        private GameObject _instantiatedExitElevator;
         private int _spawnedModulesCount;
         private bool _isGenerating;
 
@@ -295,6 +297,8 @@ namespace DemenciaNoLimite.Level
             }
 #endif
             AsegurarCatalogoElevadoresSalida();
+            _spawnedModulesList.Clear();
+            _instantiatedExitElevator = null;
             GameObject startModule = InstanciarStartRoom();
             if (startModule == null)
             {
@@ -302,6 +306,8 @@ namespace DemenciaNoLimite.Level
                 _isGenerating = false;
                 return;
             }
+
+            _spawnedModulesList.Add(startModule);
 
             // Registrar el volumen de la sala de inicio
             ModuleConnector startConnector = startModule.GetComponent<ModuleConnector>();
@@ -343,6 +349,7 @@ namespace DemenciaNoLimite.Level
                     {
                         _spawnedModulesCount++;
                         _placedModuleBounds.Add(placedBounds);
+                        _spawnedModulesList.Add(newModuleInstance);
                         RegistrarSocketsDeModulo(newModuleInstance);
                         modulePlaced = true;
                         break; // ¡Pieza aceptada sin solapamiento!
@@ -364,13 +371,30 @@ namespace DemenciaNoLimite.Level
             // 4. CIERRE DE FRONTERAS (SELLADO FINAL DE CONECTORES ABIERTOS)
             SellarConectoresAbiertos();
 
+            // 5. MECANISMO DE RESPALDO INFALIBLE (FALLBACK DE EMERGENCIA)
+            // Si por cualquier circunstancia no se instanció el elevador de salida, forzar obligatoriamente su colocación
+            if (!HayElevadorDeSalidaEnNivel())
+            {
+                EjecutarFallbackEmergenciaElevadorSalida();
+            }
+
             // Sincronización global obligatoria de colisionadores antes de hornear NavMesh o posicionar al jugador
             Physics.SyncTransforms();
+
+            // 6. VALIDACIÓN EN CONSOLA (ALERTA VISUAL INMEDIATA EN EDITOR)
+            if (!HayElevadorDeSalidaEnNivel())
+            {
+                Debug.LogError($"[LevelGenerator] ERROR CRÍTICO FATAL: El Piso {pisoActual} ha finalizado su generación SIN elevador de salida (SM_Elevador_Mercader / SM_Elevador_Ruleta). ¡Imposible avanzar al siguiente piso!");
+            }
+            else
+            {
+                Debug.Log($"[LevelGenerator] Elevador de salida verificado y garantizado en Piso {pisoActual}: '{_instantiatedExitElevator?.name}'. Panel de control: HABILITADO.");
+            }
 
             _isGenerating = false;
             Debug.Log($"[LevelGenerator] Piso {pisoActual} generado con éxito ({_spawnedModulesCount} módulos estructurales, {_placedModuleBounds.Count} volúmenes registrados).");
 
-            // 5. INTEGRACIÓN CRÍTICA CON IA: Notificación al Event Bus para horneado de NavMesh
+            // 7. INTEGRACIÓN CRÍTICA CON IA: Notificación al Event Bus para horneado de NavMesh
             GameEvents.FireMapGenerationCompleted();
         }
 
@@ -808,11 +832,14 @@ namespace DemenciaNoLimite.Level
                 }
             }
 
+            todosLosConectores.RemoveAll(s => s == null);
+
             if (todosLosConectores.Count == 0)
             {
-                Debug.LogError("[LevelGenerator] Error crítico: No hay conectores disponibles para colocar la salida o sellar el nivel.");
+                Debug.LogWarning("[LevelGenerator] No hay conectores disponibles en frontera ni rechazados para colocar la salida. Activando fallback de emergencia...");
                 _activeOpenSockets.Clear();
                 _rejectedSockets.Clear();
+                EjecutarFallbackEmergenciaElevadorSalida();
                 return;
             }
 
@@ -902,6 +929,9 @@ namespace DemenciaNoLimite.Level
                 exitElevator.transform.SetPositionAndRotation(spawnPos, spawnRot);
                 exitElevator.transform.localScale = Vector3.one;
                 Physics.SyncTransforms();
+
+                _instantiatedExitElevator = exitElevator;
+                _spawnedModulesList.Add(exitElevator);
 
                 // 3. Activación dinámica del panel de control del elevador de salida
                 ElevatorPanelController panelController = exitElevator.GetComponentInChildren<ElevatorPanelController>(true);
@@ -1030,6 +1060,297 @@ namespace DemenciaNoLimite.Level
             else
             {
                 Debug.LogError("[LevelGenerator] ERROR CRÍTICO: No fue posible encontrar prefabs de elevador de salida en el proyecto.");
+            }
+        }
+
+        /// <summary>
+        /// Comprueba si ya existe un elevador de salida válido e interactuable en el piso actual.
+        /// </summary>
+        public bool HayElevadorDeSalidaEnNivel()
+        {
+            if (_instantiatedExitElevator != null) return true;
+            if (_cityRoot == null) return false;
+
+            for (int i = 0; i < _cityRoot.childCount; i++)
+            {
+                Transform child = _cityRoot.GetChild(i);
+                if (child == null) continue;
+                if (child.name.Equals("StartRoom_SectorZero", StringComparison.OrdinalIgnoreCase)) continue;
+
+                if (child.name.IndexOf("ElevadorSalida", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    child.name.IndexOf("Mercader", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    child.name.IndexOf("Ruleta", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    _instantiatedExitElevator = child.gameObject;
+                    return true;
+                }
+
+                ElevatorPanelController panel = child.GetComponentInChildren<ElevatorPanelController>(true);
+                if (panel != null && panel.StartEnabled)
+                {
+                    _instantiatedExitElevator = child.gameObject;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Mecanismo de respaldo infalible (Fallback de Emergencia):
+        /// Si al finalizar el algoritmo de generación de habitaciones/pasillos no se ha instanciado
+        /// ningún elevador de salida, fuerza obligatoriamente la colocación del elevador de salida
+        /// en el último nodo o en la última sala creada, incluso reemplazando una pieza de pasillo estándar.
+        /// Garantiza de forma estricta que ningún piso carezca de salida y activa su panel de control.
+        /// </summary>
+        public void EjecutarFallbackEmergenciaElevadorSalida()
+        {
+            if (HayElevadorDeSalidaEnNivel()) return;
+
+            Debug.LogWarning("[LevelGenerator] [FALLBACK DE EMERGENCIA] Nivel sin elevador de salida detectado. Ejecutando forzado obligatorio de colocación de salida...");
+
+            AsegurarCatalogoElevadoresSalida();
+
+            if (elevadorSalidaPrefabs == null || elevadorSalidaPrefabs.Count == 0)
+            {
+                Debug.LogError("[LevelGenerator] [FALLBACK FALLIDO] ERROR CRÍTICO: Catálogo de elevadores de salida completamente vacío. Imposible forzar salida.");
+                return;
+            }
+
+            int modelIndex = _rng != null ? _rng.Next(0, elevadorSalidaPrefabs.Count) : UnityEngine.Random.Range(0, elevadorSalidaPrefabs.Count);
+            GameObject selectedElevatorPrefab = elevadorSalidaPrefabs[modelIndex];
+            Transform parentContainer = ObtenerOInicializarCityRoot();
+
+            Vector3 startPos = Vector3.zero;
+            Transform startRoomObj = _cityRoot != null ? _cityRoot.Find("StartRoom_SectorZero") : null;
+            if (startRoomObj != null) startPos = startRoomObj.position;
+
+            // 1. Identificar módulos candidatos generados (excluyendo StartRoom_SectorZero)
+            GameObject targetModule = null;
+            float maxDistSqr = -1f;
+
+            // Prioridad 1: Pasillos estándar situados a mayor distancia euclidiana del spawn
+            for (int i = _spawnedModulesList.Count - 1; i >= 0; i--)
+            {
+                GameObject m = _spawnedModulesList[i];
+                if (m == null || m.name.Contains("StartRoom")) continue;
+
+                if (EsPasilloEstandar(m))
+                {
+                    float distSqr = (m.transform.position - startPos).sqrMagnitude;
+                    if (distSqr > maxDistSqr)
+                    {
+                        maxDistSqr = distSqr;
+                        targetModule = m;
+                    }
+                }
+            }
+
+            // Prioridad 2: El último nodo o módulo estructural generado (distinto de StartRoom)
+            if (targetModule == null)
+            {
+                for (int i = _spawnedModulesList.Count - 1; i >= 0; i--)
+                {
+                    GameObject m = _spawnedModulesList[i];
+                    if (m != null && !m.name.Contains("StartRoom"))
+                    {
+                        targetModule = m;
+                        break;
+                    }
+                }
+            }
+
+            // Prioridad 3: Buscar en hijos de _cityRoot por si _spawnedModulesList estuviera desincronizada
+            if (targetModule == null && _cityRoot != null)
+            {
+                for (int i = _cityRoot.childCount - 1; i >= 0; i--)
+                {
+                    Transform child = _cityRoot.GetChild(i);
+                    if (child == null || child.name.Contains("StartRoom") || child.name.StartsWith("MuroCiego_")) continue;
+                    targetModule = child.gameObject;
+                    break;
+                }
+            }
+
+            // CASO A: Se encontró una sala o pasillo para reemplazar
+            if (targetModule != null)
+            {
+                string targetName = targetModule.name;
+                Vector3 spawnPos = targetModule.transform.position;
+                Quaternion spawnRot = targetModule.transform.rotation;
+
+                // Intentar alineación fina con socket de entrada del módulo a reemplazar
+                ModuleConnector targetConnector = targetModule.GetComponent<ModuleConnector>();
+                ModuleConnector elevatorConnector = selectedElevatorPrefab.GetComponent<ModuleConnector>();
+
+                if (targetConnector != null && targetConnector.availableSockets != null && targetConnector.availableSockets.Count > 0 &&
+                    elevatorConnector != null && elevatorConnector.availableSockets != null && elevatorConnector.availableSockets.Count > 0)
+                {
+                    Transform targetSocket = targetConnector.availableSockets[0];
+                    Transform elevatorEntrance = elevatorConnector.availableSockets[0];
+                    if (targetSocket != null && elevatorEntrance != null)
+                    {
+                        Vector3 entrancePos = targetSocket.position;
+                        Quaternion entranceRot = targetSocket.rotation;
+                        spawnRot = entranceRot * Quaternion.Inverse(elevatorEntrance.localRotation);
+                        spawnPos = entrancePos - (spawnRot * elevatorEntrance.localPosition);
+                    }
+                }
+
+                _spawnedModulesList.Remove(targetModule);
+
+                // Destruir la pieza a reemplazar
+                if (Application.isPlaying)
+                {
+                    targetModule.SetActive(false);
+                    targetModule.transform.SetParent(null);
+                    Destroy(targetModule);
+                }
+                else
+                {
+                    DestroyImmediate(targetModule);
+                }
+
+                // Limpiar muros ciegos que pudieran haber taponado ese punto
+                LimpiarMurosCiegosCercanos(spawnPos, 4.5f);
+
+                // Instanciar el elevador de salida forzado
+                GameObject exitElevator = Instantiate(selectedElevatorPrefab, spawnPos, spawnRot, parentContainer);
+                exitElevator.name = $"ElevadorSalida_Fallback_{selectedElevatorPrefab.name}";
+                exitElevator.transform.SetPositionAndRotation(spawnPos, spawnRot);
+                exitElevator.transform.localScale = Vector3.one;
+                Physics.SyncTransforms();
+
+                // Habilitar panel de control dinámicamente mediante panelController.HabilitarPanel(true)
+                ElevatorPanelController panelController = exitElevator.GetComponentInChildren<ElevatorPanelController>(true);
+                if (panelController != null)
+                {
+                    panelController.HabilitarPanel(true);
+                }
+
+                ThematicPropSpawner propSpawner = exitElevator.GetComponent<ThematicPropSpawner>();
+                if (propSpawner != null)
+                {
+                    propSpawner.SpawnThematicProps(_levelSeed);
+                }
+
+                _instantiatedExitElevator = exitElevator;
+                _spawnedModulesList.Add(exitElevator);
+                Debug.Log($"[LevelGenerator] [FALLBACK EXITOSO] Elevador de salida '{exitElevator.name}' colocado forzosamente reemplazando a '{targetName}'. Panel HABILITADO.");
+                return;
+            }
+
+            // CASO B: El nivel solo tiene la sala de inicio (StartRoom_SectorZero)
+            if (startRoomObj != null)
+            {
+                ModuleConnector startConnector = startRoomObj.GetComponent<ModuleConnector>();
+                Vector3 spawnPos = startPos + startRoomObj.forward * 12f;
+                Quaternion spawnRot = startRoomObj.rotation;
+
+                if (startConnector != null && startConnector.availableSockets != null && startConnector.availableSockets.Count > 0)
+                {
+                    Transform startSocket = startConnector.availableSockets[0];
+                    if (startSocket != null)
+                    {
+                        spawnPos = startSocket.position;
+                        spawnRot = startSocket.rotation;
+
+                        ModuleConnector elevatorConnector = selectedElevatorPrefab.GetComponent<ModuleConnector>();
+                        if (elevatorConnector != null && elevatorConnector.availableSockets != null && elevatorConnector.availableSockets.Count > 0)
+                        {
+                            Transform elevatorEntrance = elevatorConnector.availableSockets[0];
+                            if (elevatorEntrance != null && SimularTransformacionModulo(startSocket, elevatorEntrance, selectedElevatorPrefab.transform, out Vector3 simPos, out Quaternion simRot))
+                            {
+                                spawnPos = simPos;
+                                spawnRot = simRot;
+                            }
+                        }
+                    }
+                }
+
+                LimpiarMurosCiegosCercanos(spawnPos, 4.5f);
+
+                GameObject exitElevator = Instantiate(selectedElevatorPrefab, spawnPos, spawnRot, parentContainer);
+                exitElevator.name = $"ElevadorSalida_FallbackDirecto_{selectedElevatorPrefab.name}";
+                exitElevator.transform.SetPositionAndRotation(spawnPos, spawnRot);
+                exitElevator.transform.localScale = Vector3.one;
+                Physics.SyncTransforms();
+
+                ElevatorPanelController panelController = exitElevator.GetComponentInChildren<ElevatorPanelController>(true);
+                if (panelController != null)
+                {
+                    panelController.HabilitarPanel(true);
+                }
+
+                ThematicPropSpawner propSpawner = exitElevator.GetComponent<ThematicPropSpawner>();
+                if (propSpawner != null)
+                {
+                    propSpawner.SpawnThematicProps(_levelSeed);
+                }
+
+                _instantiatedExitElevator = exitElevator;
+                _spawnedModulesList.Add(exitElevator);
+                Debug.Log($"[LevelGenerator] [FALLBACK EXITOSO] Elevador de salida '{exitElevator.name}' acoplado forzosamente a la sala de inicio. Panel HABILITADO.");
+            }
+        }
+
+        /// <summary>
+        /// Comprueba si un módulo dado corresponde a una pieza de pasillo estándar.
+        /// </summary>
+        private bool EsPasilloEstandar(GameObject m)
+        {
+            if (m == null) return false;
+            string n = m.name;
+            if (n.IndexOf("Pasillo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                n.IndexOf("Corridor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                n.IndexOf("Lineal", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            if (corridors != null)
+            {
+                for (int i = 0; i < corridors.Count; i++)
+                {
+                    if (corridors[i] != null && n.StartsWith(corridors[i].name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Elimina cualquier muro ciego o tapón dentro de un radio determinado para desbloquear el acceso al elevador forzado.
+        /// </summary>
+        private void LimpiarMurosCiegosCercanos(Vector3 center, float radius)
+        {
+            if (_cityRoot == null) return;
+            float radiusSqr = radius * radius;
+
+            for (int i = _cityRoot.childCount - 1; i >= 0; i--)
+            {
+                Transform child = _cityRoot.GetChild(i);
+                if (child == null) continue;
+
+                if (child.name.StartsWith("MuroCiego_", StringComparison.OrdinalIgnoreCase) ||
+                    child.name.IndexOf("Muro_Ciego", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    child.name.IndexOf("Tapon", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    if ((child.position - center).sqrMagnitude <= radiusSqr)
+                    {
+                        if (Application.isPlaying)
+                        {
+                            Destroy(child.gameObject);
+                        }
+                        else
+                        {
+                            DestroyImmediate(child.gameObject);
+                        }
+                    }
+                }
             }
         }
 
@@ -1235,6 +1556,8 @@ namespace DemenciaNoLimite.Level
             _activeOpenSockets.Clear();
             _rejectedSockets.Clear();
             _placedModuleBounds.Clear();
+            _spawnedModulesList.Clear();
+            _instantiatedExitElevator = null;
             _spawnedModulesCount = 0;
 
             // Sincronización inmediata con el motor PhysX para purgar colisionadores destruidos

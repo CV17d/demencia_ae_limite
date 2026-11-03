@@ -17,18 +17,6 @@ namespace DemenciaNoLimite.Level
     public class ElevatorExitTrigger : MonoBehaviour
     {
         // ════════════════════════════════════════════════════════════════════
-        // CONFIGURACIÓN SERIALIZADA
-        // ════════════════════════════════════════════════════════════════════
-
-        [Header("Referencias")]
-        [Tooltip("Referencia al generador de nivel. Si no se asigna, se buscará automáticamente en la escena.")]
-        [SerializeField] private LevelGenerator _levelGenerator;
-
-        [Header("Filtros de Detección")]
-        [Tooltip("Tag que debe tener exactamente el objeto que entra al sensor para activar el descenso.")]
-        [SerializeField] private string _playerTag = "Player";
-
-        // ════════════════════════════════════════════════════════════════════
         // ESTADO INTERNO (CANDADO LÓGICO)
         // ════════════════════════════════════════════════════════════════════
 

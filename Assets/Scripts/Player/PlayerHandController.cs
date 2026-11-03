@@ -547,29 +547,27 @@ namespace DemenciaNoLimite.Player
                 canvasGo = GameObject.Find("Canvas_Manos");
             }
 
-            // 2. Si no existe, instanciar Canvas_Manos por código
+            // 2. Si no existe, instanciar Canvas_Manos por código con componentes UI tipados
             if (canvasGo == null)
             {
-                canvasGo = new GameObject("Canvas_Manos");
+                canvasGo = new GameObject("Canvas_Manos", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
                 if (mainCam != null)
                 {
                     canvasGo.transform.SetParent(mainCam.transform, false);
                 }
 
-                Canvas canvas = canvasGo.AddComponent<Canvas>();
+                Canvas canvas = canvasGo.GetComponent<Canvas>();
                 canvas.renderMode = RenderMode.ScreenSpaceOverlay;
                 canvas.sortingOrder = 50;
 
-                CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
+                CanvasScaler scaler = canvasGo.GetComponent<CanvasScaler>();
                 scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
                 scaler.referenceResolution = new Vector2(1920f, 1080f);
                 scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
                 scaler.matchWidthOrHeight = 0.5f;
-
-                canvasGo.AddComponent<GraphicRaycaster>();
             }
 
-            // 3. Buscar o crear el objeto ManoPersonaje dentro del Canvas
+            // 3. Buscar o crear el objeto ManoPersonaje dentro del Canvas garantizando RectTransform
             Transform manoTransform = canvasGo.transform.Find("ManoPersonaje");
             GameObject manoGo;
             if (manoTransform != null)
@@ -578,17 +576,25 @@ namespace DemenciaNoLimite.Player
             }
             else
             {
-                manoGo = new GameObject("ManoPersonaje");
+                manoGo = new GameObject("ManoPersonaje", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
                 manoGo.transform.SetParent(canvasGo.transform, false);
             }
 
-            // 4. Configurar RectTransform anclado en la esquina inferior derecha
-            RectTransform rect = manoGo.GetComponent<RectTransform>() ?? manoGo.AddComponent<RectTransform>();
-            rect.anchorMin = new Vector2(1f, 0f);
-            rect.anchorMax = new Vector2(1f, 0f);
-            rect.pivot = new Vector2(1f, 0f);
-            rect.sizeDelta = _handSize;
-            rect.anchoredPosition = _handOffset;
+            // 4. Configurar RectTransform validando su existencia
+            RectTransform rect = manoGo.GetComponent<RectTransform>();
+            if (rect == null)
+            {
+                rect = manoGo.AddComponent<RectTransform>();
+            }
+
+            if (rect != null)
+            {
+                rect.anchorMin = new Vector2(1f, 0f);
+                rect.anchorMax = new Vector2(1f, 0f);
+                rect.pivot = new Vector2(1f, 0f);
+                rect.sizeDelta = _handSize;
+                rect.anchoredPosition = _handOffset;
+            }
 
             // 5. Configurar componente Image
             Image img = manoGo.GetComponent<Image>() ?? manoGo.AddComponent<Image>();
@@ -616,20 +622,26 @@ namespace DemenciaNoLimite.Player
                 }
                 else
                 {
-                    GameObject anchorGo = new GameObject("FloatingItemAnchor");
-                    anchorGo.transform.SetParent(parentToUse, false);
-
+                    GameObject anchorGo;
                     if (parentToUse is RectTransform)
                     {
-                        RectTransform anchorRect = anchorGo.AddComponent<RectTransform>();
-                        anchorRect.anchorMin = new Vector2(0.5f, 0.65f);
-                        anchorRect.anchorMax = new Vector2(0.5f, 0.65f);
-                        anchorRect.pivot = new Vector2(0.5f, 0.5f);
-                        anchorRect.anchoredPosition = Vector2.zero;
-                        anchorRect.sizeDelta = new Vector2(160f, 160f);
+                        anchorGo = new GameObject("FloatingItemAnchor", typeof(RectTransform));
+                        anchorGo.transform.SetParent(parentToUse, false);
+
+                        RectTransform anchorRect = anchorGo.GetComponent<RectTransform>();
+                        if (anchorRect != null)
+                        {
+                            anchorRect.anchorMin = new Vector2(0.5f, 0.65f);
+                            anchorRect.anchorMax = new Vector2(0.5f, 0.65f);
+                            anchorRect.pivot = new Vector2(0.5f, 0.5f);
+                            anchorRect.anchoredPosition = Vector2.zero;
+                            anchorRect.sizeDelta = new Vector2(160f, 160f);
+                        }
                     }
                     else
                     {
+                        anchorGo = new GameObject("FloatingItemAnchor");
+                        anchorGo.transform.SetParent(parentToUse, false);
                         anchorGo.transform.localPosition = new Vector3(0f, 0.12f, 0f);
                     }
 

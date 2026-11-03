@@ -445,7 +445,7 @@ namespace DemenciaNoLimite.Player
 
         /// <summary>
         /// Garantiza que los tres sprites existan cargándolos por código si no fueron asignados en el Inspector.
-        /// Prioridades: Inspector > AssetDatabase (Editor) > Resources.Load > Carga directa de textura en disco.
+        /// Prioridades: Inspector > AssetDatabase (Editor) > Resources.Load.
         /// </summary>
         public void AsegurarCargaDeSprites()
         {
@@ -472,29 +472,9 @@ namespace DemenciaNoLimite.Player
             if (editorSprite != null) return editorSprite;
 #endif
 
-            // Intento vía Resources
+            // Intento vía Resources si se ubican bajo Resources/Manos/
             Sprite resSprite = Resources.Load<Sprite>(resourcesPath);
             if (resSprite != null) return resSprite;
-
-            // Fallback de contingencia: Lectura directa de bytes de textura en runtime
-            try
-            {
-                string fullPath = System.IO.Path.Combine(Application.dataPath, "Art/2D/Manos", fileName);
-                if (System.IO.File.Exists(fullPath))
-                {
-                    byte[] bytes = System.IO.File.ReadAllBytes(fullPath);
-                    Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                    if (ImageConversion.LoadImage(tex, bytes))
-                    {
-                        tex.name = fileName;
-                        return Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[PlayerHandController] No fue posible cargar sprite desde archivo '{fileName}': {ex.Message}");
-            }
 
             return null;
         }

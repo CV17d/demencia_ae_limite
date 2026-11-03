@@ -8,13 +8,19 @@
 // - Grano de película (ruido analógico sucio e industrial)
 // - Distorsión de lente (deformación de perspectiva y claustrofobia)
 // - Ajustes de color (desaturación cadavérica y contraste abrasivo)
-// Diseñado con arquitectura Zero-GC y transiciones no lineales por umbrales.
+//
+// Comunicación:
+// - Se suscribe a SanityManager.Instance.OnGuiltChanged y PlayerManager.Instance.
+// - Reacciona a GameEvents.OnPlayerDamaged para inyectar pulsos de estrés visual.
+// - Diseñado con arquitectura Zero-GC y transiciones continuas por umbrales.
 // ============================================================================
 
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
+using DemenciaNoLimite.Core.Events;
+using DemenciaNoLimite.Player;
 
 namespace DemenciaNoLimite.Horror
 {
@@ -141,6 +147,10 @@ namespace DemenciaNoLimite.Horror
         [Tooltip("Velocidad de desvanecimiento de pulsos de estrés o sobresaltos.")]
         [SerializeField] private float _stressPulseDecay = 2.5f;
 
+        [Header("Reacción a Daño")]
+        [Tooltip("Si está activo, recibir daño físico genera un pico instantáneo de distorsión y aberración.")]
+        [SerializeField] private bool _reactToDamage = true;
+
         [Header("Perfiles de Post-Procesado por Umbral")]
         [Tooltip("Efectos con cordura alta (estado lúcido/calma).")]
         [SerializeField] private PostProcessTierSettings _normalSettings = PostProcessTierSettings.CreateNormalDefault();
@@ -190,6 +200,8 @@ namespace DemenciaNoLimite.Horror
         private Color _currentColorFilter;
 
         private bool _isInitialized = false;
+        private bool _isSubscribedToSanityManager = false;
+        private bool _isSubscribedToPlayerManager = false;
 
         // Propiedades públicas para lectura externa
         public float CurrentSanity => _currentSanity;
@@ -205,6 +217,22 @@ namespace DemenciaNoLimite.Horror
         private void Awake()
         {
             InitializeOverrides();
+        }
+
+        private void OnEnable()
+        {
+            SubscribeToEvents();
+        }
+
+        private void OnDisable()
+        {
+            UnsubscribeFromEvents();
+        }
+
+        private void Start()
+        {
+            // Consultar el estado inicial de cordura de los gestores activos
+            SincronizarEstadoInicial();
         }
 
         /// <summary>
@@ -298,12 +326,121 @@ namespace DemenciaNoLimite.Horror
         }
 
         // ════════════════════════════════════════════════════════════════════
+        // INTEGRACIÓN Y SUSCRIPCIÓN A EVENTOS
+        // ════════════════════════════════════════════════════════════════════
+
+        private void SubscribeToEvents()
+        {
+            // Suscripción al bus global de eventos
+            GameEvents.OnPlayerDamaged += HandlePlayerDamaged;
+            GameEvents.OnDegradationChanged += HandleDegradationChanged;
+
+            // Intentar suscribir al SanityManager singleton
+            if (!_isSubscribedToSanityManager && SanityManager.Instance != null)
+            {
+                SanityManager.Instance.OnGuiltChanged += HandleGuiltChanged;
+                _isSubscribedToSanityManager = true;
+            }
+
+            // Intentar suscribir al PlayerManager singleton
+            if (!_isSubscribedToPlayerManager && PlayerManager.Instance != null)
+            {
+                PlayerManager.Instance.OnGuiltUpdated += HandleGuiltUpdated;
+                _isSubscribedToPlayerManager = true;
+            }
+        }
+
+        private void UnsubscribeFromEvents()
+        {
+            GameEvents.OnPlayerDamaged -= HandlePlayerDamaged;
+            GameEvents.OnDegradationChanged -= HandleDegradationChanged;
+
+            if (_isSubscribedToSanityManager && SanityManager.Instance != null)
+            {
+                SanityManager.Instance.OnGuiltChanged -= HandleGuiltChanged;
+                _isSubscribedToSanityManager = false;
+            }
+
+            if (_isSubscribedToPlayerManager && PlayerManager.Instance != null)
+            {
+                PlayerManager.Instance.OnGuiltUpdated -= HandleGuiltUpdated;
+                _isSubscribedToPlayerManager = false;
+            }
+        }
+
+        private void SincronizarEstadoInicial()
+        {
+            if (SanityManager.Instance != null)
+            {
+                if (!_isSubscribedToSanityManager)
+                {
+                    SanityManager.Instance.OnGuiltChanged += HandleGuiltChanged;
+                    _isSubscribedToSanityManager = true;
+                }
+                HandleGuiltChanged(SanityManager.Instance.CurrentGuilt, SanityManager.Instance.InsanityPercentage);
+                SnapToTargetSanity();
+            }
+            else if (PlayerManager.Instance != null)
+            {
+                if (!_isSubscribedToPlayerManager)
+                {
+                    PlayerManager.Instance.OnGuiltUpdated += HandleGuiltUpdated;
+                    _isSubscribedToPlayerManager = true;
+                }
+                HandleGuiltUpdated((int)PlayerManager.Instance.CurrentGuilt, PlayerManager.Instance.InsanityPercentage);
+                SnapToTargetSanity();
+            }
+        }
+
+        private void HandleGuiltChanged(int guilt, float normalizedGuilt)
+        {
+            // Culpa = 0 -> Cordura = 1.0 (Lúcido)
+            // Culpa = 100 -> Cordura = 0.0 (Locura absoluta)
+            float newSanity = Mathf.Clamp01(1.0f - normalizedGuilt);
+
+            // Si hay una pérdida brusca de cordura (>15%), gatillar sobresalto visual
+            if (newSanity < _targetSanity - 0.15f)
+            {
+                TriggerStressPulse(0.35f);
+            }
+
+            SetTargetSanity(newSanity);
+        }
+
+        private void HandleGuiltUpdated(int guilt, float normalizedGuilt)
+        {
+            HandleGuiltChanged(guilt, normalizedGuilt);
+        }
+
+        private void HandleDegradationChanged(float degradation01)
+        {
+            // Respaldo para el sistema de degradación alternativa si no se utiliza culpa directa
+            if (SanityManager.Instance == null)
+            {
+                float sanity = Mathf.Clamp01(1.0f - degradation01);
+                SetTargetSanity(sanity);
+            }
+        }
+
+        private void HandlePlayerDamaged(float damageAmount)
+        {
+            if (!_reactToDamage) return;
+
+            // Inyectar un pulso de aberración y distorsión proporcional al impacto recibido
+            float pulseStrength = Mathf.Clamp01(damageAmount / 45.0f) * 0.65f;
+            TriggerStressPulse(pulseStrength);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
         // BUCLE DE ACTUALIZACIÓN ZERO-GC (INTERPOLACIÓN DINÁMICA)
         // ════════════════════════════════════════════════════════════════════
 
         private void Update()
         {
             if (!_isInitialized) return;
+
+            // Enlace perezoso si SanityManager/PlayerManager instanciaron después
+            VerificarConexionPerezosa();
 
             float dt = Time.deltaTime;
 
@@ -368,6 +505,22 @@ namespace DemenciaNoLimite.Horror
                 _colorAdjustments.saturation.value = _currentSaturation;
                 _colorAdjustments.contrast.value = _currentContrast;
                 _colorAdjustments.colorFilter.value = _currentColorFilter;
+            }
+        }
+
+        private void VerificarConexionPerezosa()
+        {
+            if (!_isSubscribedToSanityManager && SanityManager.Instance != null)
+            {
+                SanityManager.Instance.OnGuiltChanged += HandleGuiltChanged;
+                _isSubscribedToSanityManager = true;
+                HandleGuiltChanged(SanityManager.Instance.CurrentGuilt, SanityManager.Instance.InsanityPercentage);
+            }
+            else if (!_isSubscribedToPlayerManager && PlayerManager.Instance != null)
+            {
+                PlayerManager.Instance.OnGuiltUpdated += HandleGuiltUpdated;
+                _isSubscribedToPlayerManager = true;
+                HandleGuiltUpdated((int)PlayerManager.Instance.CurrentGuilt, PlayerManager.Instance.InsanityPercentage);
             }
         }
 
@@ -441,6 +594,30 @@ namespace DemenciaNoLimite.Horror
             }
         }
 
+        // ════════════════════════════════════════════════════════════════════
+        // MÉTODOS PÚBLICOS DE CONTROL
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Establece el nivel de cordura objetivo (0.0 = locura / 1.0 = lúcido)
+        /// para que el sistema interpole fluidamente hacia él.
+        /// </summary>
+        public void SetTargetSanity(float sanity)
+        {
+            _targetSanity = Mathf.Clamp01(sanity);
+        }
+
+        /// <summary>
+        /// Aplica inmediatamente el nivel de cordura saltándose la interpolación
+        /// (útil al iniciar partida o cambiar de piso sin tirones).
+        /// </summary>
+        public void SnapToTargetSanity()
+        {
+            _currentSanity = _targetSanity;
+            ComputeTargetSettings(_currentSanity, out PostProcessTierSettings target);
+            ApplyInstantSettings(target);
+        }
+
         /// <summary>
         /// Dispara un pico temporal de distorsión y aberración por sobresalto o daño súbito.
         /// </summary>
@@ -449,5 +626,24 @@ namespace DemenciaNoLimite.Horror
         {
             _stressPulseIntensity = Mathf.Clamp01(_stressPulseIntensity + intensity);
         }
+
+        // ════════════════════════════════════════════════════════════════════
+        // MENÚS CONTEXTUALES PARA PRUEBAS RÁPIDAS EN INSPECTOR
+        // ════════════════════════════════════════════════════════════════════
+
+        [ContextMenu("Probar / Cordura 100% (Lúcido)")]
+        private void TestLucidState() => SetTargetSanity(1.0f);
+
+        [ContextMenu("Probar / Cordura 50% (Umbral Moderado)")]
+        private void TestModerateState() => SetTargetSanity(0.50f);
+
+        [ContextMenu("Probar / Cordura 20% (Umbral Crítico)")]
+        private void TestCriticalState() => SetTargetSanity(0.20f);
+
+        [ContextMenu("Probar / Cordura 0% (Colapso Total)")]
+        private void TestFullInsanityState() => SetTargetSanity(0.0f);
+
+        [ContextMenu("Probar / Disparar Pulso de Estrés")]
+        private void TestStressPulse() => TriggerStressPulse(0.5f);
     }
 }

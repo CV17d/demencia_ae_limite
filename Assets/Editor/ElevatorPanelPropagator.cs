@@ -113,19 +113,23 @@ namespace DemenciaNoLimite.Editor
 
                     try
                     {
+                        // Determinar si es elevador de salida (meta) o de entrada (spawn)
+                        bool esElevadorSalida = fileName.IndexOf("Mercader", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                fileName.IndexOf("Ruleta", StringComparison.OrdinalIgnoreCase) >= 0;
+
                         // 1. Configurar o crear el GameObject hijo 'Panel_Control' con su BoxCollider Trigger
                         GameObject panelGo = ConfigurarObjetoPanelControl(rootGo);
 
                         // 2. Crear o actualizar el objeto visual 3D de la consola (asegurando remoción de colliders bloqueantes)
                         ConfigurarObjetoVisualBotonera(panelGo);
 
-                        // 3. Adjuntar o configurar el componente ElevatorPanelController
-                        ConfigurarComponenteControlador(panelGo);
+                        // 3. Adjuntar o configurar el componente ElevatorPanelController distinguiendo roles
+                        ConfigurarComponenteControlador(panelGo, esElevadorSalida);
 
                         // 4. Persistir los cambios en el archivo .prefab del disco
                         PrefabUtility.SaveAsPrefabAsset(rootGo, path);
                         updatedCount++;
-                        Debug.Log($"[ElevatorPanelPropagator] Panel_Control y modelo visual configurados en: '{fileName}'.");
+                        Debug.Log($"[ElevatorPanelPropagator] Prefab '{fileName}' configurado exitosamente. Rol: {(esElevadorSalida ? "SALIDA / META (Habilitado)" : "ENTRADA / SPAWN (Deshabilitado)")}.");
                     }
                     catch (Exception ex)
                     {
@@ -313,9 +317,10 @@ namespace DemenciaNoLimite.Editor
         }
 
         /// <summary>
-        /// Asegura la presencia del script ElevatorPanelController en el objeto del panel.
+        /// Asegura la presencia y configuración del script ElevatorPanelController en el objeto del panel,
+        /// diferenciando elevadores de salida (habilitados) y elevadores de spawn/entrada (bloqueados).
         /// </summary>
-        public static ElevatorPanelController ConfigurarComponenteControlador(GameObject panelGo)
+        public static ElevatorPanelController ConfigurarComponenteControlador(GameObject panelGo, bool esElevadorSalida = true)
         {
             if (panelGo == null) return null;
 
@@ -324,6 +329,30 @@ namespace DemenciaNoLimite.Editor
             {
                 controller = panelGo.AddComponent<ElevatorPanelController>();
             }
+
+            controller.StartEnabled = esElevadorSalida;
+            controller.enabled = esElevadorSalida;
+
+            SerializedObject so = new SerializedObject(controller);
+            SerializedProperty startEnabledProp = so.FindProperty("_startEnabled");
+            if (startEnabledProp != null) startEnabledProp.boolValue = esElevadorSalida;
+
+            SerializedProperty isInteractableProp = so.FindProperty("_isInteractable");
+            if (isInteractableProp != null) isInteractableProp.boolValue = esElevadorSalida;
+
+            SerializedProperty actionTextProp = so.FindProperty("_promptActionText");
+            SerializedProperty subTextProp = so.FindProperty("_promptSubText");
+            if (!esElevadorSalida)
+            {
+                if (actionTextProp != null) actionTextProp.stringValue = "ELEVADOR DE ENTRADA (BLOQUEADO)";
+                if (subTextProp != null) subTextProp.stringValue = "ACCESO DESHABILITADO EN ESTE PISO";
+            }
+            else
+            {
+                if (actionTextProp != null) actionTextProp.stringValue = "ACCIONAR PANEL DE ELEVADOR";
+                if (subTextProp != null) subTextProp.stringValue = "[E] INICIAR SECUENCIA DE DESCENSO";
+            }
+            so.ApplyModifiedProperties();
 
             return controller;
         }

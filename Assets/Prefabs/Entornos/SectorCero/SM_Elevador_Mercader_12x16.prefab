@@ -220,6 +220,8 @@ MonoBehaviour:
   _requireLookingAtPanel: 1
   _lookAtAngleThreshold: 65
   _interactKey: 101
+  _startEnabled: 1
+  _isInteractable: 1
   _promptActionText: ACCIONAR PANEL DE ELEVADOR
   _promptSubText: '[E] INICIAR SECUENCIA DE DESCENSO'
   _externalPromptUI: {fileID: 0}

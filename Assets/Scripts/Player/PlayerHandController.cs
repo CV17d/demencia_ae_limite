@@ -67,8 +67,8 @@ namespace DemenciaNoLimite.Player
         [Tooltip("Dimensiones por defecto de la imagen de la mano en el Canvas (1920x1080).")]
         [SerializeField] private Vector2 _handSize = new Vector2(550f, 550f);
 
-        [Tooltip("Desplazamiento adicional (offset) relativo a la esquina inferior derecha. Un valor negativo en X la desplaza hacia la izquierda.")]
-        [SerializeField] private Vector2 _handOffset = new Vector2(-80f, 0f);
+        [Tooltip("Desplazamiento adicional (offset) relativo a la esquina inferior derecha. Un valor negativo en X la desplaza hacia la izquierda y un valor negativo en Y la baja.")]
+        [SerializeField] private Vector2 _handOffset = new Vector2(-140f, -40f);
 
         [Header("Renderizado Visual (UI o 2D en Cámara)")]
         [Tooltip("Componente Image de Canvas UI donde se proyecta la mano (Recomendado para HUD).")]
@@ -260,6 +260,11 @@ namespace DemenciaNoLimite.Player
             if (_currentState == HandState.Hidden)
             {
                 _currentState = (_defaultState != HandState.Hidden) ? _defaultState : HandState.EquippedItem;
+            }
+
+            if (_handRect != null)
+            {
+                _handRect.anchoredPosition = _handOffset;
             }
 
             ActualizarVisualesEstado(_currentState);

@@ -59,6 +59,13 @@ namespace DemenciaNoLimite.Level
         [Tooltip("Tecla requerida para accionar el panel.")]
         [SerializeField] private KeyCode _interactKey = KeyCode.E;
 
+        [Header("Configuración de Rol y Estado Inicial")]
+        [Tooltip("Define si el panel de control inicia habilitado para interacción. En elevadores de spawn/entrada debe ser false para evitar escapes iniciales, y en elevadores de salida debe ser true.")]
+        [SerializeField] private bool _startEnabled = true;
+
+        [Tooltip("Indica si el panel está actualmente activo y responde a la interacción del jugador.")]
+        [SerializeField] private bool _isInteractable = true;
+
         [Header("Interfaz de Usuario (HUD)")]
         [Tooltip("Texto descriptivo mostrado en la pantalla cuando el panel es interactuable.")]
         [SerializeField] private string _promptActionText = "ACCIONAR PANEL DE ELEVADOR";
@@ -181,11 +188,25 @@ namespace DemenciaNoLimite.Level
         // PROPIEDADES PÚBLICAS
         // ════════════════════════════════════════════════════════════════════
 
-        public bool IsPlayerInRange => _isPlayerInTrigger && (!_requireLookingAtPanel || _isPlayerLookingAtPanel);
+        public bool IsPlayerInRange => _isInteractable && _isPlayerInTrigger && (!_requireLookingAtPanel || _isPlayerLookingAtPanel);
         public bool IsActivating => _isActivating;
         public bool IsSequenceCompleted => _isSequenceCompleted;
+        public bool IsInteractable => _isInteractable;
+        public bool StartEnabled { get => _startEnabled; set => _startEnabled = value; }
         public KeyCode InteractKey => _interactKey;
         public ElevatorDirection Direction { get => _direction; set => _direction = value; }
+
+        /// <summary>
+        /// Habilita o deshabilita la capacidad del panel para ser accionado por el jugador.
+        /// Utilizado por el generador de niveles para silenciar el elevador inicial y activar el de salida.
+        /// </summary>
+        public void HabilitarPanel(bool habilitar)
+        {
+            _isInteractable = habilitar;
+            enabled = habilitar;
+            ActualizarUIExterna();
+            Debug.Log($"[ElevatorPanelController] Panel '{name}' en elevador '{transform.root.name}' {(habilitar ? "HABILITADO" : "DESHABILITADO")}.");
+        }
 
         // ════════════════════════════════════════════════════════════════════
         // CICLO DE VIDA MONOBEHAVIOUR
@@ -193,6 +214,8 @@ namespace DemenciaNoLimite.Level
 
         private void Awake()
         {
+            _isInteractable = _startEnabled;
+
             _triggerCollider = GetComponent<Collider>();
             if (_triggerCollider != null && !_triggerCollider.isTrigger)
             {
@@ -203,10 +226,17 @@ namespace DemenciaNoLimite.Level
             LocalizarLucesCabina();
             ResolverGeneradorDeNivel();
             _mainCamera = Camera.main;
+
+            if (!_startEnabled)
+            {
+                enabled = false;
+            }
         }
 
         private void Start()
         {
+            _isInteractable = _startEnabled;
+
             if (_mainCamera == null)
             {
                 _mainCamera = Camera.main;
@@ -225,7 +255,7 @@ namespace DemenciaNoLimite.Level
 
         private void Update()
         {
-            if (_isSequenceCompleted || _isActivating) return;
+            if (!_isInteractable || _isSequenceCompleted || _isActivating) return;
 
             if (_isPlayerInTrigger)
             {

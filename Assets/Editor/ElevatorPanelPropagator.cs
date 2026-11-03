@@ -117,16 +117,19 @@ namespace DemenciaNoLimite.Editor
                         bool esElevadorSalida = fileName.IndexOf("Mercader", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                                 fileName.IndexOf("Ruleta", StringComparison.OrdinalIgnoreCase) >= 0;
 
-                        // 1. Configurar o crear el GameObject hijo 'Panel_Control' con su BoxCollider Trigger
+                        // 1. Desactivar y neutralizar triggers pasivos o automáticos (ElevatorExitTrigger / ZonaTrigger)
+                        DesactivarTriggersAutomaticos(rootGo);
+
+                        // 2. Configurar o crear el GameObject hijo 'Panel_Control' con su BoxCollider Trigger
                         GameObject panelGo = ConfigurarObjetoPanelControl(rootGo);
 
-                        // 2. Crear o actualizar el objeto visual 3D de la consola (asegurando remoción de colliders bloqueantes)
+                        // 3. Crear o actualizar el objeto visual 3D de la consola (asegurando remoción de colliders bloqueantes)
                         ConfigurarObjetoVisualBotonera(panelGo);
 
-                        // 3. Adjuntar o configurar el componente ElevatorPanelController distinguiendo roles
+                        // 4. Adjuntar o configurar el componente ElevatorPanelController distinguiendo roles
                         ConfigurarComponenteControlador(panelGo, esElevadorSalida);
 
-                        // 4. Persistir los cambios en el archivo .prefab del disco
+                        // 5. Persistir los cambios en el archivo .prefab del disco
                         PrefabUtility.SaveAsPrefabAsset(rootGo, path);
                         updatedCount++;
                         Debug.Log($"[ElevatorPanelPropagator] Prefab '{fileName}' configurado exitosamente. Rol: {(esElevadorSalida ? "SALIDA / META (Habilitado)" : "ENTRADA / SPAWN (Deshabilitado)")}.");
@@ -349,12 +352,42 @@ namespace DemenciaNoLimite.Editor
             }
             else
             {
-                if (actionTextProp != null) actionTextProp.stringValue = "ACCIONAR PANEL DE ELEVADOR";
-                if (subTextProp != null) subTextProp.stringValue = "[E] INICIAR SECUENCIA DE DESCENSO";
+                if (actionTextProp != null) actionTextProp.stringValue = "PANEL DE CONTROL DE ELEVADOR";
+                if (subTextProp != null) subTextProp.stringValue = "[E] INICIAR SECUENCIA";
             }
             so.ApplyModifiedProperties();
 
             return controller;
+        }
+
+        /// <summary>
+        /// Desactiva y neutraliza cualquier sensor automático previo (como ElevatorExitTrigger o ZonaTrigger)
+        /// para garantizar que la transición al nuevo piso dependa 100% de la pulsación de la tecla [E] en el panel.
+        /// </summary>
+        public static void DesactivarTriggersAutomaticos(GameObject rootGo)
+        {
+            if (rootGo == null) return;
+
+            var exitTriggers = rootGo.GetComponentsInChildren<ElevatorExitTrigger>(true);
+            foreach (var trigger in exitTriggers)
+            {
+                trigger.enabled = false;
+                Collider col = trigger.GetComponent<Collider>();
+                if (col != null)
+                {
+                    col.enabled = false;
+                }
+                if (trigger.gameObject.name.Contains("ZonaTrigger"))
+                {
+                    trigger.gameObject.SetActive(false);
+                }
+            }
+
+            Transform zona = rootGo.transform.Find("ZonaTrigger");
+            if (zona != null)
+            {
+                zona.gameObject.SetActive(false);
+            }
         }
     }
 }

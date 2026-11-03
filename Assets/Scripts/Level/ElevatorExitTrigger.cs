@@ -44,51 +44,28 @@ namespace DemenciaNoLimite.Level
 
         private void Awake()
         {
-            // Asegura que el collider esté configurado como Trigger
-            Collider col = GetComponent<Collider>();
-            if (col != null && !col.isTrigger)
-            {
-                col.isTrigger = true;
-            }
+            // OBSOLETO / DESHABILITADO: El cambio de nivel se realiza exclusivamente
+            // interactuando con el panel de control interactivo (ElevatorPanelController) mediante la tecla [E].
+            // Se desactiva este script para evitar cualquier transición automática accidental.
+            enabled = false;
 
-            // Resolución inicial de LevelGenerator si no fue asignado por Inspector
-            if (_levelGenerator == null)
+            Collider col = GetComponent<Collider>();
+            if (col != null)
             {
-                _levelGenerator = FindAnyObjectByType<LevelGenerator>();
+                col.enabled = false;
             }
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // DETECCIÓN DE COLISIÓN (ON TRIGGER ENTER)
+        // DETECCIÓN DE COLISIÓN (ON TRIGGER ENTER) — DESACTIVADA
         // ════════════════════════════════════════════════════════════════════
 
         private void OnTriggerEnter(Collider other)
         {
-            // Candado booleano: si ya fue activado, descartar inmediatamente
-            if (hasTriggered) return;
-
-            // Validar que el objeto que entra tenga exactamente el tag especificado ("Player")
-            if (!other.CompareTag(_playerTag)) return;
-
-            // Activar candado para evitar bucles o llamadas múltiples mientras el jugador permanece adentro
-            hasTriggered = true;
-
-            Debug.Log("Jugador entró al elevador. Iniciando descenso...");
-
-            // Buscar LevelGenerator si aún no se tiene la referencia
-            if (_levelGenerator == null)
-            {
-                _levelGenerator = FindAnyObjectByType<LevelGenerator>();
-            }
-
-            if (_levelGenerator != null)
-            {
-                _levelGenerator.GenerarSiguientePiso();
-            }
-            else
-            {
-                Debug.LogError("[ElevatorExitTrigger] Error: No se encontró ninguna instancia de LevelGenerator en la escena.");
-            }
+            // Transición automática deshabilitada:
+            // Toda la lógica de cambio de nivel ha sido aislada en ElevatorPanelController
+            // supeditada a la pulsación explícita de la tecla [E] frente a la consola.
+            Debug.LogWarning("[ElevatorExitTrigger] OnTriggerEnter ignorado: el descenso a un nuevo piso ahora depende exclusivamente del panel interactivo (ElevatorPanelController) con la tecla [E].");
         }
 
         // ════════════════════════════════════════════════════════════════════

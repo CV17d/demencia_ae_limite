@@ -68,10 +68,10 @@ namespace DemenciaNoLimite.Level
 
         [Header("Interfaz de Usuario (HUD)")]
         [Tooltip("Texto descriptivo mostrado en la pantalla cuando el panel es interactuable.")]
-        [SerializeField] private string _promptActionText = "ACCIONAR PANEL DE ELEVADOR";
+        [SerializeField] private string _promptActionText = "PANEL DE CONTROL DE ELEVADOR";
 
         [Tooltip("Subtexto de instrucciones mostrado bajo la acción principal.")]
-        [SerializeField] private string _promptSubText = "[E] INICIAR SECUENCIA DE DESCENSO";
+        [SerializeField] private string _promptSubText = "[E] INICIAR SECUENCIA";
 
         [Tooltip("Elemento de UI en escena (Canvas/WorldSpace) opcional que se activa al estar cerca.")]
         [SerializeField] private GameObject _externalPromptUI;
@@ -261,7 +261,9 @@ namespace DemenciaNoLimite.Level
             {
                 ActualizarVerificacionVisual();
 
-                if (IsPlayerInRange && Input.GetKeyDown(_interactKey))
+                // Flujo estricto: El jugador debe estar en el trigger de la consola, mirando hacia ella
+                // y presionar expresamente la tecla [E] (Input.GetKeyDown(KeyCode.E)).
+                if (IsPlayerInRange && (Input.GetKeyDown(_interactKey) || Input.GetKeyDown(KeyCode.E)))
                 {
                     IniciarSecuenciaActivacion();
                 }
@@ -338,6 +340,7 @@ namespace DemenciaNoLimite.Level
 
         private void OnTriggerEnter(Collider other)
         {
+            // Seguridad: Ninguna función de cambio de nivel (LevelGenerator) se ejecuta automáticamente aquí.
             if (!EsJugador(other)) return;
 
             _playerTransform = other.transform;
@@ -347,6 +350,20 @@ namespace DemenciaNoLimite.Level
 
             OnPlayerProximityChanged?.Invoke(IsPlayerInRange);
             ActualizarUIExterna();
+        }
+
+        private void OnTriggerStay(Collider other)
+        {
+            // Seguridad: Mantiene la detección del jugador dentro del trigger sin invocar ninguna transición.
+            if (!_isInteractable || _isSequenceCompleted || _isActivating) return;
+
+            if (!_isPlayerInTrigger && EsJugador(other))
+            {
+                _playerTransform = other.transform;
+                _isPlayerInTrigger = true;
+                CachearComponentesJugador(other.gameObject);
+                ActualizarVerificacionVisual();
+            }
         }
 
         private void OnTriggerExit(Collider other)
@@ -394,7 +411,19 @@ namespace DemenciaNoLimite.Level
                 return;
             }
 
-            if (_mainCamera == null) _mainCamera = Camera.main;
+            if (_mainCamera == null)
+            {
+                _mainCamera = Camera.main;
+                if (_mainCamera == null && _playerTransform != null)
+                {
+                    _mainCamera = _playerTransform.GetComponentInChildren<Camera>();
+                }
+                if (_mainCamera == null)
+                {
+                    _mainCamera = FindAnyObjectByType<Camera>();
+                }
+            }
+
             if (_mainCamera == null)
             {
                 _isPlayerLookingAtPanel = true;
@@ -505,21 +534,43 @@ namespace DemenciaNoLimite.Level
 
         private void DesactivarTriggersSecundarios()
         {
-            var exitTriggers = transform.root.GetComponentsInChildren<ElevatorExitTrigger>();
+            if (transform.root == null) return;
+
+            // 1. Desactivar y neutralizar de forma agresiva cualquier ElevatorExitTrigger
+            var exitTriggers = transform.root.GetComponentsInChildren<ElevatorExitTrigger>(true);
             foreach (var exitTrigger in exitTriggers)
             {
-                if (exitTrigger != null && exitTrigger.enabled)
+                if (exitTrigger != null)
                 {
                     exitTrigger.enabled = false;
+                    Collider c = exitTrigger.GetComponent<Collider>();
+                    if (c != null) c.enabled = false;
+                    if (exitTrigger.gameObject.name.Contains("ZonaTrigger"))
+                    {
+                        exitTrigger.gameObject.SetActive(false);
+                    }
                 }
+            }
+
+            // 2. Desactivar el objeto ZonaTrigger si existe en la jerarquía del elevador
+            Transform zona = transform.root.Find("ZonaTrigger");
+            if (zona != null)
+            {
+                zona.gameObject.SetActive(false);
             }
         }
 
         private void BloquearMovimientoJugador(bool bloquear)
         {
-            if (_cachedPlayerController == null && PlayerManager.Instance != null)
+            if (_cachedPlayerController == null)
             {
-                _cachedPlayerController = PlayerManager.Instance.Controller;
+                if (_playerTransform != null) _cachedPlayerController = _playerTransform.GetComponentInParent<FirstPersonController>();
+                if (_cachedPlayerController == null && PlayerManager.Instance != null) _cachedPlayerController = PlayerManager.Instance.Controller;
+                if (_cachedPlayerController == null)
+                {
+                    GameObject p = GameObject.FindGameObjectWithTag(_playerTag);
+                    if (p != null) _cachedPlayerController = p.GetComponent<FirstPersonController>();
+                }
             }
 
             if (_cachedPlayerController != null)
@@ -527,9 +578,25 @@ namespace DemenciaNoLimite.Level
                 _cachedPlayerController.SetMovementEnabled(!bloquear);
             }
 
-            if (_cachedCharacterController == null && PlayerManager.Instance != null)
+            if (bloquear)
             {
-                _cachedCharacterController = PlayerManager.Instance.CharacterController;
+                if (_cachedCharacterController == null)
+                {
+                    if (_playerTransform != null) _cachedCharacterController = _playerTransform.GetComponentInParent<CharacterController>();
+                    if (_cachedCharacterController == null && PlayerManager.Instance != null) _cachedCharacterController = PlayerManager.Instance.CharacterController;
+                }
+
+                if (PlayerManager.Instance != null)
+                {
+                    PlayerManager.Instance.SetPlayerFrozen(bloquear);
+                }
+            }
+            else
+            {
+                if (PlayerManager.Instance != null)
+                {
+                    PlayerManager.Instance.SetPlayerFrozen(false);
+                }
             }
         }
 

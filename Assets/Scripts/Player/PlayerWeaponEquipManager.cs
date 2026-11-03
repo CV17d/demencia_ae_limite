@@ -55,21 +55,24 @@ namespace DemenciaNoLimite.Player
         [SerializeField] private List<Weapon3DMapping> _weaponCatalog = new List<Weapon3DMapping>();
 
         // ════════════════════════════════════════════════════════════════════
-        // ANCLAJE Y CÁMARA DEDICADA
+        // ANCLAJE DIRECTO A CÁMARA PRINCIPAL (CERO DEPENDENCIAS SECUNDARIAS)
         // ════════════════════════════════════════════════════════════════════
 
-        [Header("Anclaje y Cámaras")]
-        [Tooltip("Cámara secundaria dedicada a la vista de armas (Viewmodel / Overlay). Si es nula, se busca bajo el jugador o se utiliza la cámara principal.")]
-        [SerializeField] private Camera _weaponCamera;
+        [Header("Anclaje a Cámara Principal")]
+        [Tooltip("Cámara principal del jugador (Main Camera / PlayerCamera). Si es nula, se busca y resuelve automáticamente.")]
+        [SerializeField] private Camera _mainCamera;
 
-        [Tooltip("Transform contenedor donde se anclan los modelos 3D de las armas. Si no se asigna, se crea automáticamente bajo la cámara.")]
+        [Tooltip("Transform contenedor donde se anclan los modelos 3D de las armas directamente como hijo de la Main Camera.")]
         [SerializeField] private Transform _weaponHolder;
 
-        [Tooltip("Nombre de la capa dedicada para el renderizado de armas (ej. 'Weapon').")]
-        [SerializeField] private string _weaponLayerName = "Weapon";
+        [Tooltip("Nombre de la capa para el modelo del arma (ej. 'Default' o 'Weapon').")]
+        [SerializeField] private string _weaponLayerName = "Default";
 
-        [Tooltip("Posición local por defecto del WeaponHolder frente a la vista del jugador.")]
-        [SerializeField] private Vector3 _defaultHolderPosition = new Vector3(0.22f, -0.18f, 0.42f);
+        [Tooltip("Asegura automáticamente que la Main Camera incluya esta capa en su cullingMask para que sea visible en pantalla.")]
+        [SerializeField] private bool _ensureCameraCullingMask = true;
+
+        [Tooltip("Posición local por defecto del WeaponHolder frente a la vista de la cámara.")]
+        [SerializeField] private Vector3 _defaultHolderPosition = new Vector3(0.24f, -0.20f, 0.45f);
 
         [Tooltip("Rotación local por defecto del WeaponHolder.")]
         [SerializeField] private Vector3 _defaultHolderRotation = Vector3.zero;
@@ -266,25 +269,50 @@ namespace DemenciaNoLimite.Player
             _currentEquippedWeaponData = data;
             _currentEquippedWeaponId = weaponId;
 
-            // Si se encontró un prefab configurado en el catálogo
-            if (mapping != null && mapping.weaponPrefab != null && _weaponHolder != null)
+            GameObject prefabToUse = mapping?.weaponPrefab;
+            Vector3 posOffset = (mapping != null) ? mapping.localPositionOffset : Vector3.zero;
+            Vector3 rotOffset = (mapping != null) ? mapping.localRotationOffset : Vector3.zero;
+            Vector3 scale = (mapping != null && mapping.localScale != Vector3.zero) ? mapping.localScale : Vector3.one;
+
+            // Fallback automático por AssetDatabase (Editor) o Resources si el arma no fue mapeada en el Inspector
+            if (prefabToUse == null && !string.IsNullOrEmpty(weaponId))
             {
-                _currentSpawnedWeaponInstance = Instantiate(mapping.weaponPrefab, _weaponHolder);
+#if UNITY_EDITOR
+                string[] searchFolders = new[] { "Assets/Prefabs/Entornos/Armas_Prefab" };
+                string[] guids = UnityEditor.AssetDatabase.FindAssets($"{weaponId} t:Prefab", searchFolders);
+                if (guids != null && guids.Length > 0)
+                {
+                    string assetPath = UnityEditor.AssetDatabase.GUIDToAssetPath(guids[0]);
+                    prefabToUse = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+                }
+#endif
+                if (prefabToUse == null)
+                {
+                    prefabToUse = Resources.Load<GameObject>($"Weapons/{weaponId}") ??
+                                  Resources.Load<GameObject>($"Armas/{weaponId}") ??
+                                  Resources.Load<GameObject>(weaponId);
+                }
+            }
+
+            // Si se cuenta con un prefab 3D válido
+            if (prefabToUse != null && _weaponHolder != null)
+            {
+                _currentSpawnedWeaponInstance = Instantiate(prefabToUse, _weaponHolder);
                 _currentSpawnedWeaponInstance.name = $"Weapon3D_{weaponId}";
 
                 // Configurar transform relativo
-                _currentSpawnedWeaponInstance.transform.localPosition = mapping.localPositionOffset;
-                _currentSpawnedWeaponInstance.transform.localRotation = Quaternion.Euler(mapping.localRotationOffset);
-                _currentSpawnedWeaponInstance.transform.localScale = (mapping.localScale != Vector3.zero) ? mapping.localScale : Vector3.one;
+                _currentSpawnedWeaponInstance.transform.localPosition = posOffset;
+                _currentSpawnedWeaponInstance.transform.localRotation = Quaternion.Euler(rotOffset);
+                _currentSpawnedWeaponInstance.transform.localScale = scale;
 
-                // Asignar capa "Weapon" de forma recursiva a todos los hijos
+                // Asignar capa de forma recursiva a todos los hijos y garantizar cullingMask en la Main Camera
                 AsegurarCapaWeapon();
                 if (_cachedWeaponLayer != -1)
                 {
                     AsignarCapaRecursiva(_currentSpawnedWeaponInstance, _cachedWeaponLayer);
                 }
 
-                // Desactivar colisiones físicas en el modelo del arma para no trabar el CharacterController
+                // Desactivar colisiones físicas en el modelo del arma para no interferir con el CharacterController
                 NeutralizarFisicasArma(_currentSpawnedWeaponInstance);
             }
 
@@ -320,6 +348,8 @@ namespace DemenciaNoLimite.Player
 
         private void AsegurarCapaWeapon()
         {
+            Camera cam = ObtenerCamaraPrincipal();
+
             int layer = LayerMask.NameToLayer(_weaponLayerName);
             if (layer != -1)
             {
@@ -327,8 +357,14 @@ namespace DemenciaNoLimite.Player
             }
             else
             {
-                // Si la capa no existe en ProjectSettings, usar la capa del padre como contingencia segura
-                _cachedWeaponLayer = (_weaponHolder != null) ? _weaponHolder.gameObject.layer : 0;
+                // Fallback automático: usar la capa de la Main Camera o Default (0)
+                _cachedWeaponLayer = (cam != null) ? cam.gameObject.layer : 0;
+            }
+
+            // Garantizar que la Main Camera renderice esta capa de forma inmediata
+            if (_ensureCameraCullingMask && cam != null && _cachedWeaponLayer >= 0)
+            {
+                cam.cullingMask |= (1 << _cachedWeaponLayer);
             }
         }
 
@@ -340,11 +376,13 @@ namespace DemenciaNoLimite.Player
         {
             if (_weaponHolder != null) return;
 
-            // 1. Buscar si ya existe bajo la cámara de arma o la cámara principal
-            Camera targetCam = ObtenerCamaraObjetivo();
+            // 1. Obtener directamente la cámara principal del jugador
+            Camera targetCam = ObtenerCamaraPrincipal();
 
             if (targetCam != null)
             {
+                _mainCamera = targetCam;
+
                 Transform existing = targetCam.transform.Find("WeaponHolder");
                 if (existing != null)
                 {
@@ -385,29 +423,24 @@ namespace DemenciaNoLimite.Player
             }
         }
 
-        private Camera ObtenerCamaraObjetivo()
+        private Camera ObtenerCamaraPrincipal()
         {
-            if (_weaponCamera != null) return _weaponCamera;
+            if (_mainCamera != null) return _mainCamera;
 
-            // Intentar buscar una cámara secundaria con nombre "WeaponCamera" o "ViewmodelCamera"
-            Camera[] allCams = GetComponentsInChildren<Camera>(true);
-            foreach (var cam in allCams)
-            {
-                if (cam.name.IndexOf("Weapon", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    cam.name.IndexOf("Viewmodel", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    _weaponCamera = cam;
-                    return _weaponCamera;
-                }
-            }
-
-            // Usar PlayerCamera o Camera.main
+            // 1. A través de PlayerManager
             if (_playerManager != null && _playerManager.PlayerCamera != null)
             {
-                return _playerManager.PlayerCamera.GetComponent<Camera>();
+                _mainCamera = _playerManager.PlayerCamera.GetComponent<Camera>();
+                if (_mainCamera != null) return _mainCamera;
             }
 
-            return Camera.main ?? GetComponentInChildren<Camera>();
+            // 2. Camera.main directa
+            _mainCamera = Camera.main;
+            if (_mainCamera != null) return _mainCamera;
+
+            // 3. Buscar componente Camera en el jugador o escena
+            _mainCamera = GetComponentInChildren<Camera>() ?? FindAnyObjectByType<Camera>();
+            return _mainCamera;
         }
 
         // ════════════════════════════════════════════════════════════════════

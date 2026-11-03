@@ -67,8 +67,8 @@ namespace DemenciaNoLimite.Player
         [Tooltip("Dimensiones por defecto de la imagen de la mano en el Canvas (1920x1080).")]
         [SerializeField] private Vector2 _handSize = new Vector2(550f, 550f);
 
-        [Tooltip("Desplazamiento adicional (offset) relativo a la esquina inferior derecha.")]
-        [SerializeField] private Vector2 _handOffset = Vector2.zero;
+        [Tooltip("Desplazamiento adicional (offset) relativo a la esquina inferior derecha. Un valor negativo en X la desplaza hacia la izquierda.")]
+        [SerializeField] private Vector2 _handOffset = new Vector2(-80f, 0f);
 
         [Header("Renderizado Visual (UI o 2D en Cámara)")]
         [Tooltip("Componente Image de Canvas UI donde se proyecta la mano (Recomendado para HUD).")]
@@ -96,6 +96,57 @@ namespace DemenciaNoLimite.Player
 
         [Tooltip("Velocidad de rotación continua del ítem flotante en el eje Y (grados/segundo).")]
         [SerializeField] private float _floatRotateSpeed = 25f;
+
+        // ════════════════════════════════════════════════════════════════════
+        // BALANCEO PROCEDIMENTAL AL CAMINAR (HEAD / HAND BOBBING)
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Balanceo Procedimental al Caminar (Bobbing)")]
+        [Tooltip("Activa el balanceo rítmico de la mano al desplazarse.")]
+        [SerializeField] private bool _enableHandBobbing = true;
+
+        [Tooltip("Frecuencia base del vaivén de pasos al caminar.")]
+        [SerializeField] private float _walkBobFrequency = 8.5f;
+
+        [Tooltip("Multiplicador de frecuencia de pasos al correr.")]
+        [SerializeField] private float _sprintBobMultiplier = 1.35f;
+
+        [Tooltip("Amplitud de oscilación lateral (eje X).")]
+        [SerializeField] private float _bobAmountX = 14f;
+
+        [Tooltip("Amplitud de oscilación vertical (eje Y).")]
+        [SerializeField] private float _bobAmountY = 16f;
+
+        [Tooltip("Velocidad de interpolación para volver al reposo o suavizar el balanceo.")]
+        [SerializeField] private float _bobSmoothing = 10f;
+
+        // ════════════════════════════════════════════════════════════════════
+        // REACCIÓN AL PARPADEO E ILUMINACIÓN AMBIENTAL
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Reacción a Iluminación y Parpadeo (Lighting & Flicker)")]
+        [Tooltip("Activa la reacción de brillo y color de la mano a las luces titilantes de la torre.")]
+        [SerializeField] private bool _enableLightFlickerReaction = true;
+
+        [Tooltip("Color base de la mano en condiciones ideales.")]
+        [SerializeField] private Color _baseHandColor = Color.white;
+
+        [Tooltip("Brillo mínimo en zonas de oscuridad o apagón absoluto.")]
+        [Range(0.1f, 1f)]
+        [SerializeField] private float _minAmbientBrightness = 0.35f;
+
+        [Tooltip("Brillo máximo bajo focos intensos o picos de chisporroteo.")]
+        [Range(1f, 2.5f)]
+        [SerializeField] private float _maxLightBrightness = 1.35f;
+
+        [Tooltip("Velocidad de respuesta e interpolación lumínica sobre la mano.")]
+        [SerializeField] private float _lightLerpSpeed = 14f;
+
+        [Tooltip("Radio en metros para muestrear la luz ambiental más cercana.")]
+        [SerializeField] private float _lightSamplingRadius = 15f;
+
+        [Tooltip("Intervalo en segundos para refrescar la búsqueda de la luz más cercana (Zero-GC).")]
+        [SerializeField] private float _lightSearchInterval = 0.3f;
 
         // ════════════════════════════════════════════════════════════════════
         // CONFIGURACIÓN DE ESTADO BASE Y PERMANENCIA
@@ -128,6 +179,21 @@ namespace DemenciaNoLimite.Player
         private Coroutine _burnCoroutine;
         private Vector3 _anchorBaseLocalPosition;
 
+        // Variables de bobbing e iluminación
+        private RectTransform _handRect;
+        private Vector2 _currentBobOffset = Vector2.zero;
+        private float _bobTimer = 0f;
+
+        private PlayerManager _playerManager;
+        private CharacterController _characterController;
+        private Camera _playerCamera;
+
+        private Light _nearestLight;
+        private Light[] _cachedLights;
+        private float _nextLightSearchTime = 0f;
+        private float _nextFullLightsCacheTime = 0f;
+        private float _currentBrightness = 1f;
+
         // ════════════════════════════════════════════════════════════════════
         // EVENTOS PÚBLICOS
         // ════════════════════════════════════════════════════════════════════
@@ -155,6 +221,20 @@ namespace DemenciaNoLimite.Player
         public bool IsBurned => _currentState == HandState.BurnedByExplosion;
         public bool IsVisible => _currentState != HandState.Hidden;
 
+        /// <summary>
+        /// Desplazamiento base de la mano relativo a la esquina inferior derecha.
+        /// Un valor negativo en X desplaza la mano hacia la izquierda.
+        /// </summary>
+        public Vector2 HandOffset
+        {
+            get => _handOffset;
+            set
+            {
+                _handOffset = value;
+                if (_handRect != null) _handRect.anchoredPosition = _handOffset + _currentBobOffset;
+            }
+        }
+
         // ════════════════════════════════════════════════════════════════════
         // CICLO DE VIDA MONOBEHAVIOUR
         // ════════════════════════════════════════════════════════════════════
@@ -164,6 +244,7 @@ namespace DemenciaNoLimite.Player
             AsegurarReferenciasRenderizado();
             AsegurarCargaDeSprites();
             AsegurarPuntoDeAnclaje();
+            InicializarReferenciasJugador();
         }
 
         private void OnEnable()
@@ -173,6 +254,8 @@ namespace DemenciaNoLimite.Player
 
         private void Start()
         {
+            InicializarReferenciasJugador();
+
             // Garantizar que la mano comience siempre visible en el estado base configurado
             if (_currentState == HandState.Hidden)
             {
@@ -184,7 +267,19 @@ namespace DemenciaNoLimite.Player
 
         private void Update()
         {
-            // Animación diegética de levitación suave sobre la palma
+            // 1. Balanceo procedural al caminar / correr (Head/Hand Bobbing)
+            if (_enableHandBobbing)
+            {
+                ActualizarBalanceoCaminar();
+            }
+
+            // 2. Reacción dinámica a la iluminación y parpadeo de luces en la torre
+            if (_enableLightFlickerReaction)
+            {
+                ActualizarIluminacionDinamica();
+            }
+
+            // 3. Animación diegética de levitación suave sobre la palma
             if (_animateFloatingItem && _currentState == HandState.HoldingItem && _currentFloatingItemInstance != null && _floatingItemAnchor != null)
             {
                 ActualizarAnimacionItemFlotante();
@@ -495,6 +590,179 @@ namespace DemenciaNoLimite.Player
         }
 
         // ════════════════════════════════════════════════════════════════════
+        // PROCEDURAL BOBBING & DINÁMICA DE ILUMINACIÓN
+        // ════════════════════════════════════════════════════════════════════
+
+        private void InicializarReferenciasJugador()
+        {
+            if (_playerManager == null)
+            {
+                _playerManager = PlayerManager.Instance ?? GetComponentInParent<PlayerManager>() ?? FindAnyObjectByType<PlayerManager>();
+            }
+
+            if (_characterController == null)
+            {
+                _characterController = GetComponentInParent<CharacterController>();
+                if (_characterController == null && _playerManager != null)
+                {
+                    _characterController = _playerManager.CharacterController;
+                }
+            }
+
+            if (_playerCamera == null)
+            {
+                _playerCamera = Camera.main ?? GetComponentInParent<Camera>() ?? FindAnyObjectByType<Camera>();
+            }
+
+            if (_handRect == null && _handImage != null)
+            {
+                _handRect = _handImage.rectTransform;
+            }
+        }
+
+        private void ActualizarBalanceoCaminar()
+        {
+            if (_handRect == null)
+            {
+                if (_handImage != null) _handRect = _handImage.rectTransform;
+                if (_handRect == null) return;
+            }
+
+            bool isMoving = false;
+            bool isSprinting = false;
+
+            if (_playerManager != null && _playerManager.Controller != null)
+            {
+                isMoving = _playerManager.Controller.IsMoving;
+                isSprinting = _playerManager.Controller.IsSprinting;
+            }
+            else if (_characterController != null)
+            {
+                Vector3 hVel = _characterController.velocity;
+                hVel.y = 0f;
+                isMoving = hVel.sqrMagnitude > 0.05f;
+                isSprinting = isMoving && (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift));
+            }
+            else
+            {
+                float h = Input.GetAxisRaw("Horizontal");
+                float v = Input.GetAxisRaw("Vertical");
+                isMoving = (h * h + v * v) > 0.01f;
+                isSprinting = isMoving && (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift));
+            }
+
+            if (isMoving)
+            {
+                float freq = _walkBobFrequency * (isSprinting ? _sprintBobMultiplier : 1f);
+                _bobTimer += Time.deltaTime * freq;
+
+                // Eje X: Balanceo lateral alternado a media frecuencia
+                float targetX = Mathf.Cos(_bobTimer * 0.5f) * _bobAmountX * (isSprinting ? 1.25f : 1f);
+                // Eje Y: Elevación y descenso con cada zancada
+                float targetY = Mathf.Sin(_bobTimer) * _bobAmountY * (isSprinting ? 1.35f : 1f);
+
+                Vector2 targetOffset = new Vector2(targetX, targetY);
+                _currentBobOffset = Vector2.Lerp(_currentBobOffset, targetOffset, Time.deltaTime * _bobSmoothing);
+            }
+            else
+            {
+                // Regreso suave al reposo (Lerp)
+                _currentBobOffset = Vector2.Lerp(_currentBobOffset, Vector2.zero, Time.deltaTime * _bobSmoothing);
+            }
+
+            _handRect.anchoredPosition = _handOffset + _currentBobOffset;
+        }
+
+        private void ActualizarIluminacionDinamica()
+        {
+            if (_handImage == null && _handSpriteRenderer == null) return;
+
+            // Refrescar periódicamente la búsqueda de la luz más cercana (Zero-GC)
+            if (Time.time >= _nextLightSearchTime)
+            {
+                _nextLightSearchTime = Time.time + _lightSearchInterval;
+                BuscarLuzMasCercana();
+            }
+
+            float targetBrightness = _minAmbientBrightness;
+            Color targetTint = _baseHandColor;
+
+            if (_nearestLight != null && _nearestLight.isActiveAndEnabled)
+            {
+                Vector3 playerPos = (_playerCamera != null) ? _playerCamera.transform.position : transform.position;
+                float dist = Vector3.Distance(_nearestLight.transform.position, playerPos);
+
+                if (dist <= _nearestLight.range)
+                {
+                    float normalizedDist = Mathf.Clamp01(dist / Mathf.Max(_nearestLight.range, 0.01f));
+                    float atten = 1f - (normalizedDist * normalizedDist);
+
+                    // Muestrea la intensidad de la luz (que fluctúa con LightFlicker.cs en tiempo real)
+                    float lightIntensity = _nearestLight.intensity * atten;
+
+                    targetBrightness = Mathf.Clamp(_minAmbientBrightness + lightIntensity * 0.65f, _minAmbientBrightness, _maxLightBrightness);
+                    targetTint = Color.Lerp(_baseHandColor, _nearestLight.color, 0.45f);
+                }
+            }
+            else
+            {
+                // Parpadeo sutil atmosférico en zonas de penumbra
+                float atmosphericFlicker = Mathf.PerlinNoise(Time.time * 3.5f, 0.5f) * 0.12f;
+                targetBrightness = Mathf.Clamp(_minAmbientBrightness + atmosphericFlicker, _minAmbientBrightness, _maxLightBrightness);
+            }
+
+            // Interpolación suave de respuesta lumínica
+            _currentBrightness = Mathf.Lerp(_currentBrightness, targetBrightness, Time.deltaTime * _lightLerpSpeed);
+
+            Color finalColor = targetTint * _currentBrightness;
+            finalColor.a = 1f;
+
+            if (_handImage != null)
+            {
+                _handImage.color = finalColor;
+            }
+
+            if (_handSpriteRenderer != null)
+            {
+                _handSpriteRenderer.color = finalColor;
+            }
+        }
+
+        private void BuscarLuzMasCercana()
+        {
+            if (Time.time >= _nextFullLightsCacheTime || _cachedLights == null)
+            {
+                _nextFullLightsCacheTime = Time.time + 2.5f;
+                _cachedLights = FindObjectsByType<Light>(FindObjectsInactive.Exclude);
+            }
+
+            if (_cachedLights == null || _cachedLights.Length == 0)
+            {
+                _nearestLight = null;
+                return;
+            }
+
+            Vector3 playerPos = (_playerCamera != null) ? _playerCamera.transform.position : transform.position;
+            float closestDistSqr = _lightSamplingRadius * _lightSamplingRadius;
+            Light closest = null;
+
+            for (int i = 0; i < _cachedLights.Length; i++)
+            {
+                Light l = _cachedLights[i];
+                if (l == null || !l.isActiveAndEnabled || l.type == LightType.Directional) continue;
+
+                float distSqr = (l.transform.position - playerPos).sqrMagnitude;
+                if (distSqr < closestDistSqr)
+                {
+                    closestDistSqr = distSqr;
+                    closest = l;
+                }
+            }
+
+            _nearestLight = closest;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
         // INICIALIZACIÓN, CACHÉ Y CARGA ROBUSTA POR CÓDIGO
         // ════════════════════════════════════════════════════════════════════
 
@@ -594,6 +862,7 @@ namespace DemenciaNoLimite.Player
                 rect.pivot = new Vector2(1f, 0f);
                 rect.sizeDelta = _handSize;
                 rect.anchoredPosition = _handOffset;
+                _handRect = rect;
             }
 
             // 5. Configurar componente Image
@@ -602,6 +871,7 @@ namespace DemenciaNoLimite.Player
             img.preserveAspect = true;
 
             _handImage = img;
+            _handRect = rect;
 
             // 6. Asignar el sprite inicial si ya están disponibles
             if (_handImage.sprite == null && _equippedHandSprite != null)

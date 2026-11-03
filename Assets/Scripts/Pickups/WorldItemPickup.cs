@@ -1,0 +1,588 @@
+// ============================================================================
+// WorldItemPickup.cs — Sistema de Ítems e Interacción en el Suelo (Sector Cero)
+// ============================================================================
+// Componente interactivo para objetos y armas situados en el entorno 3D.
+// Detecta la proximidad del jugador mediante Triggers físicos, proyecta avisos
+// diegéticos en pantalla ("Presiona [E] para recoger...") y coordina la entrega
+// del recurso con PlayerInventory, PlayerManager y PlayerHandController.
+// ============================================================================
+
+using System;
+using UnityEngine;
+using UnityEngine.Events;
+using DemenciaNoLimite.Core;
+using DemenciaNoLimite.Core.Data;
+using DemenciaNoLimite.Player;
+using DemenciaNoLimite.Horror;
+
+#pragma warning disable CS0649
+
+namespace DemenciaNoLimite.Pickups
+{
+    public enum WorldItemType
+    {
+        Weapon,         // Arma para equipar en el inventario del jugador
+        Ammo,           // Munición de reserva para armas
+        Health,         // Botiquín o inyector de curación
+        SanitySerum,    // Tónico o suero de cordura (reduce la culpa/alucinaciones)
+        Keycard,        // Tarjeta de seguridad o llave de acceso
+        Currency,       // Fichas de torre para el Mercader
+        CustomItem      // Objeto genérico o coleccionable narrativo
+    }
+
+    [RequireComponent(typeof(Collider))]
+    [DisallowMultipleComponent]
+    [AddComponentMenu("Demencia No Limite/Pickups/World Item Pickup")]
+    public class WorldItemPickup : MonoBehaviour
+    {
+        // ════════════════════════════════════════════════════════════════════
+        // CONFIGURACIÓN DE IDENTIDAD Y TIPO DE ÍTEM
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Identidad del Ítem")]
+        [Tooltip("Clasificación del recurso a recoger.")]
+        [SerializeField] private WorldItemType _itemType = WorldItemType.Weapon;
+
+        [Tooltip("Nombre legible mostrado en el indicador HUD (ej. 'Pistola Táctica 9mm', 'Botiquín de Campaña').")]
+        [SerializeField] private string _itemName = "Pistola Táctica";
+
+        [Tooltip("Descripción narrativa u observaciones opcionales del ítem.")]
+        [TextArea(2, 3)]
+        [SerializeField] private string _itemDescription = "";
+
+        [Header("Datos de Arma (Solo si ItemType = Weapon)")]
+        [Tooltip("ScriptableObject con las estadísticas, balística y arquetipo del arma.")]
+        [SerializeField] private WeaponData _weaponData;
+
+        [Header("Parámetros de Cantidad y Recurso")]
+        [Tooltip("Cantidad entregada (ej. número de proyectiles, fichas o unidades).")]
+        [SerializeField] private int _amount = 1;
+
+        [Tooltip("Tipo de munición otorgada si el ítem es de tipo Munición.")]
+        [SerializeField] private WeaponType _ammoType = WeaponType.Hitscan;
+
+        [Tooltip("Cantidad de salud restaurada si el ítem es de Curación.")]
+        [SerializeField] private float _healAmount = 25f;
+
+        [Tooltip("Cantidad de culpa reducida si el ítem es Suero de Cordura.")]
+        [SerializeField] private int _sanityRestoreAmount = 20;
+
+        // ════════════════════════════════════════════════════════════════════
+        // ENTRADA E INTERACCIÓN POR TECLA
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Entrada de Usuario e Interacción")]
+        [Tooltip("Tecla requerida para recoger el ítem del suelo.")]
+        [SerializeField] private KeyCode _interactKey = KeyCode.E;
+
+        [Tooltip("Si está activo, requiere que el jugador esté mirando en dirección al ítem además de estar dentro del Trigger.")]
+        [SerializeField] private bool _requireLookingAtItem = true;
+
+        [Tooltip("Ángulo de tolerancia visual máximo (en grados) para considerar que el jugador apunta al ítem.")]
+        [Range(20f, 90f)]
+        [SerializeField] private float _lookAtAngleThreshold = 65f;
+
+        [Tooltip("Destruye el GameObject tras ser recogido. Si es falso, solo se desactiva.")]
+        [SerializeField] private bool _destroyOnPickup = true;
+
+        // ════════════════════════════════════════════════════════════════════
+        // EFECTOS VISUALES Y AUDIO (FEEDBACK DIEGÉTICO)
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Audio y Retroalimentación")]
+        [Tooltip("Clip de sonido reproducido al recoger el ítem (recarga, clic mecánico, consumo).")]
+        [SerializeField] private AudioClip _pickupSound;
+
+        [Tooltip("Volumen de reproducción del sonido de recogida.")]
+        [Range(0f, 1f)]
+        [SerializeField] private float _pickupSoundVolume = 0.9f;
+
+        [Header("Animación en Reposo (Flotación / Rotación en Suelo)")]
+        [Tooltip("Si está activo, aplica un sutil balanceo vertical y giro al ítem para facilitar su visibilidad en pasillos oscuros.")]
+        [SerializeField] private bool _enableIdleAnimation = true;
+
+        [Tooltip("Velocidad de oscilación vertical.")]
+        [SerializeField] private float _bobSpeed = 2.2f;
+
+        [Tooltip("Amplitud de elevación vertical.")]
+        [SerializeField] private float _bobHeight = 0.06f;
+
+        [Tooltip("Velocidad de rotación constante sobre el eje Y (grados por segundo).")]
+        [SerializeField] private float _rotateSpeed = 25f;
+
+        // ════════════════════════════════════════════════════════════════════
+        // INTERFAZ DE USUARIO (HUD / AVISO EN PANTALLA)
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Interfaz de Pantalla (HUD)")]
+        [Tooltip("Acción mostrada en el mensaje (ej. 'RECOGER', 'TOMAR', 'EQUIPAR').")]
+        [SerializeField] private string _actionLabel = "RECOGER";
+
+        [Tooltip("Elemento de UI externo opcional (Canvas en escena o WorldSpace) que se activa al entrar al trigger.")]
+        [SerializeField] private GameObject _externalPromptUI;
+
+        [Tooltip("Dibuja un indicador en pantalla diegético mediante OnGUI si no hay un Canvas externo asignado.")]
+        [SerializeField] private bool _showBuiltInHUD = true;
+
+        // ════════════════════════════════════════════════════════════════════
+        // EVENTOS
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Eventos")]
+        [Tooltip("Se dispara en el momento exacto en que el ítem es recogido con éxito.")]
+        [SerializeField] private UnityEvent _onItemPickedUp;
+
+        // ════════════════════════════════════════════════════════════════════
+        // ESTADO INTERNO Y CACHÉ
+        // ════════════════════════════════════════════════════════════════════
+
+        private bool _isPlayerInRange = false;
+        private GameObject _cachedPlayerGo;
+        private PlayerManager _cachedPlayerManager;
+        private Camera _mainCamera;
+        private Vector3 _initialLocalPosition;
+        private Collider _triggerCollider;
+
+        // ════════════════════════════════════════════════════════════════════
+        // PROPIEDADES PÚBLICAS
+        // ════════════════════════════════════════════════════════════════════
+
+        public WorldItemType ItemType => _itemType;
+        public string ItemName => _itemName;
+        public string ItemDescription => _itemDescription;
+        public WeaponData WeaponData => _weaponData;
+        public bool IsPlayerInRange => _isPlayerInRange;
+
+        // ════════════════════════════════════════════════════════════════════
+        // CICLO DE VIDA MONOBEHAVIOUR
+        // ════════════════════════════════════════════════════════════════════
+
+        private void Awake()
+        {
+            _initialLocalPosition = transform.localPosition;
+            AsegurarColliderTrigger();
+            SincronizarDatosArma();
+        }
+
+        private void Start()
+        {
+            if (_externalPromptUI != null)
+            {
+                _externalPromptUI.SetActive(false);
+            }
+        }
+
+        private void Update()
+        {
+            // Animación suave de reposo en el suelo
+            if (_enableIdleAnimation)
+            {
+                ActualizarAnimacionReposo();
+            }
+
+            // Detección de interacción por tecla
+            if (_isPlayerInRange)
+            {
+                ProcesarEntradaInteraccion();
+            }
+        }
+
+        private void OnDisable()
+        {
+            _isPlayerInRange = false;
+            if (_externalPromptUI != null)
+            {
+                _externalPromptUI.SetActive(false);
+            }
+        }
+
+        private void OnValidate()
+        {
+            SincronizarDatosArma();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // DETECCIÓN FÍSICA MEDIANTE TRIGGER
+        // ════════════════════════════════════════════════════════════════════
+
+        private void OnTriggerEnter(Collider other)
+        {
+            if (EsJugadorValido(other, out GameObject playerGo))
+            {
+                _cachedPlayerGo = playerGo;
+                _cachedPlayerManager = playerGo.GetComponentInParent<PlayerManager>() ?? PlayerManager.Instance;
+                _isPlayerInRange = true;
+
+                if (_externalPromptUI != null)
+                {
+                    _externalPromptUI.SetActive(true);
+                }
+            }
+        }
+
+        private void OnTriggerExit(Collider other)
+        {
+            if (EsJugadorValido(other, out GameObject playerGo))
+            {
+                if (_cachedPlayerGo == playerGo || _cachedPlayerGo == null)
+                {
+                    _isPlayerInRange = false;
+                    _cachedPlayerGo = null;
+                    _cachedPlayerManager = null;
+
+                    if (_externalPromptUI != null)
+                    {
+                        _externalPromptUI.SetActive(false);
+                    }
+                }
+            }
+        }
+
+        private bool EsJugadorValido(Collider col, out GameObject playerGo)
+        {
+            playerGo = null;
+            if (col == null) return false;
+
+            // Validación por Tag
+            if (col.CompareTag("Player"))
+            {
+                playerGo = col.gameObject;
+                return true;
+            }
+
+            // Validación por CharacterController o FirstPersonController
+            if (col.GetComponent<CharacterController>() != null || col.GetComponentInParent<FirstPersonController>() != null)
+            {
+                playerGo = col.transform.root.gameObject;
+                return true;
+            }
+
+            // Validación por PlayerManager
+            var pm = col.GetComponentInParent<PlayerManager>();
+            if (pm != null)
+            {
+                playerGo = pm.gameObject;
+                return true;
+            }
+
+            return false;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // LÓGICA DE RECOGIDA E INTEGRACIÓN DE SISTEMAS
+        // ════════════════════════════════════════════════════════════════════
+
+        private void ProcesarEntradaInteraccion()
+        {
+            if (!Input.GetKeyDown(_interactKey)) return;
+
+            // Si se requiere mirar al ítem, validar ángulo con la cámara
+            if (_requireLookingAtItem && !EstaMirandoAlItem())
+            {
+                return;
+            }
+
+            EjecutarRecogida();
+        }
+
+        /// <summary>
+        /// Ejecuta la transferencia del ítem al jugador, actualiza la mano diegética y retira el objeto del mundo.
+        /// </summary>
+        public void EjecutarRecogida()
+        {
+            PlayerManager pm = _cachedPlayerManager ?? PlayerManager.Instance;
+            GameObject playerTarget = _cachedPlayerGo ?? pm?.gameObject;
+
+            if (pm == null && playerTarget != null)
+            {
+                pm = playerTarget.GetComponentInParent<PlayerManager>();
+            }
+
+            // 1. Procesar según la categoría de ítem
+            switch (_itemType)
+            {
+                case WorldItemType.Weapon:
+                    RecogerArma(pm, playerTarget);
+                    break;
+
+                case WorldItemType.Ammo:
+                    RecogerMunicion(pm, playerTarget);
+                    break;
+
+                case WorldItemType.Health:
+                    RecogerSalud(pm);
+                    break;
+
+                case WorldItemType.SanitySerum:
+                    RecogerSueroCordura();
+                    break;
+
+                case WorldItemType.Currency:
+                    RecogerMonedas();
+                    break;
+
+                case WorldItemType.Keycard:
+                case WorldItemType.CustomItem:
+                    RecogerObjetoGenerico(pm);
+                    break;
+            }
+
+            // 2. Notificar y actualizar la mano diegética del jugador
+            ActualizarManoJugador(pm);
+
+            // 3. Reproducir audio de feedback
+            ReproducirSonidoRecogida();
+
+            // 4. Disparar eventos registrados
+            _onItemPickedUp?.Invoke();
+
+            Debug.Log($"[WorldItemPickup] Ítem recogido: '{_itemName}' ({_itemType}) por el jugador.");
+
+            // 5. Destruir o desactivar el objeto en el suelo
+            FinalizarObjetoEnMundo();
+        }
+
+        private void RecogerArma(PlayerManager pm, GameObject playerTarget)
+        {
+            PlayerInventory inventory = pm != null ? pm.Inventory : playerTarget?.GetComponentInParent<PlayerInventory>();
+
+            if (inventory != null)
+            {
+                if (_weaponData != null)
+                {
+                    inventory.AddWeapon(_weaponData);
+                }
+                else
+                {
+                    // Fallback si no se asignó un ScriptableObject: crear uno básico en memoria
+                    WeaponData dynamicWeapon = ScriptableObject.CreateInstance<WeaponData>();
+                    dynamicWeapon.WeaponID = string.IsNullOrEmpty(_itemName) ? "GenericWeapon" : _itemName.Replace(" ", "");
+                    dynamicWeapon.DisplayName = _itemName;
+                    dynamicWeapon.Type = _ammoType;
+                    inventory.AddWeapon(dynamicWeapon);
+                }
+            }
+        }
+
+        private void RecogerMunicion(PlayerManager pm, GameObject playerTarget)
+        {
+            PlayerInventory inventory = pm != null ? pm.Inventory : playerTarget?.GetComponentInParent<PlayerInventory>();
+            if (inventory != null)
+            {
+                inventory.AddReserveAmmo(_ammoType, Mathf.Max(1, _amount));
+            }
+        }
+
+        private void RecogerSalud(PlayerManager pm)
+        {
+            if (GameManager.Instance != null && GameManager.Instance.Player != null)
+            {
+                GameManager.Instance.Player.Heal(_healAmount);
+            }
+            else if (pm != null && pm.Health != null)
+            {
+                // Alternativa directa si PlayerHealth dispone de curación
+                GameManager.Instance?.Player?.Heal(_healAmount);
+            }
+        }
+
+        private void RecogerSueroCordura()
+        {
+            if (SanityManager.Instance != null)
+            {
+                SanityManager.Instance.ReduceGuilt(_sanityRestoreAmount);
+            }
+        }
+
+        private void RecogerMonedas()
+        {
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.Currency += Mathf.Max(1, _amount);
+            }
+        }
+
+        private void RecogerObjetoGenerico(PlayerManager pm)
+        {
+            // En objetos genéricos o llaves, se registra la recolección
+            // y se mantiene disponible para puertas u objetivos
+        }
+
+        private void ActualizarManoJugador(PlayerManager pm)
+        {
+            PlayerHandController hand = pm != null ? pm.HandController : null;
+            if (hand == null)
+            {
+                hand = FindAnyObjectByType<PlayerHandController>();
+            }
+
+            if (hand != null)
+            {
+                // Asegurar que la mano pase inmediatamente al estado de equipado visible
+                hand.SetHandState(HandState.EquippedItem);
+            }
+        }
+
+        private void ReproducirSonidoRecogida()
+        {
+            if (_pickupSound != null)
+            {
+                AudioSource.PlayClipAtPoint(_pickupSound, transform.position, _pickupSoundVolume);
+            }
+        }
+
+        private void FinalizarObjetoEnMundo()
+        {
+            _isPlayerInRange = false;
+
+            if (_externalPromptUI != null)
+            {
+                _externalPromptUI.SetActive(false);
+            }
+
+            if (_destroyOnPickup)
+            {
+                Destroy(gameObject);
+            }
+            else
+            {
+                gameObject.SetActive(false);
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // VALIDACIÓN VISUAL (LOOK AT CHECK) Y ANIMACIÓN
+        // ════════════════════════════════════════════════════════════════════
+
+        private bool EstaMirandoAlItem()
+        {
+            if (_mainCamera == null) _mainCamera = Camera.main;
+            if (_mainCamera == null) return true;
+
+            Vector3 dirToItem = (transform.position - _mainCamera.transform.position).normalized;
+            float angle = Vector3.Angle(_mainCamera.transform.forward, dirToItem);
+
+            return angle <= _lookAtAngleThreshold;
+        }
+
+        private void ActualizarAnimacionReposo()
+        {
+            // Rotación suave continua
+            if (_rotateSpeed > 0f)
+            {
+                transform.Rotate(Vector3.up, _rotateSpeed * Time.deltaTime, Space.World);
+            }
+
+            // Levitación senoidal suave
+            if (_bobHeight > 0f)
+            {
+                float bobOffset = Mathf.Sin(Time.time * _bobSpeed) * _bobHeight;
+                transform.localPosition = _initialLocalPosition + new Vector3(0f, bobOffset, 0f);
+            }
+        }
+
+        private void AsegurarColliderTrigger()
+        {
+            _triggerCollider = GetComponent<Collider>();
+            if (_triggerCollider != null)
+            {
+                _triggerCollider.isTrigger = true;
+            }
+        }
+
+        private void SincronizarDatosArma()
+        {
+            if (_itemType == WorldItemType.Weapon && _weaponData != null)
+            {
+                if (string.IsNullOrEmpty(_itemName) || _itemName == "Pistola Táctica")
+                {
+                    _itemName = !string.IsNullOrEmpty(_weaponData.DisplayName) ? _weaponData.DisplayName : _weaponData.name;
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // INTERFAZ DE USUARIO (ON GUI — HUD DIEGÉTICO)
+        // ════════════════════════════════════════════════════════════════════
+
+        private void OnGUI()
+        {
+            if (!_showBuiltInHUD || !_isPlayerInRange) return;
+
+            // Solo mostrar el aviso si el jugador está mirando al ítem (si está habilitada la opción)
+            if (_requireLookingAtItem && !EstaMirandoAlItem()) return;
+
+            if (_mainCamera == null) _mainCamera = Camera.main;
+            if (_mainCamera == null) return;
+
+            // Calcular distancia para atenuación de opacidad
+            float dist = Vector3.Distance(_mainCamera.transform.position, transform.position);
+            float alpha = Mathf.Clamp01(1f - (dist / 8f));
+            if (alpha <= 0.05f) return;
+
+            // Dimensiones del HUD inferior centrado
+            float boxWidth = 320f;
+            float boxHeight = 52f;
+            float posX = (Screen.width * 0.5f) - (boxWidth * 0.5f);
+            float posY = Screen.height * 0.72f;
+
+            // Fondo translúcido industrial
+            GUI.color = new Color(0.04f, 0.06f, 0.08f, alpha * 0.88f);
+            GUI.Box(new Rect(posX, posY, boxWidth, boxHeight), GUIContent.none);
+
+            // Borde superior cian/ámbar característico de Sector Cero
+            Color accentColor = (_itemType == WorldItemType.Weapon) ? new Color(0.2f, 0.85f, 0.95f, alpha) :
+                                (_itemType == WorldItemType.Health) ? new Color(0.95f, 0.25f, 0.25f, alpha) :
+                                (_itemType == WorldItemType.SanitySerum) ? new Color(0.75f, 0.35f, 0.95f, alpha) :
+                                new Color(0.95f, 0.8f, 0.25f, alpha);
+
+            GUI.color = accentColor;
+            GUI.Box(new Rect(posX, posY, boxWidth, 2.5f), GUIContent.none);
+
+            // Texto de instrucción principal: [E] RECOGER
+            var styleAction = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+                fontSize = 12
+            };
+            styleAction.normal.textColor = accentColor;
+            string keyLabel = $"[{_interactKey}]";
+            GUI.Label(new Rect(posX, posY + 4, boxWidth, 20), $"{keyLabel} {_actionLabel.ToUpper()}", styleAction);
+
+            // Nombre del ítem
+            var styleItem = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+                fontSize = 14
+            };
+            styleItem.normal.textColor = new Color(0.95f, 0.95f, 0.95f, alpha);
+            GUI.Label(new Rect(posX, posY + 24, boxWidth, 24), _itemName, styleItem);
+
+            GUI.color = Color.white;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // GIZMOS DE DEPURACIÓN EN ESCENA
+        // ════════════════════════════════════════════════════════════════════
+
+        private void OnDrawGizmosSelected()
+        {
+            Gizmos.color = new Color(0.2f, 0.9f, 1f, 0.6f);
+            Collider col = GetComponent<Collider>();
+            if (col is SphereCollider sphere)
+            {
+                Gizmos.DrawWireSphere(transform.position + sphere.center, sphere.radius);
+            }
+            else if (col is BoxCollider box)
+            {
+                Gizmos.DrawWireCube(transform.position + box.center, box.size);
+            }
+            else
+            {
+                Gizmos.DrawWireSphere(transform.position, 1.8f);
+            }
+        }
+    }
+}

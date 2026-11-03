@@ -47,6 +47,9 @@ namespace DemenciaNoLimite.Player
         [Tooltip("Gestor de balistica y disparo.")]
         [SerializeField] private PlayerWeaponHandler _weaponHandler;
 
+        [Tooltip("Controlador de manos diegeticas e interfaz en primera persona.")]
+        [SerializeField] private PlayerHandController _handController;
+
         // ════════════════════════════════════════════════════════════════════
         // REFERENCIAS GLOBALES (LOCURA / GAMEPLAY)
         // ════════════════════════════════════════════════════════════════════
@@ -92,6 +95,7 @@ namespace DemenciaNoLimite.Player
         public PlayerHealth Health => _health;
         public PlayerInventory Inventory => _inventory;
         public PlayerWeaponHandler WeaponHandler => _weaponHandler;
+        public PlayerHandController HandController => _handController;
 
         public bool IsAlive => _health == null || _health.IsAlive;
         public float CurrentGuilt => _sanityManager != null ? _sanityManager.CurrentGuilt : (SanityManager.Instance != null ? SanityManager.Instance.CurrentGuilt : 0);
@@ -161,6 +165,7 @@ namespace DemenciaNoLimite.Player
             if (_health == null) _health = GetComponent<PlayerHealth>();
             if (_inventory == null) _inventory = GetComponent<PlayerInventory>();
             if (_weaponHandler == null) _weaponHandler = GetComponent<PlayerWeaponHandler>();
+            if (_handController == null) _handController = GetComponentInChildren<PlayerHandController>();
         }
 
         // ════════════════════════════════════════════════════════════════════

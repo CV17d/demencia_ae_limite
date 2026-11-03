@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEditor;
+using DemenciaNoLimite.Level;
 
 namespace DemenciaNoLimite.Editor
 {
@@ -61,7 +62,75 @@ namespace DemenciaNoLimite.Editor
 
             if (!proceed) return;
 
-            Debug.Log($"[ElevatorPanelPropagator] Iniciando procesamiento de {elevatorPrefabPaths.Count} prefabs de elevadores...");
+            int updatedCount = 0;
+            int errorCount = 0;
+
+            try
+            {
+                AssetDatabase.StartAssetEditing();
+
+                for (int i = 0; i < elevatorPrefabPaths.Count; i++)
+                {
+                    string path = elevatorPrefabPaths[i];
+                    string fileName = Path.GetFileName(path);
+
+                    EditorUtility.DisplayProgressBar(
+                        "Configurando Paneles de Elevador",
+                        $"Procesando: {fileName} ({i + 1}/{elevatorPrefabPaths.Count})",
+                        (float)i / elevatorPrefabPaths.Count
+                    );
+
+                    // 4. Cargar el contenido del prefab en memoria de forma no destructiva
+                    GameObject rootGo = PrefabUtility.LoadPrefabContents(path);
+                    if (rootGo == null)
+                    {
+                        Debug.LogError($"[ElevatorPanelPropagator] No se pudo cargar el prefab en memoria: {path}");
+                        errorCount++;
+                        continue;
+                    }
+
+                    try
+                    {
+                        // 5. Configurar o crear el GameObject hijo 'Panel_Control' con su BoxCollider Trigger
+                        GameObject panelGo = ConfigurarObjetoPanelControl(rootGo);
+
+                        // 6. Adjuntar o configurar el componente ElevatorPanelController
+                        ConfigurarComponenteControlador(panelGo);
+
+                        // 7. Persistir los cambios en el archivo .prefab del disco
+                        PrefabUtility.SaveAsPrefabAsset(rootGo, path);
+                        updatedCount++;
+                        Debug.Log($"[ElevatorPanelPropagator] Panel_Control configurado exitosamente en: '{fileName}'.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"[ElevatorPanelPropagator] Error procesando prefab '{fileName}': {ex.Message}");
+                        errorCount++;
+                    }
+                    finally
+                    {
+                        // 8. Liberar la instancia de prefab contents de la memoria
+                        PrefabUtility.UnloadPrefabContents(rootGo);
+                    }
+                }
+            }
+            finally
+            {
+                AssetDatabase.StopAssetEditing();
+                EditorUtility.ClearProgressBar();
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+            }
+
+            // 9. Resumen final para el usuario
+            EditorUtility.DisplayDialog(
+                "Propagación Completada",
+                $"Proceso finalizado exitosamente:\n\n" +
+                $" • Prefabs de elevador actualizados: {updatedCount}\n" +
+                (errorCount > 0 ? $" • Prefabs con errores: {errorCount}\n" : "") +
+                $"\nCada elevador cuenta ahora con su componente 'ElevatorPanelController' y Trigger de interacción.",
+                "Aceptar"
+            );
         }
 
         /// <summary>
@@ -129,6 +198,22 @@ namespace DemenciaNoLimite.Editor
             boxCollider.center = Vector3.zero;
 
             return panelGo;
+        }
+
+        /// <summary>
+        /// Asegura la presencia del script ElevatorPanelController en el objeto del panel.
+        /// </summary>
+        public static ElevatorPanelController ConfigurarComponenteControlador(GameObject panelGo)
+        {
+            if (panelGo == null) return null;
+
+            ElevatorPanelController controller = panelGo.GetComponent<ElevatorPanelController>();
+            if (controller == null)
+            {
+                controller = panelGo.AddComponent<ElevatorPanelController>();
+            }
+
+            return controller;
         }
     }
 }

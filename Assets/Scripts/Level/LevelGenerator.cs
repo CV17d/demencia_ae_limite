@@ -183,11 +183,12 @@ namespace DemenciaNoLimite.Level
         {
             ObtenerOInicializarCityRoot();
 #if UNITY_EDITOR
-            if (startRoom == null || startRoom.Count == 0)
+            if (startRoom == null || startRoom.Count == 0 || elevadorSalidaPrefabs == null || elevadorSalidaPrefabs.Count == 0)
             {
                 AutoCargarPrefabsEditor();
             }
 #endif
+            AsegurarCatalogoElevadoresSalida();
         }
 
         private void Start()
@@ -288,11 +289,12 @@ namespace DemenciaNoLimite.Level
 
             // 1. INSTANCIACIÓN DE LA SALA INICIAL (START ROOM) EN EL ORIGEN
 #if UNITY_EDITOR
-            if (startRoom == null || startRoom.Count == 0)
+            if (startRoom == null || startRoom.Count == 0 || elevadorSalidaPrefabs == null || elevadorSalidaPrefabs.Count == 0)
             {
                 AutoCargarPrefabsEditor();
             }
 #endif
+            AsegurarCatalogoElevadoresSalida();
             GameObject startModule = InstanciarStartRoom();
             if (startModule == null)
             {
@@ -776,7 +778,8 @@ namespace DemenciaNoLimite.Level
 
         /// <summary>
         /// Rutina de cierre final: Consolida todos los conectores pendientes (frontera activa + rechazados por falta de espacio),
-        /// garantiza la colocación aleatoria de un elevador de la lista elevadorSalidaPrefabs y sella el resto con muroCiegoPrefab.
+        /// garantiza de forma obligatoria la instanciación de un elevador de salida al final del recorrido (máxima distancia desde el spawn)
+        /// con su panel activado dinámicamente, y sella el resto de conectores con muroCiegoPrefab.
         /// </summary>
         private void SellarConectoresAbiertos()
         {
@@ -807,7 +810,7 @@ namespace DemenciaNoLimite.Level
 
             if (todosLosConectores.Count == 0)
             {
-                Debug.LogWarning("[LevelGenerator] No hay conectores disponibles ni rechazados para procesar el cierre del nivel.");
+                Debug.LogError("[LevelGenerator] Error crítico: No hay conectores disponibles para colocar la salida o sellar el nivel.");
                 _activeOpenSockets.Clear();
                 _rejectedSockets.Clear();
                 return;
@@ -815,34 +818,114 @@ namespace DemenciaNoLimite.Level
 
             Transform parentContainer = ObtenerOInicializarCityRoot();
 
-            // 2. Selección aleatoria de un conector para instanciar el elevador de salida (meta del nivel)
-            if (elevadorSalidaPrefabs != null && elevadorSalidaPrefabs.Count > 0)
+            // 2. Garantía obligatoria de catálogo de elevadores de salida (SM_Elevador_Mercader / SM_Elevador_Ruleta)
+            AsegurarCatalogoElevadoresSalida();
+
+            if (elevadorSalidaPrefabs == null || elevadorSalidaPrefabs.Count == 0)
             {
-                int exitIndex = _rng != null ? _rng.Next(0, todosLosConectores.Count) : UnityEngine.Random.Range(0, todosLosConectores.Count);
-                Transform exitSocket = todosLosConectores[exitIndex];
+                Debug.LogError("[LevelGenerator] ERROR CRÍTICO: Imposible sellar el nivel sin elevador de salida. Operación abortada para prevenir nivel incompleto.");
+                return;
+            }
 
-                int modelIndex = _rng != null ? _rng.Next(0, elevadorSalidaPrefabs.Count) : UnityEngine.Random.Range(0, elevadorSalidaPrefabs.Count);
-                GameObject selectedElevatorPrefab = elevadorSalidaPrefabs[modelIndex];
+            // Determinar la posición de la sala inicial para ubicar la salida en el conector más alejado del recorrido
+            Vector3 startPos = Vector3.zero;
+            Transform startRoomObj = _cityRoot != null ? _cityRoot.Find("StartRoom_SectorZero") : null;
+            if (startRoomObj != null)
+            {
+                startPos = startRoomObj.position;
+            }
 
-                if (exitSocket != null && selectedElevatorPrefab != null)
+            // Identificar el conector terminal a mayor distancia euclidiana del spawn (final de la ruta)
+            int exitIndex = 0;
+            float maxDistSqr = -1f;
+
+            for (int i = 0; i < todosLosConectores.Count; i++)
+            {
+                Transform socket = todosLosConectores[i];
+                if (socket == null) continue;
+
+                float distSqr = (socket.position - startPos).sqrMagnitude;
+                if (distSqr > maxDistSqr)
                 {
-                    GameObject exitElevator = Instantiate(selectedElevatorPrefab, exitSocket.position, exitSocket.rotation, parentContainer);
-                    exitElevator.name = $"ElevadorSalida_{exitSocket.name}";
-                    exitElevator.transform.SetPositionAndRotation(exitSocket.position, exitSocket.rotation);
-                    exitElevator.transform.localScale = Vector3.one;
-                    Physics.SyncTransforms();
-                    Debug.Log($"[LevelGenerator] Elevador de salida '{selectedElevatorPrefab.name}' instanciado con éxito en conector consolidado '{exitSocket.name}'.");
+                    maxDistSqr = distSqr;
+                    exitIndex = i;
+                }
+            }
+
+            // Agrupar los conectores terminales dentro del umbral más alejado (>= 85% de distancia máxima)
+            // para permitir variedad determinista guiada por la semilla
+            List<int> conectoresFinalRecorrido = new List<int>();
+            float umbralDistanciaSqr = maxDistSqr * 0.85f;
+            for (int i = 0; i < todosLosConectores.Count; i++)
+            {
+                Transform socket = todosLosConectores[i];
+                if (socket == null) continue;
+
+                float distSqr = (socket.position - startPos).sqrMagnitude;
+                if (distSqr >= umbralDistanciaSqr)
+                {
+                    conectoresFinalRecorrido.Add(i);
+                }
+            }
+
+            if (conectoresFinalRecorrido.Count > 0)
+            {
+                int pick = _rng != null ? _rng.Next(0, conectoresFinalRecorrido.Count) : UnityEngine.Random.Range(0, conectoresFinalRecorrido.Count);
+                exitIndex = conectoresFinalRecorrido[pick];
+            }
+
+            Transform exitSocket = todosLosConectores[exitIndex];
+
+            // Selección determinista del modelo de elevador de salida (SM_Elevador_Mercader o SM_Elevador_Ruleta)
+            int modelIndex = _rng != null ? _rng.Next(0, elevadorSalidaPrefabs.Count) : UnityEngine.Random.Range(0, elevadorSalidaPrefabs.Count);
+            GameObject selectedElevatorPrefab = elevadorSalidaPrefabs[modelIndex];
+
+            if (exitSocket != null && selectedElevatorPrefab != null)
+            {
+                Vector3 spawnPos = exitSocket.position;
+                Quaternion spawnRot = exitSocket.rotation;
+
+                // Si el elevador cuenta con un conector de entrada, calcular transformación precisa para acoplar sockets
+                ModuleConnector elevatorConnector = selectedElevatorPrefab.GetComponent<ModuleConnector>();
+                if (elevatorConnector != null && elevatorConnector.availableSockets != null && elevatorConnector.availableSockets.Count > 0)
+                {
+                    Transform entranceSocket = elevatorConnector.availableSockets[0];
+                    if (entranceSocket != null && SimularTransformacionModulo(exitSocket, entranceSocket, selectedElevatorPrefab.transform, out Vector3 simPos, out Quaternion simRot))
+                    {
+                        spawnPos = simPos;
+                        spawnRot = simRot;
+                    }
                 }
 
-                // Consumir el conector seleccionado para la salida para no taparlo con un muro ciego
-                todosLosConectores.RemoveAt(exitIndex);
-            }
-            else
-            {
-                Debug.LogWarning("[LevelGenerator] No se han asignado prefabs en 'elevadorSalidaPrefabs' en el Inspector. El nivel se sellará sin salida.");
+                GameObject exitElevator = Instantiate(selectedElevatorPrefab, spawnPos, spawnRot, parentContainer);
+                exitElevator.name = $"ElevadorSalida_{exitSocket.name}";
+                exitElevator.transform.SetPositionAndRotation(spawnPos, spawnRot);
+                exitElevator.transform.localScale = Vector3.one;
+                Physics.SyncTransforms();
+
+                // 3. Activación dinámica del panel de control del elevador de salida
+                ElevatorPanelController panelController = exitElevator.GetComponentInChildren<ElevatorPanelController>(true);
+                if (panelController != null)
+                {
+                    panelController.HabilitarPanel(true);
+                    Debug.Log($"[LevelGenerator] Elevador de salida '{selectedElevatorPrefab.name}' instanciado exitosamente al final del recorrido ('{exitSocket.name}'). Panel de control activado dinámicamente.");
+                }
+                else
+                {
+                    Debug.LogWarning($"[LevelGenerator] El elevador de salida '{exitElevator.name}' no tiene componente ElevatorPanelController en su jerarquía.");
+                }
+
+                ThematicPropSpawner propSpawner = exitElevator.GetComponent<ThematicPropSpawner>();
+                if (propSpawner != null)
+                {
+                    propSpawner.SpawnThematicProps(_levelSeed);
+                }
             }
 
-            // 3. Sellado del resto de conectores de la lista unificada con muros ciegos
+            // Consumir el conector seleccionado para la salida para no taparlo con un muro ciego
+            todosLosConectores.RemoveAt(exitIndex);
+
+            // 4. Sellado del resto de conectores de la lista unificada con muros ciegos
             GameObject prefabToUse = muroCiegoPrefab;
             if (prefabToUse == null)
             {
@@ -873,13 +956,81 @@ namespace DemenciaNoLimite.Level
                 Physics.SyncTransforms();
             }
 
-            // 4. Limpieza final de todas las estructuras de conectores
+            // 5. Limpieza final de todas las estructuras de conectores
             _activeOpenSockets.Clear();
             _rejectedSockets.Clear();
             todosLosConectores.Clear();
 
             // Sincronización obligatoria final de colisionadores físicos
             Physics.SyncTransforms();
+        }
+
+        /// <summary>
+        /// Garantiza de forma infalible la disponibilidad de prefabs de elevadores de salida
+        /// (SM_Elevador_Mercader_12x16 / SM_Elevador_Ruleta_12x12x12). Previene que cualquier
+        /// nivel procedural sea sellado sin una salida funcional.
+        /// </summary>
+        public void AsegurarCatalogoElevadoresSalida()
+        {
+            if (elevadorSalidaPrefabs == null)
+            {
+                elevadorSalidaPrefabs = new List<GameObject>();
+            }
+
+            // Filtrar nulos si los hubiera
+            for (int i = elevadorSalidaPrefabs.Count - 1; i >= 0; i--)
+            {
+                if (elevadorSalidaPrefabs[i] == null)
+                {
+                    elevadorSalidaPrefabs.RemoveAt(i);
+                }
+            }
+
+            if (elevadorSalidaPrefabs.Count > 0) return;
+
+#if UNITY_EDITOR
+            AutoCargarPrefabsEditor();
+#endif
+
+            if (elevadorSalidaPrefabs.Count == 0 && deadEnds != null)
+            {
+                for (int i = 0; i < deadEnds.Count; i++)
+                {
+                    if (deadEnds[i] != null && (deadEnds[i].name.Contains("Mercader") || deadEnds[i].name.Contains("Ruleta") || deadEnds[i].name.Contains("Elevador")))
+                    {
+                        elevadorSalidaPrefabs.Add(deadEnds[i]);
+                    }
+                }
+            }
+
+#if UNITY_EDITOR
+            if (elevadorSalidaPrefabs.Count == 0)
+            {
+                string[] prefabsRutas = new[]
+                {
+                    "Assets/Prefabs/Entornos/SectorCero/SM_Elevador_Mercader_12x16.prefab",
+                    "Assets/Prefabs/Entornos/SectorCero/SM_Elevador_Ruleta_12x12x12.prefab"
+                };
+
+                foreach (string ruta in prefabsRutas)
+                {
+                    GameObject p = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(ruta);
+                    if (p != null && !elevadorSalidaPrefabs.Contains(p))
+                    {
+                        elevadorSalidaPrefabs.Add(p);
+                    }
+                }
+            }
+#endif
+
+            if (elevadorSalidaPrefabs.Count > 0)
+            {
+                Debug.Log($"[LevelGenerator] Catálogo de elevadores de salida asegurado con éxito ({elevadorSalidaPrefabs.Count} modelos disponibles).");
+            }
+            else
+            {
+                Debug.LogError("[LevelGenerator] ERROR CRÍTICO: No fue posible encontrar prefabs de elevador de salida en el proyecto.");
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -916,6 +1067,8 @@ namespace DemenciaNoLimite.Level
 
         /// <summary>
         /// Instancia el StartRoom inicial en el origen garantizando escala unitaria y sincronización física.
+        /// Asegura que el panel de control del elevador de spawn/entrada permanezca bloqueado para impedir
+        /// que el jugador descienda o escape nada más aparecer en la sala inicial.
         /// </summary>
         private GameObject InstanciarStartRoom()
         {
@@ -930,6 +1083,14 @@ namespace DemenciaNoLimite.Level
             instance.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             instance.transform.localScale = Vector3.one;
             Physics.SyncTransforms();
+
+            // Bloqueo estricto del panel de control en el elevador inicial/spawn
+            ElevatorPanelController startPanel = instance.GetComponentInChildren<ElevatorPanelController>(true);
+            if (startPanel != null)
+            {
+                startPanel.HabilitarPanel(false);
+                Debug.Log("[LevelGenerator] Panel de control del elevador de inicio (Spawn) bloqueado.");
+            }
 
             ThematicPropSpawner propSpawner = instance.GetComponent<ThematicPropSpawner>();
             if (propSpawner != null)
@@ -1131,7 +1292,7 @@ namespace DemenciaNoLimite.Level
         [ContextMenu("Auto-Cargar Prefabs (Sector Cero)")]
         public void AutoCargarPrefabsEditor()
         {
-            if (startRoom != null && startRoom.Count > 0) return;
+            if (startRoom != null && startRoom.Count > 0 && elevadorSalidaPrefabs != null && elevadorSalidaPrefabs.Count > 0) return;
 
             string folder = "Assets/Prefabs/Entornos/SectorCero";
             if (!UnityEditor.AssetDatabase.IsValidFolder(folder)) return;

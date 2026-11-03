@@ -110,6 +110,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: -7511558181221131132, guid: 86b041724aca60f45a643d454b66bc1d, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: c1bc2aa69a982794986a8aad38913aae, type: 2}
     - target: {fileID: 919132149155446097, guid: 86b041724aca60f45a643d454b66bc1d, type: 3}
       propertyPath: m_Name
       value: SM_Pasillo_Extra_Largo_4x12

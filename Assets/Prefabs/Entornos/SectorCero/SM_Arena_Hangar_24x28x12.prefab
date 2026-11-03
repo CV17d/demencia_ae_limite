@@ -141,6 +141,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: -7511558181221131132, guid: 356e09870c4cd5e4c8915a7b26545c52, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 487f15ad6b1a26d4fb8bf7bcc0e13708, type: 2}
     - target: {fileID: 919132149155446097, guid: 356e09870c4cd5e4c8915a7b26545c52, type: 3}
       propertyPath: m_Name
       value: SM_Arena_Hangar_24x28x12

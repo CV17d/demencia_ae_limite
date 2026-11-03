@@ -19,6 +19,15 @@ namespace DemenciaNoLimite.Editor
 {
     public static class SceneSetupWizard
     {
+        [MenuItem("Demencia/🎮 Abrir Escena Principal (demencia.unity)", false, 0)]
+        public static void OpenMainScene()
+        {
+            if (UnityEditor.SceneManagement.EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+            {
+                UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/demencia.unity");
+            }
+        }
+
         [MenuItem("Demencia/⚡ Configurar Escena de Prueba (1 Click)", false, 1)]
         public static void SetupScene()
         {

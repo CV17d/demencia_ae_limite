@@ -1,29 +1,51 @@
 // ============================================================================
-// EnemySpawner.cs — Dynamic enemy population driven by AI Director & Degradation
+// EnemySpawner.cs — Generador de Enemigos por Oleadas con Raycast al Suelo (Unity 6)
 // ============================================================================
-// Supports instant elevation spawning for 30-floor pre-generated towers.
-// Enforces strict human-scale limits so enemies never clip into ceilings or corridors.
-// Spawns enemies strictly on top of generated physical floor tiles.
+// Gestiona la aparición (spawn) progresiva de enemigos (prioritariamente EnemigoFlotante)
+// asegurando estrictamente que nazcan apoyados sobre la superficie transitable del suelo
+// (mediante Physics.Raycast vertical) para que su levitación natural (FloatingEnemyAI)
+// inicie fluidamente desde el piso hacia arriba.
+//
+// Incluye:
+// 1. Raycast vertical defensivo para anclar el spawn exactamente a la superficie real.
+// 2. Sistema de oleadas progresivas con escalado de dificultad por piso y oleada.
+// 3. Generación procedural en radio seguro alrededor del jugador (cuando no hay spawnPoints).
+// 4. Control de conteo de enemigos en tiempo real y compatibilidad con arquitecturas previas.
 // ============================================================================
 
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 using DemenciaNoLimite.Core;
 using DemenciaNoLimite.Core.Data;
+using DemenciaNoLimite.Core.Events;
 using DemenciaNoLimite.Enemies;
+
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace DemenciaNoLimite.Level
 {
+    [DisallowMultipleComponent]
+    [AddComponentMenu("Demencia No Limite/Level/Enemy Spawner")]
     public class EnemySpawner : MonoBehaviour
     {
-        [Header("Physical Size & Corridor Constraints")]
-        [Tooltip("Ceiling clearance limit (meters) for normal enemies.")]
-        [SerializeField] private float _maxAllowedHeight = 1.85f;
-        [SerializeField] private float _maxAllowedRadius = 0.42f;
+        // ════════════════════════════════════════════════════════════════════
+        // PREFABS Y CATÁLOGOS
+        // ════════════════════════════════════════════════════════════════════
 
-        [Header("Hitbox Auto-Calibration")]
-        [SerializeField] private bool _autoCalibrateHitbox = true;
+        [Header("Prefabs de Enemigos")]
+        [Tooltip("Prefab del EnemigoFlotante (Assets/Prefabs/EnemigoFlotante.prefab).")]
+        [SerializeField] private GameObject _floatingEnemyPrefab;
+
+        [Tooltip("Prefab por defecto de respaldo para enemigos convencionales.")]
+        [SerializeField] private GameObject _enemyPrefabDefault;
+
+        [Tooltip("Prefab para alucinaciones espectrales (PhantomEnemy).")]
+        [SerializeField] private GameObject _phantomEnemyPrefab;
 
         [Header("Enemy Data Catalogs")]
         [SerializeField] private EnemyData _gruntData;
@@ -31,15 +53,519 @@ namespace DemenciaNoLimite.Level
         [SerializeField] private EnemyData _heavyData;
         [SerializeField] private EnemyData _eliteData;
 
-        [Header("Prefabs Fallback")]
-        [SerializeField] private GameObject _enemyPrefabDefault;
-        [SerializeField] private GameObject _phantomEnemyPrefab;
+        // ════════════════════════════════════════════════════════════════════
+        // PUNTOS DE APARICIÓN Y RAYCAST AL SUELO
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Puntos de Aparición (Spawn Points)")]
+        [Tooltip("Puntos manuales de generación en la escena. Si está vacío, se generan proceduralmente alrededor del jugador.")]
+        [SerializeField] private Transform[] _spawnPoints;
+
+        [Header("Detección y Anclaje al Suelo (Ground Raycast)")]
+        [Tooltip("Máscara de capas que representan el suelo caminable/transitable.")]
+        [SerializeField] private LayerMask _groundLayer = ~0;
+
+        [Tooltip("Capa de obstáculos/paredes para verificar que el punto de spawn esté despejado.")]
+        [SerializeField] private LayerMask _obstacleLayer = 0;
+
+        [Tooltip("Altura de seguridad superior desde donde se dispara el Raycast vertical hacia abajo.")]
+        [Range(2f, 25f)]
+        [SerializeField] private float _raycastOriginHeight = 5.0f;
+
+        [Tooltip("Distancia máxima del raycast vertical hacia abajo.")]
+        [Range(5f, 50f)]
+        [SerializeField] private float _raycastMaxDistance = 20.0f;
+
+        [Tooltip("Pendiente mínima aceptable del suelo (normal.y > 0.65 equivale a suelo transitable, evitando paredes).")]
+        [Range(0.4f, 0.95f)]
+        [SerializeField] private float _minWalkableSlope = 0.65f;
+
+        [Tooltip("Desplazamiento vertical mínimo sobre la superficie de impacto para evitar solapamientos con el suelo.")]
+        [SerializeField] private float _groundSpawnOffset = 0.02f;
+
+        [Header("Generación Procedural Alrededor del Jugador")]
+        [Tooltip("Distancia mínima al jugador para no instanciar enemigos en su campo visual directo o encima de él.")]
+        [Range(3f, 20f)]
+        [SerializeField] private float _minSafeDistance = 8.0f;
+
+        [Tooltip("Radio máximo de búsqueda procedural alrededor del jugador.")]
+        [Range(10f, 40f)]
+        [SerializeField] private float _maxSpawnRadius = 22.0f;
+
+        [Tooltip("Intentos máximos de muestreo aleatorio antes de usar la posición de respaldo.")]
+        [SerializeField] private int _maxProceduralAttempts = 16;
+
+        // ════════════════════════════════════════════════════════════════════
+        // SISTEMA DE OLEADAS PROGRESIVAS (WAVE SYSTEM)
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Sistema de Oleadas Progresivas")]
+        [Tooltip("¿Activar el sistema continuo de oleadas automáticamente?")]
+        [SerializeField] private bool _enableWaveSystem = true;
+
+        [Tooltip("¿Iniciar las oleadas en Start()?")]
+        [SerializeField] private bool _autoStartWavesOnStart = true;
+
+        [Tooltip("Número de la oleada actual.")]
+        [SerializeField] private int _currentWaveNumber = 1;
+
+        [Tooltip("Cantidad base de enemigos en la primera oleada.")]
+        [SerializeField] private int _baseEnemiesPerWave = 3;
+
+        [Tooltip("Incremento lineal de enemigos adicionales por cada nueva oleada.")]
+        [SerializeField] private int _enemiesIncrementPerWave = 2;
+
+        [Tooltip("Tiempo de espera en segundos entre la eliminación de una oleada y el inicio de la siguiente.")]
+        [SerializeField] private float _timeBetweenWaves = 5.0f;
+
+        [Tooltip("Tiempo de retraso entre la aparición de cada enemigo individual dentro de una misma oleada.")]
+        [SerializeField] private float _delayBetweenSpawns = 0.45f;
+
+        [Tooltip("Límite máximo de enemigos vivos simultáneos en escena para no saturar rendimiento.")]
+        [SerializeField] private int _maxConcurrentEnemies = 20;
+
+        [Header("Dificultad por Pisos")]
+        [Tooltip("Piso actual de la torre (afecta multiplicador de dificultad).")]
+        [SerializeField] private int _currentFloor = 1;
+
+        [Tooltip("Porcentaje de incremento de enemigos por piso (ej. 0.15 = +15% por piso).")]
+        [Range(0.05f, 0.5f)]
+        [SerializeField] private float _difficultyScalePerFloor = 0.15f;
+
+        // ════════════════════════════════════════════════════════════════════
+        // RESTRICCIONES DE ESCALA Y CORREDORES (COMPATIBILIDAD)
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Restricciones de Espacio y Hitbox")]
+        [SerializeField] private float _maxAllowedHeight = 1.85f;
+        [SerializeField] private float _maxAllowedRadius = 0.42f;
+        [SerializeField] private bool _autoCalibrateHitbox = true;
+
+        // ════════════════════════════════════════════════════════════════════
+        // ESTADO INTERNO Y EVENTOS
+        // ════════════════════════════════════════════════════════════════════
 
         private readonly List<GameObject> _activeEnemies = new List<GameObject>();
-        public int RemainingEnemiesCount => _activeEnemies.Count;
+        private Coroutine _waveCycleCoroutine;
+        private Transform _playerTransform;
+        private Transform _enemiesContainer;
+        private bool _isWaveSystemRunning = false;
+        private int _totalEnemiesTargetForCurrentWave = 0;
+        private int _enemiesSpawnedInCurrentWave = 0;
 
+        public int RemainingEnemiesCount => GetLivingEnemiesCount();
+        public int CurrentWaveNumber => _currentWaveNumber;
+        public bool IsWaveSystemRunning => _isWaveSystemRunning;
         public float MaxAllowedHeight => _maxAllowedHeight;
         public float MaxAllowedRadius => _maxAllowedRadius;
+
+        public event Action<int, int> OnWaveStarted;      // (waveNumber, totalEnemies)
+        public event Action<int> OnWaveCompleted;          // (waveNumber)
+        public event Action<int, int> OnEnemiesRemaining;  // (aliveCount, waveTarget)
+
+        // ════════════════════════════════════════════════════════════════════
+        // CICLO DE VIDA MONOBEHAVIOUR
+        // ════════════════════════════════════════════════════════════════════
+
+        private void Awake()
+        {
+            EnsureDefaultPrefabReferences();
+            SetupEnemiesContainer();
+
+            // Configurar capas por defecto si no han sido modificadas
+            if (_groundLayer.value == ~0 || _groundLayer.value == 0)
+            {
+                int playerLayer = LayerMask.NameToLayer("Player");
+                int enemyLayer = LayerMask.NameToLayer("Enemy");
+                LayerMask excludeMask = 0;
+                if (playerLayer != -1) excludeMask |= (1 << playerLayer);
+                if (enemyLayer != -1) excludeMask |= (1 << enemyLayer);
+                _groundLayer = ~excludeMask;
+            }
+        }
+
+        private void OnEnable()
+        {
+            GameEvents.OnEnemyKilled += HandleEnemyKilledEvent;
+            GameEvents.OnFloorReady += HandleFloorReadyEvent;
+        }
+
+        private void OnDisable()
+        {
+            GameEvents.OnEnemyKilled -= HandleEnemyKilledEvent;
+            GameEvents.OnFloorReady -= HandleFloorReadyEvent;
+            StopWaveSystem();
+        }
+
+        private void Start()
+        {
+            ResolvePlayerReference();
+
+            if (_enableWaveSystem && _autoStartWavesOnStart)
+            {
+                StartWaveSystem();
+            }
+        }
+
+        private void Update()
+        {
+            // Limpieza periódica de referencias destruidas
+            PruneDeadEnemies();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // GESTIÓN DE OLEADAS PROGRESIVAS (WAVE SYSTEM)
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Inicia el bucle continuo de oleadas.
+        /// </summary>
+        public void StartWaveSystem()
+        {
+            if (_isWaveSystemRunning) return;
+            _isWaveSystemRunning = true;
+            _waveCycleCoroutine = StartCoroutine(WaveSystemRoutine());
+        }
+
+        /// <summary>
+        /// Detiene el ciclo de oleadas en curso.
+        /// </summary>
+        public void StopWaveSystem()
+        {
+            _isWaveSystemRunning = false;
+            if (_waveCycleCoroutine != null)
+            {
+                StopCoroutine(_waveCycleCoroutine);
+                _waveCycleCoroutine = null;
+            }
+        }
+
+        /// <summary>
+        /// Rutina principal que gestiona la secuencia de oleadas y su progresión de dificultad.
+        /// </summary>
+        private IEnumerator WaveSystemRoutine()
+        {
+            // Pequeño retardo inicial para permitir que la escena y el jugador se asienten
+            yield return new WaitForSeconds(1.5f);
+
+            while (_isWaveSystemRunning)
+            {
+                ResolvePlayerReference();
+
+                // 1. Calcular cantidad de enemigos para esta oleada
+                _totalEnemiesTargetForCurrentWave = CalculateEnemiesForWave(_currentWaveNumber, _currentFloor);
+                _enemiesSpawnedInCurrentWave = 0;
+
+                Debug.Log($"<color=#FF9900>[EnemySpawner] ⚔ Iniciando Oleada {_currentWaveNumber} " +
+                          $"(Piso {_currentFloor}) — Meta: {_totalEnemiesTargetForCurrentWave} enemigos.</color>");
+
+                OnWaveStarted?.Invoke(_currentWaveNumber, _totalEnemiesTargetForCurrentWave);
+
+                // 2. Spawn progresivo de la oleada con retraso entre cada enemigo
+                while (_enemiesSpawnedInCurrentWave < _totalEnemiesTargetForCurrentWave && _isWaveSystemRunning)
+                {
+                    // Respetar el límite de concurrencia para evitar caídas de frames
+                    if (GetLivingEnemiesCount() < _maxConcurrentEnemies)
+                    {
+                        GameObject spawnedEnemy = SpawnSingleFloatingEnemyOnGround();
+                        if (spawnedEnemy != null)
+                        {
+                            _enemiesSpawnedInCurrentWave++;
+                            OnEnemiesRemaining?.Invoke(GetLivingEnemiesCount(), _totalEnemiesTargetForCurrentWave);
+                        }
+                    }
+
+                    yield return new WaitForSeconds(_delayBetweenSpawns);
+                }
+
+                // 3. Esperar a que todos los enemigos de la oleada sean derrotados
+                while (GetLivingEnemiesCount() > 0 && _isWaveSystemRunning)
+                {
+                    yield return new WaitForSeconds(0.4f);
+                }
+
+                if (!_isWaveSystemRunning) yield break;
+
+                // 4. Oleada completada con éxito
+                Debug.Log($"<color=#55FF55>[EnemySpawner] ✓ Oleada {_currentWaveNumber} Aniquilada. " +
+                          $"Próxima oleada en {_timeBetweenWaves}s...</color>");
+
+                OnWaveCompleted?.Invoke(_currentWaveNumber);
+
+                // Tiempo de espera entre oleadas
+                yield return new WaitForSeconds(_timeBetweenWaves);
+
+                // 5. Progresar a la siguiente oleada
+                _currentWaveNumber++;
+            }
+        }
+
+        /// <summary>
+        /// Calcula la cantidad de enemigos escalada por oleada y piso de la torre.
+        /// </summary>
+        private int CalculateEnemiesForWave(int wave, int floor)
+        {
+            int baseWaveCount = _baseEnemiesPerWave + ((wave - 1) * _enemiesIncrementPerWave);
+            float floorMultiplier = 1.0f + ((floor - 1) * _difficultyScalePerFloor);
+            return Mathf.Max(1, Mathf.RoundToInt(baseWaveCount * floorMultiplier));
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // APARICIÓN GARANTIZADA A NIVEL DEL SUELO (RAYCAST)
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Instancia un EnemigoFlotante en el suelo detectado mediante Raycast vertical.
+        /// </summary>
+        public GameObject SpawnSingleFloatingEnemyOnGround()
+        {
+            Vector3 groundSpawnPosition;
+
+            // 1. Intentar obtener posición válida desde los puntos manuales o proceduralmente
+            if (!TryGetValidGroundSpawnPosition(out groundSpawnPosition))
+            {
+                Debug.LogWarning("[EnemySpawner] No se pudo encontrar una superficie de suelo válida para el spawn.");
+                return null;
+            }
+
+            // 2. Resolver el prefab objetivo (preferencia por EnemigoFlotante)
+            GameObject prefabToSpawn = _floatingEnemyPrefab != null ? _floatingEnemyPrefab : _enemyPrefabDefault;
+            if (prefabToSpawn == null)
+            {
+                Debug.LogError("[EnemySpawner] No hay prefab de enemigo asignado ni disponible.");
+                return null;
+            }
+
+            // 3. Instanciar al enemigo exactamente en la superficie transitable
+            Transform parent = _enemiesContainer != null ? _enemiesContainer : transform;
+            GameObject enemyInstance = Instantiate(prefabToSpawn, groundSpawnPosition, Quaternion.identity, parent);
+            enemyInstance.name = $"EnemigoFlotante_W{_currentWaveNumber}_{_enemiesSpawnedInCurrentWave + 1}";
+
+            // Asegurar capa y tag
+            int enemyLayer = LayerMask.NameToLayer("Enemy");
+            if (enemyLayer != -1) enemyInstance.layer = enemyLayer;
+            enemyInstance.tag = "Enemy";
+
+            // 4. Registrar en lista de enemigos activos
+            _activeEnemies.Add(enemyInstance);
+
+            return enemyInstance;
+        }
+
+        /// <summary>
+        /// Obtiene una posición de suelo transitable, priorizando Transform[] spawnPoints y recurriendo a generación procedural.
+        /// </summary>
+        private bool TryGetValidGroundSpawnPosition(out Vector3 groundPosition)
+        {
+            groundPosition = Vector3.zero;
+
+            // 1. Si hay puntos manuales asignados, seleccionar uno y proyectar Raycast al piso
+            if (_spawnPoints != null && _spawnPoints.Length > 0)
+            {
+                int startIndex = UnityEngine.Random.Range(0, _spawnPoints.Length);
+                for (int i = 0; i < _spawnPoints.Length; i++)
+                {
+                    int index = (startIndex + i) % _spawnPoints.Length;
+                    Transform pt = _spawnPoints[index];
+                    if (pt != null && TryRaycastToGround(pt.position, out groundPosition))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            // 2. Si no hay puntos manuales o fallaron, generar proceduralmente alrededor del jugador
+            return TryGetProceduralGroundSpawnAroundPlayer(out groundPosition);
+        }
+
+        /// <summary>
+        /// Proyecta un Raycast vertical seguro para obtener la coordenada Y real del suelo transitable,
+        /// analizando la geometría de la habitación para garantizar que el enemigo nazca estrictamente a ras de suelo
+        /// y nunca en el techo o en azoteas.
+        /// </summary>
+        public bool TryRaycastToGround(Vector3 sourcePoint, out Vector3 groundPosition)
+        {
+            groundPosition = sourcePoint;
+
+            // Excluir capas de Player y Enemy para no detectar sus colisionadores como suelo
+            int playerLayer = LayerMask.NameToLayer("Player");
+            int enemyLayer = LayerMask.NameToLayer("Enemy");
+            int excludeMask = 0;
+            if (playerLayer != -1) excludeMask |= (1 << playerLayer);
+            if (enemyLayer != -1) excludeMask |= (1 << enemyLayer);
+            LayerMask effectiveGroundMask = _groundLayer.value & ~excludeMask;
+
+            Transform player = GetPlayerTransform();
+            float refFloorY = player != null ? player.position.y : sourcePoint.y;
+
+            // ────────────────────────────────────────────────────────────────
+            // PASO 1: Raycast Primario desde el Interior de la Habitación
+            // ────────────────────────────────────────────────────────────────
+            // Disparar desde una altura controlada (refFloorY + 1.2m), garantizando
+            // que el rayo nace DEBAJO del techo y dentro del volumen jugable.
+            Vector3 insideRoomOrigin = new Vector3(sourcePoint.x, refFloorY + 1.2f, sourcePoint.z);
+
+            if (Physics.Raycast(insideRoomOrigin, Vector3.down, out RaycastHit directHit, 6.0f, effectiveGroundMask, QueryTriggerInteraction.Ignore))
+            {
+                if (IsValidWalkableFloor(directHit, effectiveGroundMask))
+                {
+                    groundPosition = directHit.point + Vector3.up * _groundSpawnOffset;
+                    return true;
+                }
+            }
+
+            // ────────────────────────────────────────────────────────────────
+            // PASO 2: Raycast Multi-Impacto desde Altura Superior con Filtro de Altura
+            // ────────────────────────────────────────────────────────────────
+            // Si el punto de spawn inicial se encuentra elevado o no encontró suelo inmediatamente debajo,
+            // proyectar hacia abajo capturando todas las superficies para seleccionar la transitable interior real.
+            float highOriginY = Mathf.Max(sourcePoint.y, refFloorY) + _raycastOriginHeight;
+            Vector3 highOrigin = new Vector3(sourcePoint.x, highOriginY, sourcePoint.z);
+
+            RaycastHit[] allHits = Physics.RaycastAll(highOrigin, Vector3.down, _raycastMaxDistance, effectiveGroundMask, QueryTriggerInteraction.Ignore);
+
+            if (allHits != null && allHits.Length > 0)
+            {
+                RaycastHit bestCandidate = default;
+                float bestDistanceToRef = float.MaxValue;
+                bool foundValidFloor = false;
+
+                foreach (var hit in allHits)
+                {
+                    if (IsValidWalkableFloor(hit, effectiveGroundMask))
+                    {
+                        // Priorizar la superficie transitable cuya elevación esté más próxima al nivel de juego actual
+                        float diffY = Mathf.Abs(hit.point.y - refFloorY);
+                        if (diffY < bestDistanceToRef)
+                        {
+                            bestDistanceToRef = diffY;
+                            bestCandidate = hit;
+                            foundValidFloor = true;
+                        }
+                    }
+                }
+
+                if (foundValidFloor)
+                {
+                    groundPosition = bestCandidate.point + Vector3.up * _groundSpawnOffset;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Comprueba que la superficie impactada sea un suelo transitable (pendiente adecuada)
+        /// y que tenga suficiente altura libre (clearance vertical) para no estar bajo un techo bajo.
+        /// </summary>
+        private bool IsValidWalkableFloor(RaycastHit hit, LayerMask groundMask)
+        {
+            // 1. Pendiente transitable (la normal apunta hacia arriba, descartando paredes verticales)
+            if (hit.normal.y < _minWalkableSlope) return false;
+
+            // 2. Comprobar espacio libre vertical (Clearance):
+            // Proyectar un rayo hacia arriba desde el punto de impacto.
+            // Si choca con un obstáculo o techo a menos de 1.6m, NO es un punto transitable válido.
+            Vector3 clearanceCheckStart = hit.point + Vector3.up * 0.1f;
+            if (Physics.Raycast(clearanceCheckStart, Vector3.up, out RaycastHit ceilHit, 1.65f, groundMask | _obstacleLayer, QueryTriggerInteraction.Ignore))
+            {
+                return false; // Techo demasiado bajo o atascado en geometría
+            }
+
+            // 3. Comprobar que no esté dentro de un colisionador de obstáculos
+            if (_obstacleLayer.value != 0)
+            {
+                Vector3 sphereCenter = hit.point + Vector3.up * 0.8f;
+                if (Physics.CheckSphere(sphereCenter, 0.38f, _obstacleLayer, QueryTriggerInteraction.Ignore))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Genera un punto procedural alrededor del jugador a una distancia segura fuera de su visión directa.
+        /// </summary>
+        private bool TryGetProceduralGroundSpawnAroundPlayer(out Vector3 groundPosition)
+        {
+            groundPosition = Vector3.zero;
+            Transform player = GetPlayerTransform();
+            if (player == null) return false;
+
+            Vector3 playerPos = player.position;
+
+            for (int attempt = 0; attempt < _maxProceduralAttempts; attempt++)
+            {
+                // Ángulo aleatorio y distancia comprendida en el radio seguro
+                float angle = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+                float distance = UnityEngine.Random.Range(_minSafeDistance, _maxSpawnRadius);
+
+                Vector3 candidatePoint = playerPos + new Vector3(Mathf.Cos(angle) * distance, 0f, Mathf.Sin(angle) * distance);
+
+                if (TryRaycastToGround(candidatePoint, out Vector3 detectedGround))
+                {
+                    // Verificar que no esté demasiado cerca en distancia tridimensional
+                    if (Vector3.Distance(detectedGround, playerPos) >= _minSafeDistance)
+                    {
+                        groundPosition = detectedGround;
+                        return true;
+                    }
+                }
+            }
+
+            // Respaldo de emergencia: intentar detrás del jugador a distancia segura
+            Vector3 fallbackPoint = playerPos - player.forward * _minSafeDistance;
+            if (TryRaycastToGround(fallbackPoint, out Vector3 fallbackGround))
+            {
+                groundPosition = fallbackGround;
+                return true;
+            }
+
+            return false;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // CONTROL DE ENEMIGOS VIVOS EN TIEMPO REAL
+        // ════════════════════════════════════════════════════════════════════
+
+        private int GetLivingEnemiesCount()
+        {
+            PruneDeadEnemies();
+            return _activeEnemies.Count;
+        }
+
+        private void PruneDeadEnemies()
+        {
+            for (int i = _activeEnemies.Count - 1; i >= 0; i--)
+            {
+                if (_activeEnemies[i] == null)
+                {
+                    _activeEnemies.RemoveAt(i);
+                }
+            }
+        }
+
+        private void HandleEnemyKilledEvent(Vector3 deathPos)
+        {
+            PruneDeadEnemies();
+            OnEnemiesRemaining?.Invoke(_activeEnemies.Count, _totalEnemiesTargetForCurrentWave);
+        }
+
+        private void HandleFloorReadyEvent(FloorConfig config)
+        {
+            if (config != null)
+            {
+                _currentFloor = config.FloorNumber;
+                Debug.Log($"[EnemySpawner] Configurado para Piso {_currentFloor}.");
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // COMPATIBILIDAD CON GENERACIÓN PROCEDURAL DE PISOS (API EXISTENTE)
+        // ════════════════════════════════════════════════════════════════════
 
         public void SpawnEnemies(FloorLayout layout, FloorConfig config)
         {
@@ -54,39 +580,55 @@ namespace DemenciaNoLimite.Level
                 return;
             }
 
+            _currentFloor = config.FloorNumber;
             var gm = GameManager.Instance;
             var aiDirector = FindAnyObjectByType<AIDirector>();
             var degradationSystem = FindAnyObjectByType<MentalDegradationSystem>();
 
-            EnemyComposition composition = (aiDirector != null && gm != null) 
-                ? aiDirector.GetEnemyComposition(config, gm.EnemyBuffs) 
+            EnemyComposition composition = (aiDirector != null && gm != null)
+                ? aiDirector.GetEnemyComposition(config, gm.EnemyBuffs)
                 : new EnemyComposition();
 
             List<Vector3> spawnWorldPositions = CollectFloorSpawnPositions(layout, config.BaseEnemyCount);
             int spawnCount = spawnWorldPositions.Count;
-
-            Transform targetParent = parentContainer != null ? parentContainer : transform;
+            Transform targetParent = parentContainer != null ? parentContainer : (_enemiesContainer != null ? _enemiesContainer : transform);
 
             for (int i = 0; i < spawnCount; i++)
             {
-                Vector3 worldPos = spawnWorldPositions[i] + Vector3.up * elevation;
+                Vector3 rawPos = spawnWorldPositions[i] + Vector3.up * elevation;
+
+                // Anclar al suelo mediante Raycast vertical
+                Vector3 finalSpawnPos = rawPos;
+                if (TryRaycastToGround(rawPos, out Vector3 groundPos))
+                {
+                    finalSpawnPos = groundPos;
+                }
 
                 if (degradationSystem != null && degradationSystem.ShouldSpawnPhantomEnemies())
                 {
-                    if (Random.value < degradationSystem.PhantomEnemyChance())
+                    if (UnityEngine.Random.value < degradationSystem.PhantomEnemyChance())
                     {
-                        SpawnPhantomEnemy(worldPos, targetParent);
+                        SpawnPhantomEnemy(finalSpawnPos, targetParent);
                         continue;
                     }
                 }
 
-                EnemyType selectedType = composition.SelectType(Random.value);
-                EnemyData selectedData = GetEnemyDataForType(selectedType);
-
-                SpawnRealEnemy(worldPos, selectedType, selectedData, gm != null ? gm.EnemyBuffs : null, targetParent);
+                // Si disponemos del EnemigoFlotante, generarlo prioritariamente
+                if (_floatingEnemyPrefab != null)
+                {
+                    GameObject enemy = Instantiate(_floatingEnemyPrefab, finalSpawnPos, Quaternion.identity, targetParent);
+                    enemy.name = $"EnemigoFlotante_F{_currentFloor}_{i + 1}";
+                    _activeEnemies.Add(enemy);
+                }
+                else
+                {
+                    EnemyType selectedType = composition.SelectType(UnityEngine.Random.value);
+                    EnemyData selectedData = GetEnemyDataForType(selectedType);
+                    SpawnRealEnemy(finalSpawnPos, selectedType, selectedData, gm != null ? gm.EnemyBuffs : null, targetParent);
+                }
             }
 
-            Debug.Log($"[EnemySpawner] Spawned {spawnCount} entities on Floor {config.FloorNumber} at elevation Y={elevation:F0}.");
+            Debug.Log($"[EnemySpawner] Spawned {spawnCount} entities on Floor {config.FloorNumber} with Ground-Raycast at elevation Y={elevation:F0}.");
         }
 
         private List<Vector3> CollectFloorSpawnPositions(FloorLayout layout, int desiredCount)
@@ -135,7 +677,7 @@ namespace DemenciaNoLimite.Level
 
                 for (int i = 0; i < candidateTiles.Count; i++)
                 {
-                    int swapIdx = Random.Range(i, candidateTiles.Count);
+                    int swapIdx = UnityEngine.Random.Range(i, candidateTiles.Count);
                     var temp = candidateTiles[i];
                     candidateTiles[i] = candidateTiles[swapIdx];
                     candidateTiles[swapIdx] = temp;
@@ -360,5 +902,99 @@ namespace DemenciaNoLimite.Level
             }
             _activeEnemies.Clear();
         }
+
+        // ════════════════════════════════════════════════════════════════════
+        // HELPERS INTERNOS Y GIZMOS
+        // ════════════════════════════════════════════════════════════════════
+
+        private Transform GetPlayerTransform()
+        {
+            if (_playerTransform == null)
+            {
+                ResolvePlayerReference();
+            }
+            return _playerTransform;
+        }
+
+        private void ResolvePlayerReference()
+        {
+            if (Player.PlayerManager.Instance != null)
+            {
+                _playerTransform = Player.PlayerManager.Instance.transform;
+            }
+            else
+            {
+                GameObject playerGo = GameObject.FindGameObjectWithTag("Player");
+                if (playerGo != null) _playerTransform = playerGo.transform;
+            }
+        }
+
+        private void SetupEnemiesContainer()
+        {
+            GameObject container = GameObject.Find("[SPAWNED_ENEMIES_CONTAINER]");
+            if (container == null)
+            {
+                container = new GameObject("[SPAWNED_ENEMIES_CONTAINER]");
+            }
+            _enemiesContainer = container.transform;
+        }
+
+        private void EnsureDefaultPrefabReferences()
+        {
+#if UNITY_EDITOR
+            if (_floatingEnemyPrefab == null)
+            {
+                _floatingEnemyPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/EnemigoFlotante.prefab");
+            }
+#endif
+        }
+
+#if UNITY_EDITOR
+        private void OnValidate()
+        {
+            EnsureDefaultPrefabReferences();
+        }
+
+        [ContextMenu("Iniciar Siguiente Oleada")]
+        public void ForceNextWave()
+        {
+            if (!_isWaveSystemRunning)
+            {
+                StartWaveSystem();
+            }
+            else
+            {
+                ClearEnemies();
+            }
+        }
+
+        private void OnDrawGizmosSelected()
+        {
+            Transform player = GetPlayerTransform();
+            Vector3 center = player != null ? player.position : transform.position;
+
+            // Radio mínimo seguro (Verde)
+            Gizmos.color = new Color(0.2f, 1f, 0.2f, 0.35f);
+            Gizmos.DrawWireSphere(center, _minSafeDistance);
+
+            // Radio máximo de spawn procedural (Amarillo)
+            Gizmos.color = new Color(1f, 0.9f, 0.1f, 0.25f);
+            Gizmos.DrawWireSphere(center, _maxSpawnRadius);
+
+            // Puntos de spawn manuales
+            if (_spawnPoints != null)
+            {
+                Gizmos.color = Color.magenta;
+                foreach (var pt in _spawnPoints)
+                {
+                    if (pt != null)
+                    {
+                        Gizmos.DrawWireCube(pt.position, Vector3.one * 0.8f);
+                        Gizmos.DrawLine(pt.position, pt.position + Vector3.up * 1.5f);
+                    }
+                }
+            }
+        }
+#endif
     }
 }

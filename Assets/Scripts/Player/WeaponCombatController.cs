@@ -714,7 +714,16 @@ namespace DemenciaNoLimite.Player
                     if (unlitShader != null)
                     {
                         Material mat = new Material(unlitShader);
-                        mat.color = new Color(1.0f, 0.88f, 0.45f, 0.95f);
+                        Color flashColor = new Color(1.0f, 0.90f, 0.40f, 1.0f);
+                        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", flashColor);
+                        if (mat.HasProperty("_Color")) mat.SetColor("_Color", flashColor);
+                        if (mat.HasProperty("_EmissionColor"))
+                        {
+                            mat.EnableKeyword("_EMISSION");
+                            mat.SetColor("_EmissionColor", new Color(3.5f, 2.5f, 0.8f));
+                        }
+                        if (mat.HasProperty("_Cull")) mat.SetFloat("_Cull", 0f); // Double-sided (Cull Off)
+
                         _visualFlashRenderer.material = mat;
                     }
 
@@ -794,6 +803,11 @@ namespace DemenciaNoLimite.Player
                 {
                     combinedBounds.Encapsulate(skinnedRenderers[i].bounds);
                 }
+            }
+
+            if (_playerCamera == null)
+            {
+                _playerCamera = Camera.main ?? GetComponentInChildren<Camera>() ?? FindAnyObjectByType<Camera>();
             }
 
             Transform camTransform = (_playerCamera != null) ? _playerCamera.transform : transform;
@@ -1108,11 +1122,18 @@ namespace DemenciaNoLimite.Player
             _muzzleFlashLight.color = _muzzleFlashColor;
             _muzzleFlashLight.enabled = true;
 
-            // 1. Activar destello visual (Sprite/Mesh Quad) sincronizado
+            // 1. Activar destello visual (Billboard frontal hacia la cámara) con rotación Z aleatoria
             if (_visualFlashRenderer != null)
             {
-                _visualFlashRenderer.transform.localRotation = Quaternion.Euler(0f, 0f, UnityEngine.Random.Range(0f, 360f));
-                _visualFlashRenderer.transform.localScale = Vector3.one * UnityEngine.Random.Range(0.14f, 0.22f);
+                if (_playerCamera != null)
+                {
+                    _visualFlashRenderer.transform.rotation = _playerCamera.transform.rotation * Quaternion.Euler(0f, 0f, UnityEngine.Random.Range(0f, 360f));
+                }
+                else
+                {
+                    _visualFlashRenderer.transform.localRotation = Quaternion.Euler(0f, 0f, UnityEngine.Random.Range(0f, 360f));
+                }
+                _visualFlashRenderer.transform.localScale = Vector3.one * UnityEngine.Random.Range(0.24f, 0.36f);
                 _visualFlashRenderer.enabled = true;
             }
 

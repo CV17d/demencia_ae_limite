@@ -1,13 +1,14 @@
 // ============================================================================
 // PlayerWeaponEquipManager.cs — Gestor de Equipamiento e Instanciamiento de Armas 3D
 // ============================================================================
-// Coordina la visualización en primera persona de los modelos 3D de las armas:
+// Coordina la visualización en primera persona de los modelos 3D de todas las armas:
 // - Instancia y emparenta prefabs 3D directamente bajo el WeaponHolder de la Main Camera.
-// - Fuerza explícitamente la escala adecuada (evitando escalas microscópicas (1,1,1)
-//   cuando el modelo o prefab requiere escala 100 u otra medida métrica).
-// - Restablece posición local a cero (o offset frontal) y orientación nativa/configurada.
-// - Elimina/neutraliza componentes físicos (Colliders y Rigidbodies) para evitar colisiones.
-// - Carga automática de prefabs desde Assets/Prefabs/Entornos/Armas_Prefab/ o Resources.
+// - Generalizado para todo el catálogo (Bingala, Demencia Revólver, Muak, Trabeca, etc.).
+// - Fuerza explícitamente la escala adecuada (respetando la escala nativa de 100 en modelos
+//   exportados en centímetros y evitando el colapso a Vector3.one).
+// - Búsqueda automática de prefabs en Assets/Prefabs/Entornos/Armas_Prefab/ o Resources.
+// - Neutralización total de físicas (Colliders, Rigidbodies, Joints) para no interferir
+//   con el CharacterController del jugador.
 // - Asigna recursivamente la capa "Weapon" garantizando el cullingMask de la Main Camera.
 // - Sincroniza el estado de la mano 2D diegética (PlayerHandController -> HandState.EquippedItem).
 // - Escucha automáticamente cambios de ranura de PlayerInventory y recogidas de WorldItemPickup.
@@ -79,7 +80,7 @@ namespace DemenciaNoLimite.Player
         [Tooltip("Multiplicador global de escala aplicado a las armas al ser equipadas frente a la cámara.")]
         [SerializeField] private float _globalScaleMultiplier = 1f;
 
-        [Tooltip("Si está activo, detecta si el prefab original tiene una escala nativa (ej. 100 en bingala.prefab) y la respeta en lugar de forzar (1,1,1).")]
+        [Tooltip("Si está activo, detecta si el prefab original tiene una escala nativa (ej. 100 en los prefabs) y la respeta en lugar de forzar (1,1,1).")]
         [SerializeField] private bool _usePrefabNativeScale = true;
 
         [Tooltip("Umbral de escala mínima. Si la escala detectada o del mapping es menor o igual a este valor (ej. 1.8), se forzará automáticamente a _defaultWeaponScale (100,100,100) para evitar que quede microscópica.")]
@@ -174,6 +175,7 @@ namespace DemenciaNoLimite.Player
         public bool HasWeaponEquipped => _currentSpawnedWeaponInstance != null;
         public Vector3 DefaultWeaponScale => _defaultWeaponScale;
         public float GlobalScaleMultiplier => _globalScaleMultiplier;
+        public IReadOnlyList<Weapon3DMapping> WeaponCatalog => _weaponCatalog;
 
         // ════════════════════════════════════════════════════════════════════
         // CICLO DE VIDA MONOBEHAVIOUR
@@ -223,7 +225,7 @@ namespace DemenciaNoLimite.Player
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // GESTIÓN DE EQUIPAMIENTO E INSTANCIAMIENTO 3D
+        // GESTIÓN DE EQUIPAMIENTO E INSTANCIAMIENTO 3D GENERALIZADO
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
@@ -270,8 +272,12 @@ namespace DemenciaNoLimite.Player
         }
 
         /// <summary>
-        /// Método nuclear y robusto de equipamiento: resuelve mapping, busca prefab en proyecto si falta,
-        /// instancia limpio bajo WeaponHolder, fuerza explícitamente su escala local y neutraliza colisiones físicas.
+        /// Método nuclear y generalizado de equipamiento para todas las armas del juego:
+        /// - Resuelve mapping o busca automáticamente el prefab en el proyecto.
+        /// - Instancia limpio bajo WeaponHolder de la Main Camera.
+        /// - Fuerza explícitamente su escala adecuada (evitando el colapso microscópico).
+        /// - Neutraliza totalmente colisiones físicas (Colliders, Rigidbodies, Joints).
+        /// - Asigna recursivamente la capa "Weapon" y sincroniza la mano 2D.
         /// </summary>
         public void EquipWeaponExplicit(string weaponId, WeaponData data, GameObject explicitPrefab)
         {
@@ -295,10 +301,10 @@ namespace DemenciaNoLimite.Player
                 return;
             }
 
-            // 3. Buscar correspondencia en el catálogo configurado
+            // 3. Buscar correspondencia en el catálogo configurado (exacta, alias o flexible)
             Weapon3DMapping mapping = BuscarMapping(weaponId, data);
 
-            // 4. Determinar prefab a instanciar (explícito > mapeado > búsqueda automática en proyecto)
+            // 4. Determinar prefab a instanciar (explícito > mapeado > búsqueda dinámica en proyecto)
             GameObject prefabToUse = explicitPrefab ?? mapping?.weaponPrefab;
             if (prefabToUse == null)
             {
@@ -338,7 +344,7 @@ namespace DemenciaNoLimite.Player
                 _currentSpawnedWeaponInstance.transform.localRotation = prefabToUse.transform.localRotation;
             }
 
-            // 7. Neutralizar colisiones físicas (Colliders y Rigidbodies) para que no interfieran con el jugador
+            // 7. Neutralizar colisiones físicas (Colliders, Rigidbodies, Joints) de forma total
             NeutralizarFisicasArma(_currentSpawnedWeaponInstance);
 
             // 8. Limpiar posibles scripts interactivos de suelo residuales en el viewmodel
@@ -361,12 +367,12 @@ namespace DemenciaNoLimite.Player
         }
 
         /// <summary>
-        /// Calcula y fuerza la escala local adecuada del modelo 3D frente a la cámara,
-        /// evitando que se comprima o herede escalas unitarias (1,1,1) incorrectas cuando el modelo requiere escala 100.
+        /// Calcula y fuerza la escala local adecuada del modelo 3D frente a la cámara para cualquier arma del juego,
+        /// respetando la escala nativa de 100 de modelos exportados en centímetros y evitando el colapso a Vector3.one.
         /// </summary>
         public Vector3 CalcularEscalaArma(GameObject prefabToUse, Weapon3DMapping mapping)
         {
-            Vector3 resolvedScale = _defaultWeaponScale;
+            Vector3 resolvedScale = _defaultWeaponScale; // (100, 100, 100) por defecto
 
             // 1. Si el prefab cuenta con una escala nativa configurada en el proyecto (ej. (100, 100, 100) en el prefab)
             if (_usePrefabNativeScale && prefabToUse != null)
@@ -426,7 +432,7 @@ namespace DemenciaNoLimite.Player
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // RESOLUCIÓN ROBUSTA DE MAPPINGS Y PREFABS
+        // RESOLUCIÓN ROBUSTA DE MAPPINGS, PREFABS Y ALIASES
         // ════════════════════════════════════════════════════════════════════
 
         private Weapon3DMapping BuscarMapping(string weaponId, WeaponData data)
@@ -439,7 +445,7 @@ namespace DemenciaNoLimite.Player
                 return mapping;
             }
 
-            // 2. Coincidencia directa por ID exacto
+            // 2. Coincidencia directa por ID exacto en el diccionario (incluyendo aliases registrados)
             if (!string.IsNullOrEmpty(weaponId) && _mappingsById.TryGetValue(weaponId, out mapping))
             {
                 return mapping;
@@ -460,6 +466,15 @@ namespace DemenciaNoLimite.Player
                         return item;
                     }
 
+                    if (item.weaponPrefab != null)
+                    {
+                        string normPrefabName = NormalizarTexto(item.weaponPrefab.name);
+                        if (!string.IsNullOrEmpty(normPrefabName) && (normPrefabName == normQuery || normPrefabName.Contains(normQuery) || normQuery.Contains(normPrefabName)))
+                        {
+                            return item;
+                        }
+                    }
+
                     if (item.weaponData != null)
                     {
                         string normDataId = NormalizarTexto(item.weaponData.WeaponID);
@@ -477,7 +492,8 @@ namespace DemenciaNoLimite.Player
         }
 
         /// <summary>
-        /// Busca de forma robusta el prefab del arma en el proyecto (Editor y Runtime).
+        /// Busca de forma robusta y dinámica el prefab de cualquier arma en el proyecto (Editor y Runtime),
+        /// empleando coincidencia exacta, normalizada, tokens y búsqueda de respaldo.
         /// </summary>
         public GameObject BuscarPrefabEnProyecto(string weaponId)
         {
@@ -512,6 +528,23 @@ namespace DemenciaNoLimite.Player
                     {
                         var loaded = AssetDatabase.LoadAssetAtPath<GameObject>(file.Replace('\\', '/'));
                         if (loaded != null) return loaded;
+                    }
+                }
+
+                // Prioridad 3: Coincidencia de tokens individuales (ej. 'revolver' dentro de 'demencia revolver')
+                string[] queryTokens = weaponId.Split(new[] { ' ', '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (string file in files)
+                {
+                    string fileName = Path.GetFileNameWithoutExtension(file);
+                    string normFile = NormalizarTexto(fileName);
+                    foreach (string token in queryTokens)
+                    {
+                        string normToken = NormalizarTexto(token);
+                        if (normToken.Length >= 3 && normFile.Contains(normToken))
+                        {
+                            var loaded = AssetDatabase.LoadAssetAtPath<GameObject>(file.Replace('\\', '/'));
+                            if (loaded != null) return loaded;
+                        }
                     }
                 }
             }
@@ -715,14 +748,21 @@ namespace DemenciaNoLimite.Player
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // NEUTRALIZACIÓN DE FÍSICAS Y LIMPIEZA
+        // NEUTRALIZACIÓN COMPLETA DE FÍSICAS (COLLIDERS, RIGIDBODIES, JOINTS)
         // ════════════════════════════════════════════════════════════════════
 
         private void NeutralizarFisicasArma(GameObject weaponGo)
         {
             if (weaponGo == null) return;
 
-            // Desactivar y remover todos los colliders para evitar colisiones con el CharacterController
+            // 1. Desactivar y remover Joints primero para evitar advertencias nativas de física
+            Joint[] joints = weaponGo.GetComponentsInChildren<Joint>(true);
+            for (int i = 0; i < joints.Length; i++)
+            {
+                if (joints[i] != null) Destroy(joints[i]);
+            }
+
+            // 2. Desactivar y remover todos los colliders 3D para evitar interferencias con el CharacterController
             Collider[] colliders = weaponGo.GetComponentsInChildren<Collider>(true);
             for (int i = 0; i < colliders.Length; i++)
             {
@@ -733,7 +773,7 @@ namespace DemenciaNoLimite.Player
                 }
             }
 
-            // Desactivar y remover Rigidbodies
+            // 3. Desactivar y remover Rigidbodies 3D
             Rigidbody[] rbs = weaponGo.GetComponentsInChildren<Rigidbody>(true);
             for (int i = 0; i < rbs.Length; i++)
             {
@@ -742,6 +782,27 @@ namespace DemenciaNoLimite.Player
                     rbs[i].isKinematic = true;
                     rbs[i].detectCollisions = false;
                     Destroy(rbs[i]);
+                }
+            }
+
+            // 4. Salvaguarda adicional: limpiar físicas 2D si alguna estuviera presente
+            Collider2D[] col2Ds = weaponGo.GetComponentsInChildren<Collider2D>(true);
+            for (int i = 0; i < col2Ds.Length; i++)
+            {
+                if (col2Ds[i] != null)
+                {
+                    col2Ds[i].enabled = false;
+                    Destroy(col2Ds[i]);
+                }
+            }
+
+            Rigidbody2D[] rb2Ds = weaponGo.GetComponentsInChildren<Rigidbody2D>(true);
+            for (int i = 0; i < rb2Ds.Length; i++)
+            {
+                if (rb2Ds[i] != null)
+                {
+                    rb2Ds[i].simulated = false;
+                    Destroy(rb2Ds[i]);
                 }
             }
         }
@@ -868,23 +929,147 @@ namespace DemenciaNoLimite.Player
             _mappingsById.Clear();
             _mappingsByData.Clear();
 
+#if UNITY_EDITOR
+            AutoSincronizarCatalogoConPrefabs();
+#endif
+
             if (_weaponCatalog == null) return;
 
             foreach (var item in _weaponCatalog)
             {
                 if (item == null) continue;
 
-                if (!string.IsNullOrEmpty(item.weaponId) && !_mappingsById.ContainsKey(item.weaponId))
+                // Registrar ID principal
+                if (!string.IsNullOrEmpty(item.weaponId))
                 {
-                    _mappingsById.Add(item.weaponId, item);
+                    RegistrarEnDiccionarioId(item.weaponId, item);
+                    GenerarYRegistrarAliases(item.weaponId, item);
                 }
 
+                // Registrar por nombre del prefab
+                if (item.weaponPrefab != null)
+                {
+                    RegistrarEnDiccionarioId(item.weaponPrefab.name, item);
+                    GenerarYRegistrarAliases(item.weaponPrefab.name, item);
+                }
+
+                // Registrar por WeaponData
                 if (item.weaponData != null && !_mappingsByData.ContainsKey(item.weaponData))
                 {
                     _mappingsByData.Add(item.weaponData, item);
+                    if (!string.IsNullOrEmpty(item.weaponData.WeaponID))
+                    {
+                        RegistrarEnDiccionarioId(item.weaponData.WeaponID, item);
+                        GenerarYRegistrarAliases(item.weaponData.WeaponID, item);
+                    }
                 }
             }
         }
+
+        private void RegistrarEnDiccionarioId(string id, Weapon3DMapping mapping)
+        {
+            if (string.IsNullOrWhiteSpace(id) || mapping == null) return;
+            string key = id.Trim();
+            if (!_mappingsById.ContainsKey(key))
+            {
+                _mappingsById.Add(key, mapping);
+            }
+        }
+
+        private void GenerarYRegistrarAliases(string baseId, Weapon3DMapping mapping)
+        {
+            if (string.IsNullOrWhiteSpace(baseId) || mapping == null) return;
+
+            string lower = baseId.ToLowerInvariant().Trim();
+
+            // Aliases para revólver
+            if (lower.Contains("revolver") || lower.Contains("demencia"))
+            {
+                RegistrarEnDiccionarioId("revolver", mapping);
+                RegistrarEnDiccionarioId("demencia revolver", mapping);
+                RegistrarEnDiccionarioId("demencia_revolver", mapping);
+                RegistrarEnDiccionarioId("demencia", mapping);
+            }
+
+            // Aliases para trabeca
+            if (lower.Contains("trabeca"))
+            {
+                RegistrarEnDiccionarioId("trabeca", mapping);
+                RegistrarEnDiccionarioId("Trabeca", mapping);
+            }
+
+            // Aliases para bingala
+            if (lower.Contains("bingala"))
+            {
+                RegistrarEnDiccionarioId("bingala", mapping);
+                RegistrarEnDiccionarioId("Bingala", mapping);
+            }
+
+            // Aliases para muak
+            if (lower.Contains("muak"))
+            {
+                RegistrarEnDiccionarioId("muak", mapping);
+                RegistrarEnDiccionarioId("Muak", mapping);
+            }
+
+            // Versión sin espacios
+            string noSpaces = baseId.Replace(" ", "");
+            if (!string.Equals(noSpaces, baseId, StringComparison.OrdinalIgnoreCase))
+            {
+                RegistrarEnDiccionarioId(noSpaces, mapping);
+            }
+        }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// Escanea automáticamente la carpeta de prefabs de armas e integra cualquier arma faltante al catálogo.
+        /// </summary>
+        private void AutoSincronizarCatalogoConPrefabs()
+        {
+            string folderPath = "Assets/Prefabs/Entornos/Armas_Prefab";
+            if (!Directory.Exists(folderPath)) return;
+
+            string[] prefabPaths = Directory.GetFiles(folderPath, "*.prefab", SearchOption.TopDirectoryOnly);
+            foreach (string path in prefabPaths)
+            {
+                string fileName = Path.GetFileNameWithoutExtension(path);
+                GameObject loadedPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(path.Replace('\\', '/'));
+                if (loadedPrefab == null) continue;
+
+                // Verificar si ya existe en el catálogo
+                bool exists = false;
+                foreach (var mapping in _weaponCatalog)
+                {
+                    if (mapping == null) continue;
+                    if (mapping.weaponPrefab == loadedPrefab || string.Equals(mapping.weaponId, fileName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        exists = true;
+                        // Si el mapping tiene escala unitaria (1,1,1) o cero, asegurar escala 100
+                        if (mapping.localScale == Vector3.one || mapping.localScale == Vector3.zero)
+                        {
+                            mapping.localScale = _defaultWeaponScale;
+                        }
+                        break;
+                    }
+                }
+
+                if (!exists)
+                {
+                    var newMapping = new Weapon3DMapping
+                    {
+                        weaponId = fileName.ToLowerInvariant(),
+                        weaponPrefab = loadedPrefab,
+                        localPositionOffset = Vector3.zero,
+                        localRotationOffset = Vector3.zero,
+                        localScale = _defaultWeaponScale,
+                        scaleMultiplier = 1f
+                    };
+                    _weaponCatalog.Add(newMapping);
+                    Debug.Log($"[PlayerWeaponEquipManager] Auto-sincronizada arma en catálogo: '{fileName}' (Escala: {_defaultWeaponScale})");
+                }
+            }
+        }
+#endif
 
         // ════════════════════════════════════════════════════════════════════
         // MÉTODOS PÚBLICOS DE CONFIGURACIÓN DINÁMICA
@@ -907,7 +1092,8 @@ namespace DemenciaNoLimite.Player
                 scaleMultiplier = scaleMultiplier
             };
 
-            _mappingsById[weaponId] = mapping;
+            RegistrarEnDiccionarioId(weaponId, mapping);
+            GenerarYRegistrarAliases(weaponId, mapping);
         }
 
         /// <summary>

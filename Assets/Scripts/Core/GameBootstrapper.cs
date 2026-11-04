@@ -103,7 +103,9 @@ namespace DemenciaNoLimite
             // 2. Spawners
             var enemySpawner = managerGo.AddComponent<EnemySpawner>();
             var hazardSpawner = managerGo.AddComponent<HazardSpawner>();
-            var weaponSpawner = managerGo.AddComponent<DemenciaNoLimite.Level.WeaponSpawner>();
+            var weaponSpawner = managerGo.GetComponent<DemenciaNoLimite.Level.WeaponSpawner>()
+                             ?? FindAnyObjectByType<DemenciaNoLimite.Level.WeaponSpawner>()
+                             ?? managerGo.AddComponent<DemenciaNoLimite.Level.WeaponSpawner>();
             var bossEncounter = managerGo.AddComponent<BossEncounterManager>();
 
             // 3. Horror & Audio

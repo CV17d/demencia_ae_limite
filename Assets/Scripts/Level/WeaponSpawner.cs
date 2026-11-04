@@ -9,21 +9,26 @@
 //    - demencia revolver (Especial / Rara - Peso: 15)
 //    - EXCLUSIÓN ESTRICTA: El arma "muak" está totalmente descartada y omitida.
 //
-// 2. Puntos de Interés y Detección de Superficies:
-//    - Soporta Transforms explícitos (Transform[] weaponSpawnPoints o hijos en habitaciones).
-//    - Escaneo procedural mediante Raycast vertical hacia superficies planas (suelos, mesas, estantes)
-//      con verificación de ángulo (normal.y > 0.85) y despeje vertical (headroom).
+// 2. Suscripción Robusta y Persistencia entre Escenarios:
+//    - Suscripción limpia a GameEvents (OnFloorReady, OnMapGenerationCompleted, OnFloorLoading)
+//      y a SceneManager.sceneLoaded para garantizar ejecución en cualquier nivel o piso nuevo.
+//    - Corrutina con retardo de estabilización geométrica (WaitForEndOfFrame + Physics.SyncTransforms)
+//      que espera a que LevelGenerator termine de posicionar todos los módulos.
 //
-// 3. Interactividad de Recolección (WorldItemPickup):
-//    - Asegura que cada arma instanciada cuente con el componente WorldItemPickup,
-//      colisionadores Trigger configurados, e integración inmediata con PlayerInventory y
-//      PlayerWeaponEquipManager para equiparse en las manos del jugador.
+// 3. Validación y Reescaneo Profundo de Módulos Activos:
+//    - Si LevelGenerator.SpawnedModules está vacío, ejecuta un reescaneo de jerarquía
+//      buscando contenedores de nivel (CitySectorZero_Root), módulos 'SM_', o etiquetas 'Ground'.
+//
+// 4. Logs de Diagnóstico Temporales en Consola:
+//    - Notificaciones visuales detalladas de eventos de piso, módulos encontrados,
+//      elecciones ponderadas y balance final de armas instanciadas.
 // ============================================================================
 
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using DemenciaNoLimite.Core;
 using DemenciaNoLimite.Core.Data;
 using DemenciaNoLimite.Core.Events;
@@ -74,7 +79,7 @@ namespace DemenciaNoLimite.Level
     public class WeaponSpawner : MonoBehaviour
     {
         // ════════════════════════════════════════════════════════════════════
-        // SINGLETON Y ACCESO GLOBAL
+        // SINGLETON Y PERSISTENCIA
         // ════════════════════════════════════════════════════════════════════
 
         public static WeaponSpawner Instance { get; private set; }
@@ -163,7 +168,7 @@ namespace DemenciaNoLimite.Level
         private readonly List<GameObject> _spawnedWeapons = new List<GameObject>();
         private readonly List<Vector3> _activeSpawnLocations = new List<Vector3>();
         private int _currentFloor = 1;
-        private bool _isSpawning = false;
+        private Coroutine _delayedSpawnCoroutine;
 
         public IReadOnlyList<GameObject> SpawnedWeapons => _spawnedWeapons;
         public int SpawnedWeaponsCount => _spawnedWeapons.Count;
@@ -188,30 +193,46 @@ namespace DemenciaNoLimite.Level
             }
             Instance = this;
 
+            // Garantizar persistencia entre escenas si es objeto raíz
+            if (transform.parent == null)
+            {
+                DontDestroyOnLoad(gameObject);
+            }
+
             ValidarYLimpiarCatalogo();
             AsegurarContenedorArmas();
         }
 
         private void OnEnable()
         {
+            // Suscripción robusta a los eventos de arquitectura y progresión
             GameEvents.OnFloorLoading += HandleFloorLoadingEvent;
             GameEvents.OnFloorReady += HandleFloorReadyEvent;
             GameEvents.OnMapGenerationCompleted += HandleMapGenerationCompletedEvent;
+            SceneManager.sceneLoaded += HandleSceneLoadedEvent;
         }
 
         private void OnDisable()
         {
+            // Desuscripción limpia para evitar referencias rotas o fugas de memoria
             GameEvents.OnFloorLoading -= HandleFloorLoadingEvent;
             GameEvents.OnFloorReady -= HandleFloorReadyEvent;
             GameEvents.OnMapGenerationCompleted -= HandleMapGenerationCompletedEvent;
+            SceneManager.sceneLoaded -= HandleSceneLoadedEvent;
+
+            if (_delayedSpawnCoroutine != null)
+            {
+                StopCoroutine(_delayedSpawnCoroutine);
+                _delayedSpawnCoroutine = null;
+            }
         }
 
         private void Start()
         {
-            // Si la partida ya está en curso y aún no se han generado armas en la escena
+            // Si la partida ya está activa y aún no hay armas generadas en el mapa actual
             if (_spawnedWeapons.Count == 0 && _spawnOnFloorGeneration)
             {
-                StartCoroutine(DelayedInitialSpawnRoutine());
+                SolicitarSpawnArmas("Start() inicial");
             }
         }
 
@@ -229,8 +250,21 @@ namespace DemenciaNoLimite.Level
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // GESTIÓN DE EVENTOS DE PISO Y MAPA
+        // GESTIÓN DE EVENTOS DE PISO, MAPA Y ESCENA
         // ════════════════════════════════════════════════════════════════════
+
+        private void HandleSceneLoadedEvent(Scene scene, LoadSceneMode mode)
+        {
+            Debug.Log($"<color=#38BDF8><b>[WeaponSpawner]</b> 🎬 Nueva escena cargada: '<b>{scene.name}</b>' (Modo: {mode}). Preparando escaneo de armas...</color>");
+
+            // Re-vincular contenedor de armas de la escena activa
+            AsegurarContenedorArmas();
+
+            if (_spawnOnFloorGeneration)
+            {
+                SolicitarSpawnArmas($"SceneLoaded ('{scene.name}')");
+            }
+        }
 
         private void HandleFloorLoadingEvent(FloorConfig config)
         {
@@ -238,6 +272,8 @@ namespace DemenciaNoLimite.Level
             {
                 _currentFloor = config.FloorNumber;
             }
+
+            Debug.Log($"<color=#94A3B8><b>[WeaponSpawner]</b> 🚪 Transición de piso en proceso: Preparando Piso {_currentFloor}...</color>");
 
             if (_clearPreviousWeaponsOnFloorChange)
             {
@@ -252,36 +288,77 @@ namespace DemenciaNoLimite.Level
                 _currentFloor = config.FloorNumber;
             }
 
-            if (_spawnOnFloorGeneration && !_isSpawning)
+            Debug.Log($"<color=#38BDF8><b>[WeaponSpawner]</b> 📡 Evento GameEvents.OnFloorReady recibido para Piso {_currentFloor}.</color>");
+
+            if (_spawnOnFloorGeneration)
             {
-                StartCoroutine(DelayedSpawnRoutine());
+                SolicitarSpawnArmas($"OnFloorReady (Piso {_currentFloor})");
             }
         }
 
         private void HandleMapGenerationCompletedEvent()
         {
-            if (_spawnOnFloorGeneration && !_isSpawning)
+            Debug.Log($"<color=#38BDF8><b>[WeaponSpawner]</b> 📡 Evento GameEvents.OnMapGenerationCompleted recibido.</color>");
+
+            if (_spawnOnFloorGeneration)
             {
-                StartCoroutine(DelayedSpawnRoutine());
+                SolicitarSpawnArmas("OnMapGenerationCompleted");
             }
         }
 
-        private IEnumerator DelayedInitialSpawnRoutine()
+        /// <summary>
+        /// Solicita la ejecución del spawn con un retardo seguro que permite que la geometría
+        /// y los colisionadores de la nueva escena se asienten completamente.
+        /// </summary>
+        public void SolicitarSpawnArmas(string motivo)
         {
-            yield return new WaitForSeconds(0.6f);
-            if (_spawnedWeapons.Count == 0)
+            if (!isActiveAndEnabled) return;
+
+            if (_delayedSpawnCoroutine != null)
             {
-                SpawnWeaponsForCurrentFloor();
+                StopCoroutine(_delayedSpawnCoroutine);
+                _delayedSpawnCoroutine = null;
             }
+
+            _delayedSpawnCoroutine = StartCoroutine(RutinaSpawnConRetardo(motivo));
         }
 
-        private IEnumerator DelayedSpawnRoutine()
+        private IEnumerator RutinaSpawnConRetardo(string motivo)
         {
-            _isSpawning = true;
-            // Breve espera para que los módulos modulares asienten sus colliders y físicas
-            yield return new WaitForSeconds(0.4f);
+            Debug.Log($"<color=#38BDF8><b>[WeaponSpawner]</b> ⏳ Iniciando secuencia de spawn retardada por: <b>{motivo}</b> (Piso: {_currentFloor}). Esperando estabilización geométrica...</color>");
+
+            // 1. Esperar al final del frame para que todos los GameObjects de la nueva escena/módulos se hayan instanciado
+            yield return new WaitForEndOfFrame();
+
+            // 2. Esperar 1 frame adicional para asegurar que Start(), Awake() y transforms se hayan propagado
+            yield return null;
+
+            // 3. Forzar sincronización global del motor de físicas para que los raycasts detecten todos los colliders recién creados
+            Physics.SyncTransforms();
+
+            // 4. Si LevelGenerator sigue ocupado generando el piso, esperar activamente a que termine
+            var levelGen = FindAnyObjectByType<LevelGenerator>();
+            if (levelGen != null && levelGen.IsGenerating)
+            {
+                Debug.Log("[WeaponSpawner] ⏳ LevelGenerator en proceso de generación. Esperando finalización de construcción...");
+                float timeout = 5.0f;
+                while (levelGen != null && levelGen.IsGenerating && timeout > 0f)
+                {
+                    timeout -= Time.deltaTime;
+                    yield return null;
+                }
+                yield return new WaitForEndOfFrame();
+                Physics.SyncTransforms();
+            }
+
+            // 5. Pequeño margen de seguridad para físicas
+            yield return new WaitForSeconds(0.25f);
+            Physics.SyncTransforms();
+
+            // 6. Ejecutar la generación en el nuevo escenario
             SpawnWeaponsForCurrentFloor();
-            _isSpawning = false;
+
+            _delayedSpawnCoroutine = null;
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -361,9 +438,11 @@ namespace DemenciaNoLimite.Level
             // 3. Obtener la posición del jugador para validar distancias seguras
             Vector3 playerPos = ObtenerPosicionJugador();
 
+            Debug.Log($"<color=#FBBF24><b>[WeaponSpawner]</b> 🔍 Puntos de interés explícitos encontrados: <b>{candidatePoints.Count}</b> | Jugador en: {playerPos:F1} | Objetivo: <b>{targetWeaponCount}</b> armas.</color>");
+
             int armasInstanciadas = 0;
 
-            // Barajar aleatoriamente los puntos candidatos para no beneficiar siempre a las mismas salas
+            // Barajar aleatoriamente los puntos candidatos
             BarajarLista(candidatePoints);
 
             // Intentar instanciar en los puntos candidatos
@@ -402,8 +481,8 @@ namespace DemenciaNoLimite.Level
                 armasInstanciadas += EscanearSuperficiesEnModulos(targetWeaponCount - armasInstanciadas, playerPos);
             }
 
-            Debug.Log($"<color=#38BDF8><b>[WeaponSpawner]</b> ¡Generación de armas completada!</color> " +
-                      $"Armas generadas en piso {_currentFloor}: <b>{armasInstanciadas}</b> (Objetivo: {targetWeaponCount}).");
+            Debug.Log($"<color=#55FF55><b>[WeaponSpawner]</b> ✅ ¡Generación de armas completada con éxito!</color> " +
+                      $"Armas activas generadas en Piso {_currentFloor}: <b>{armasInstanciadas}</b> (Objetivo establecido: {targetWeaponCount}).");
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -512,6 +591,9 @@ namespace DemenciaNoLimite.Level
             }
 
             _spawnedWeapons.Add(weaponInstance);
+
+            Debug.Log($"<color=#A7F3D0><b>[WeaponSpawner]</b> 🎲 Instanciada arma: '<b>{config.displayName}</b>' (ID: '{config.weaponId}', Peso: {config.spawnWeight}) en posición {posicion:F2}.</color>");
+
             return weaponInstance;
         }
 
@@ -523,12 +605,12 @@ namespace DemenciaNoLimite.Level
         {
             var puntos = new List<Vector3>();
 
-            // 1. Puntos serializados explícitamente en el Inspector
+            // 1. Puntos serializados explícitamente en el Inspector (descartando nulos por cambios de escena)
             if (_weaponSpawnPoints != null)
             {
                 foreach (var t in _weaponSpawnPoints)
                 {
-                    if (t != null)
+                    if (t != null && t.gameObject != null)
                     {
                         puntos.Add(t.position);
                     }
@@ -566,20 +648,23 @@ namespace DemenciaNoLimite.Level
 
         /// <summary>
         /// Escanea proceduralmente habitaciones o módulos arquitectónicos del nivel para ubicar armas
-        /// sobre superficies planas transitable o mesas mediante Raycasts verticales precisos.
+        /// sobre superficies planas transitables o mesas mediante Raycasts verticales precisos.
         /// </summary>
         private int EscanearSuperficiesEnModulos(int cantidadFaltante, Vector3 playerPos)
         {
             int instanciadas = 0;
-            var levelGen = FindAnyObjectByType<LevelGenerator>();
 
-            if (levelGen == null || levelGen.SpawnedModules == null || levelGen.SpawnedModules.Count == 0)
+            // Obtener lista validada de módulos o superficies activas con diagnóstico
+            List<GameObject> modulos = ObtenerModulosActivos(out string origenModulos);
+
+            Debug.Log($"<color=#FBBF24><b>[WeaponSpawner]</b> 🏢 Módulos activos para escaneo de superficies: <b>{modulos.Count}</b> (Origen: {origenModulos}).</color>");
+
+            if (modulos.Count == 0)
             {
-                // Fallback: muestrear en torno al origen o centro de la escena
-                return MuestrearSuperficiesEnRadio(Vector3.zero, 25f, cantidadFaltante, playerPos);
+                Debug.LogWarning("[WeaponSpawner] ⚠️ No se detectaron módulos ni superficies en la jerarquía. Ejecutando muestreo radial de emergencia...");
+                return MuestrearSuperficiesEnRadio(playerPos != Vector3.zero ? playerPos : Vector3.zero, 25f, cantidadFaltante, playerPos);
             }
 
-            var modulos = new List<GameObject>(levelGen.SpawnedModules);
             BarajarLista(modulos);
 
             foreach (var modulo in modulos)
@@ -587,7 +672,7 @@ namespace DemenciaNoLimite.Level
                 if (instanciadas >= cantidadFaltante) break;
                 if (modulo == null) continue;
 
-                // Buscar dentro del módulo puntos prop o mesas primero
+                // Paso A: Buscar dentro del módulo puntos prop o mesas primero
                 Transform[] hijos = modulo.GetComponentsInChildren<Transform>();
                 bool colocadoEnHijo = false;
 
@@ -619,9 +704,9 @@ namespace DemenciaNoLimite.Level
 
                 if (colocadoEnHijo) continue;
 
-                // Si no hay mesa en el módulo, escanear el centro y zonas transitables del piso del módulo
+                // Paso B: Si no hay mesa en el módulo, escanear el centro y zonas transitables del piso del módulo
                 Vector3 moduloPos = modulo.transform.position;
-                for (int intento = 0; intento < 5; intento++)
+                for (int intento = 0; intento < 6; intento++)
                 {
                     Vector3 testPos = moduloPos + new Vector3(
                         UnityEngine.Random.Range(-3.5f, 3.5f),
@@ -646,18 +731,161 @@ namespace DemenciaNoLimite.Level
                 }
             }
 
+            // Si tras recorrer los módulos aún faltan armas para alcanzar el mínimo, usar muestreo radial alrededor del jugador
+            if (instanciadas < cantidadFaltante)
+            {
+                instanciadas += MuestrearSuperficiesEnRadio(playerPos, 22f, cantidadFaltante - instanciadas, playerPos);
+            }
+
             return instanciadas;
+        }
+
+        /// <summary>
+        /// Obtiene y valida los módulos arquitectónicos activos en la escena.
+        /// Si LevelGenerator.SpawnedModules está vacío, realiza un reescaneo exhaustivo de la jerarquía.
+        /// </summary>
+        private List<GameObject> ObtenerModulosActivos(out string origenDiagnostico)
+        {
+            var modulosValidos = new List<GameObject>();
+            var levelGen = FindAnyObjectByType<LevelGenerator>();
+
+            // 1. Prioridad: LevelGenerator.SpawnedModules
+            if (levelGen != null && levelGen.SpawnedModules != null && levelGen.SpawnedModules.Count > 0)
+            {
+                foreach (var m in levelGen.SpawnedModules)
+                {
+                    if (m != null && m.activeInHierarchy)
+                    {
+                        modulosValidos.Add(m);
+                    }
+                }
+
+                if (modulosValidos.Count > 0)
+                {
+                    origenDiagnostico = $"LevelGenerator.SpawnedModules ({modulosValidos.Count} módulos vivos)";
+                    return modulosValidos;
+                }
+            }
+
+            Debug.LogWarning("[WeaponSpawner] ⚠️ LevelGenerator.SpawnedModules está vacío o no inicializado. Iniciando reescaneo profundo de jerarquía en el escenario actual...");
+
+            // 2. Reescaneo de contenedor raíz de ciudad / nivel
+            string[] posiblesRaices = new[] { "CitySectorZero_Root", "City_Root", "=== LEVEL ===", "LevelRoot", "Dungeon_Root" };
+            foreach (var nombreRaiz in posiblesRaices)
+            {
+                var raizGo = GameObject.Find(nombreRaiz);
+                if (raizGo != null)
+                {
+                    for (int i = 0; i < raizGo.transform.childCount; i++)
+                    {
+                        var hijo = raizGo.transform.GetChild(i).gameObject;
+                        if (hijo != null && hijo.activeInHierarchy)
+                        {
+                            modulosValidos.Add(hijo);
+                        }
+                    }
+
+                    if (modulosValidos.Count > 0)
+                    {
+                        origenDiagnostico = $"Contenedor Raíz '{nombreRaiz}' ({modulosValidos.Count} módulos hijos)";
+                        return modulosValidos;
+                    }
+                }
+            }
+
+            // 3. Reescaneo por prefabs modulares 'SM_' en la escena
+            var todosLosTransforms = FindObjectsByType<Transform>(FindObjectsSortMode.None);
+            foreach (var t in todosLosTransforms)
+            {
+                if (t == null) continue;
+                string n = t.name;
+                if (n.StartsWith("SM_") && t.parent != null && (t.parent.name.Contains("Root") || t.parent.name.Contains("City") || t.parent.parent == null))
+                {
+                    if (!modulosValidos.Contains(t.gameObject))
+                    {
+                        modulosValidos.Add(t.gameObject);
+                    }
+                }
+            }
+
+            if (modulosValidos.Count > 0)
+            {
+                origenDiagnostico = $"Búsqueda Modular de Escena 'SM_' ({modulosValidos.Count} módulos)";
+                return modulosValidos;
+            }
+
+            // 4. Búsqueda por Tag "Ground" (con verificación segura para evitar excepciones en Unity)
+            var objetosGround = BuscarPorTagSeguro("Ground");
+            if (objetosGround.Length > 0)
+            {
+                foreach (var g in objetosGround)
+                {
+                    if (g != null && g.activeInHierarchy && !modulosValidos.Contains(g))
+                    {
+                        modulosValidos.Add(g);
+                    }
+                }
+
+                if (modulosValidos.Count > 0)
+                {
+                    origenDiagnostico = $"Objetos con Tag 'Ground' ({modulosValidos.Count} superficies)";
+                    return modulosValidos;
+                }
+            }
+
+            // 5. Búsqueda de objetos con componentes de Suelo / Floor en el nombre
+            foreach (var t in todosLosTransforms)
+            {
+                if (t == null) continue;
+                string lower = t.name.ToLowerInvariant();
+                if (lower.Contains("floor") || lower.Contains("suelo") || lower.Contains("piso_") || lower.Contains("walkable"))
+                {
+                    var col = t.GetComponent<Collider>();
+                    if (col != null && !col.isTrigger && !modulosValidos.Contains(t.gameObject))
+                    {
+                        modulosValidos.Add(t.gameObject);
+                    }
+                }
+            }
+
+            if (modulosValidos.Count > 0)
+            {
+                origenDiagnostico = $"Superficies de Suelo encontradas por nombre ({modulosValidos.Count} objetos)";
+                return modulosValidos;
+            }
+
+            origenDiagnostico = "Ningún módulo detectado (Fallback radial activado)";
+            return modulosValidos;
+        }
+
+        private static GameObject[] BuscarPorTagSeguro(string tag)
+        {
+            try
+            {
+                return GameObject.FindGameObjectsWithTag(tag);
+            }
+            catch (Exception)
+            {
+                return Array.Empty<GameObject>();
+            }
         }
 
         private int MuestrearSuperficiesEnRadio(Vector3 centro, float radio, int cantidad, Vector3 playerPos)
         {
             int generadas = 0;
-            for (int i = 0; i < 20; i++)
+            float baseElevation = (playerPos != Vector3.zero) ? playerPos.y : centro.y;
+
+            for (int i = 0; i < 30; i++)
             {
                 if (generadas >= cantidad) break;
 
                 Vector2 randomCircle = UnityEngine.Random.insideUnitCircle * radio;
-                Vector3 samplePos = centro + new Vector3(randomCircle.x, 0f, randomCircle.y);
+                if (randomCircle.magnitude < _minDistanceFromPlayer)
+                {
+                    randomCircle = randomCircle.normalized * (_minDistanceFromPlayer + 1.5f);
+                }
+
+                Vector3 samplePos = new Vector3(centro.x + randomCircle.x, baseElevation, centro.z + randomCircle.y);
 
                 if (Vector3.Distance(samplePos, playerPos) < _minDistanceFromPlayer) continue;
                 if (EstaDemasiadoCercaDeOtrasArmas(samplePos)) continue;
@@ -667,9 +895,12 @@ namespace DemenciaNoLimite.Level
                     WeaponSpawnConfig config = SeleccionarArmaAleatoriaPonderada();
                     if (config != null)
                     {
-                        InstanciarArma(config, surfacePos, _weaponsContainer);
-                        _activeSpawnLocations.Add(surfacePos);
-                        generadas++;
+                        GameObject weapon = InstanciarArma(config, surfacePos, _weaponsContainer);
+                        if (weapon != null)
+                        {
+                            _activeSpawnLocations.Add(surfacePos);
+                            generadas++;
+                        }
                     }
                 }
             }
@@ -691,7 +922,17 @@ namespace DemenciaNoLimite.Level
             Vector3 rayStart = puntoOrigen + Vector3.up * _raycastOriginHeight;
             float maxDist = _raycastOriginHeight + _raycastMaxDistance;
 
-            if (Physics.Raycast(rayStart, Vector3.down, out RaycastHit hit, maxDist, _surfaceLayerMask, QueryTriggerInteraction.Ignore))
+            // Excluir capas de Jugador, Enemigos y Armas del raycast de superficie
+            LayerMask maskEfectiva = _surfaceLayerMask;
+            int playerLayer = LayerMask.NameToLayer("Player");
+            int enemyLayer = LayerMask.NameToLayer("Enemy");
+            int weaponLayer = LayerMask.NameToLayer("Weapon");
+
+            if (playerLayer != -1) maskEfectiva &= ~(1 << playerLayer);
+            if (enemyLayer != -1) maskEfectiva &= ~(1 << enemyLayer);
+            if (weaponLayer != -1) maskEfectiva &= ~(1 << weaponLayer);
+
+            if (Physics.Raycast(rayStart, Vector3.down, out RaycastHit hit, maxDist, maskEfectiva, QueryTriggerInteraction.Ignore))
             {
                 // 1. Validar que la superficie sea horizontal/plana (evitar paredes verticales)
                 if (hit.normal.y < _minSurfaceFlatness)
@@ -868,11 +1109,13 @@ namespace DemenciaNoLimite.Level
         [ContextMenu("Limpiar Armas Instanciadas")]
         public void LimpiarArmasInstanciadas()
         {
+            int destruidas = 0;
             for (int i = _spawnedWeapons.Count - 1; i >= 0; i--)
             {
                 var w = _spawnedWeapons[i];
                 if (w != null)
                 {
+                    destruidas++;
                     if (Application.isPlaying)
                     {
                         Destroy(w);
@@ -885,11 +1128,16 @@ namespace DemenciaNoLimite.Level
             }
             _spawnedWeapons.Clear();
             _activeSpawnLocations.Clear();
+
+            if (destruidas > 0)
+            {
+                Debug.Log($"<color=#94A3B8>[WeaponSpawner] 🧹 Limpieza de armas: {destruidas} arma(s) residuales eliminadas del mundo.</color>");
+            }
         }
 
         private void AsegurarContenedorArmas()
         {
-            if (_weaponsContainer == null)
+            if (_weaponsContainer == null || _weaponsContainer.gameObject == null)
             {
                 GameObject containerGo = GameObject.Find("=== WEAPONS_CONTAINER ===");
                 if (containerGo == null)

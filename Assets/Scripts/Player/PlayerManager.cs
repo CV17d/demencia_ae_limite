@@ -16,6 +16,7 @@ using DemenciaNoLimite.Horror;
 namespace DemenciaNoLimite.Player
 {
     [DisallowMultipleComponent]
+    [RequireComponent(typeof(AudioSource))]
     public class PlayerManager : MonoBehaviour
     {
         // ════════════════════════════════════════════════════════════════════
@@ -187,6 +188,14 @@ namespace DemenciaNoLimite.Player
                 {
                     _combatController = gameObject.AddComponent<WeaponCombatController>();
                 }
+            }
+
+            var audioSrc = GetComponent<AudioSource>();
+            if (audioSrc == null)
+            {
+                audioSrc = gameObject.AddComponent<AudioSource>();
+                audioSrc.playOnAwake = false;
+                audioSrc.spatialBlend = 0f;
             }
         }
 

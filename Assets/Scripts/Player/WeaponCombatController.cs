@@ -85,6 +85,7 @@ namespace DemenciaNoLimite.Player
     }
 
     [DisallowMultipleComponent]
+    [RequireComponent(typeof(AudioSource))]
     [AddComponentMenu("Demencia No Limite/Player/Weapon Combat Controller")]
     public class WeaponCombatController : MonoBehaviour
     {
@@ -329,14 +330,45 @@ namespace DemenciaNoLimite.Player
                 _hudController = FindAnyObjectByType<HUDController>();
             }
 
-            if (_audioSource == null)
-            {
-                _audioSource = GetComponent<AudioSource>() ?? gameObject.AddComponent<AudioSource>();
-                _audioSource.playOnAwake = false;
-                _audioSource.spatialBlend = 0f; // 2D para sonidos del arma del jugador
-            }
+            AsegurarAudioSource();
 
             _playerColliders = GetComponentsInChildren<Collider>(true);
+        }
+
+        /// <summary>
+        /// Obtiene de forma defensiva o añade el componente AudioSource al objeto sin arrojar excepciones.
+        /// </summary>
+        public AudioSource AsegurarAudioSource()
+        {
+            try
+            {
+                if (_audioSource == null)
+                {
+                    _audioSource = GetComponent<AudioSource>();
+                }
+
+                if (_audioSource == null)
+                {
+                    _audioSource = GetComponentInChildren<AudioSource>();
+                }
+
+                if (_audioSource == null && gameObject != null)
+                {
+                    _audioSource = gameObject.AddComponent<AudioSource>();
+                }
+
+                if (_audioSource != null)
+                {
+                    _audioSource.playOnAwake = false;
+                    _audioSource.spatialBlend = 0f; // 2D para sonidos del arma del jugador
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[WeaponCombatController] No se pudo inicializar AudioSource: {ex.Message}");
+            }
+
+            return _audioSource;
         }
 
         private void ResolverMascaraCapas()
@@ -746,7 +778,11 @@ namespace DemenciaNoLimite.Player
             // Verificar cargador vacío
             if (_currentAmmo <= 0)
             {
-                PlayAudio(_emptyClickSound);
+                try
+                {
+                    PlayAudio(_emptyClickSound);
+                }
+                catch { }
 
                 if (_autoReloadOnEmpty && !_isReloading)
                 {
@@ -762,7 +798,7 @@ namespace DemenciaNoLimite.Player
                 return false;
             }
 
-            // Consumir munición
+            // Consumir munición de forma inmediata
             _currentAmmo--;
             GuardarMunicionEnMemoria();
 
@@ -775,19 +811,44 @@ namespace DemenciaNoLimite.Player
                 _playerInventory.NotifyAmmoChange();
             }
 
-            // 1. Activar destello de luz efímero (Muzzle Flash)
-            DispararMuzzleFlash();
+            // 1. Activar destello de luz efímero (Muzzle Flash) protegido
+            try
+            {
+                DispararMuzzleFlash();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[WeaponCombatController] Muzzle flash omitido: {ex.Message}");
+            }
 
             // 2. Disparar raycast balístico desde el centro exacto de la Main Camera
-            EjecutarDisparoRaycast();
+            try
+            {
+                EjecutarDisparoRaycast();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[WeaponCombatController] Error en ejecución de Raycast: {ex.Message}");
+            }
 
-            // 3. Audio y retroceso
-            PlayAudio(_fireSound);
-            AplicarRetrocesoCamara();
+            // 3. Actualizar HUD y disparar eventos prioritarios
+            try
+            {
+                ActualizarHUD();
+                OnWeaponFired?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[WeaponCombatController] Error al actualizar HUD: {ex.Message}");
+            }
 
-            // 4. Actualizar HUD y disparar eventos
-            ActualizarHUD();
-            OnWeaponFired?.Invoke();
+            // 4. Audio y retroceso (opcionales: nunca interrumpen el combate)
+            try
+            {
+                PlayAudio(_fireSound);
+                AplicarRetrocesoCamara();
+            }
+            catch { }
 
             return true;
         }
@@ -989,7 +1050,12 @@ namespace DemenciaNoLimite.Player
             float reloadDuration = (_activeConfig != null && _activeConfig.reloadTime > 0f) ? _activeConfig.reloadTime : 1.6f;
             Debug.Log($"[WeaponCombatController] 🔄 Recargando arma '{_currentWeaponId}'... Duración: {reloadDuration:F2}s");
 
-            PlayAudio(_reloadSound);
+            try
+            {
+                PlayAudio(_reloadSound);
+            }
+            catch { }
+
             ActualizarHUD();
 
             yield return new WaitForSeconds(reloadDuration);
@@ -1089,10 +1155,26 @@ namespace DemenciaNoLimite.Player
 
         private void PlayAudio(AudioClip clip)
         {
-            if (clip != null && _audioSource != null)
+            if (clip == null) return;
+
+            try
             {
-                _audioSource.PlayOneShot(clip);
+                AudioSource source = AsegurarAudioSource();
+                if (source != null && source.isActiveAndEnabled)
+                {
+                    source.PlayOneShot(clip);
+                }
+            }
+            catch (MissingComponentException)
+            {
+                // Ignorar de forma silenciosa para garantizar continuidad del combate
+            }
+            catch (Exception ex)
+            {
+                // Silencioso: garantizado que no interrumpe el combate
+                Debug.LogWarning($"[WeaponCombatController] Reproducción de sonido omitida: {ex.Message}");
             }
         }
     }
 }
+

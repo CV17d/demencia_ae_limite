@@ -293,6 +293,63 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1001 &277699940
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 1652831798682209792, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -1.143
+      objectReference: {fileID: 0}
+    - target: {fileID: 1652831798682209792, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 2.463
+      objectReference: {fileID: 0}
+    - target: {fileID: 1652831798682209792, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -5.344
+      objectReference: {fileID: 0}
+    - target: {fileID: 1652831798682209792, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.7071067
+      objectReference: {fileID: 0}
+    - target: {fileID: 1652831798682209792, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: 1652831798682209792, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1652831798682209792, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1652831798682209792, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1652831798682209792, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1652831798682209792, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 2142545118834201786, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+      propertyPath: m_Name
+      value: Canoduplo
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: cb40214899147a1428c258003e50f7b3, type: 3}
 --- !u!1001 &358716833
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -870,21 +927,10 @@ MonoBehaviour:
   - weaponId: revolver
     weaponData: {fileID: 0}
     weaponPrefab: {fileID: 3393748940634398630, guid: c3f16e4f06f4ea848804d23252a73558, type: 3}
-    localPositionOffset: {x: 0, y: 0, z: 0}
-    localRotationOffset: {x: 0, y: 0, z: 0}
+    localPositionOffset: {x: -0.066, y: 0.041, z: -0.024}
+    localRotationOffset: {x: -90, y: 0, z: -119.629}
     useAutoBoundsNormalization: 1
     targetVisualSize: 0.3
-    scaleMultiplier: 1
-    localScale: {x: 100, y: 100, z: 100}
-    autoCenterMeshPivot: 0
-    pivotCompensationOffset: {x: 0, y: 0, z: 0}
-  - weaponId: muak
-    weaponData: {fileID: 0}
-    weaponPrefab: {fileID: 6901591607965511886, guid: 005466e1be3c4ef40ac9f07fe70a4dfb, type: 3}
-    localPositionOffset: {x: 0, y: 0, z: 0}
-    localRotationOffset: {x: 0, y: 0, z: 0}
-    useAutoBoundsNormalization: 1
-    targetVisualSize: 0.36
     scaleMultiplier: 1
     localScale: {x: 100, y: 100, z: 100}
     autoCenterMeshPivot: 0
@@ -892,10 +938,21 @@ MonoBehaviour:
   - weaponId: trabeca
     weaponData: {fileID: 0}
     weaponPrefab: {fileID: 8578978686285870837, guid: c7d8921f069a71245afc0bc641454601, type: 3}
-    localPositionOffset: {x: 0, y: 0, z: 0}
-    localRotationOffset: {x: 0, y: 0, z: 0}
+    localPositionOffset: {x: 0.177, y: -0.045, z: 0.387}
+    localRotationOffset: {x: -90, y: 0, z: 52.264}
     useAutoBoundsNormalization: 1
     targetVisualSize: 0.48
+    scaleMultiplier: 1
+    localScale: {x: 100, y: 100, z: 100}
+    autoCenterMeshPivot: 0
+    pivotCompensationOffset: {x: 0, y: 0, z: 0}
+  - weaponId: canoduplo
+    weaponData: {fileID: 0}
+    weaponPrefab: {fileID: 2142545118834201786, guid: cb40214899147a1428c258003e50f7b3, type: 3}
+    localPositionOffset: {x: -0.112, y: 0.07, z: -0.042}
+    localRotationOffset: {x: -90, y: 0, z: 71.903}
+    useAutoBoundsNormalization: 1
+    targetVisualSize: 0.34
     scaleMultiplier: 1
     localScale: {x: 100, y: 100, z: 100}
     autoCenterMeshPivot: 0
@@ -936,7 +993,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8954694301498420303, guid: c7d8921f069a71245afc0bc641454601, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -0.39967
+      value: -3.17
       objectReference: {fileID: 0}
     - target: {fileID: 8954694301498420303, guid: c7d8921f069a71245afc0bc641454601, type: 3}
       propertyPath: m_LocalPosition.y
@@ -1347,3 +1404,4 @@ SceneRoots:
   - {fileID: 1370770435}
   - {fileID: 358716833}
   - {fileID: 1320025466}
+  - {fileID: 277699940}

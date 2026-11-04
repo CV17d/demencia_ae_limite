@@ -6,8 +6,8 @@
 
 ## 🏢 Estructura del Juego y Mecánicas Principales
 
-### 1. La Torre (Generación Procedural de 27 Pisos)
-El jugador (**João**) debe ascender una torre monolítica de 27 niveles para escapar de la frontera:
+### 1. La Torre (Generación Procedural de 30 Pisos)
+El jugador (**João**) debe ascender una torre monolítica de 30 niveles para lograr una venganza justa:
 * **Pisos 1–8 (Acto 1 — Las Favelas Profundas):** Laberintos estrechos de concreto, barro y mutantes iniciales.
 * **Piso 9 (Jefe 1):** ★ **El Carnicero** (*The Butcher*).
 * **Pisos 10–17 (Acto 2 — La Podredumbre Industrial):** Fábricas inundadas de ácido, miasma tóxico y cultistas a distancia.

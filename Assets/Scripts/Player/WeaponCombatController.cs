@@ -134,41 +134,69 @@ namespace DemenciaNoLimite.Player
         [SerializeField] private List<WeaponCombatConfig> _weaponConfigs = new List<WeaponCombatConfig>();
 
         // ════════════════════════════════════════════════════════════════════
-        // DESTELLO DE LUZ EN BOCA DEL CAÑÓN (MUZZLE FLASH)
+        // DESTELLO DE LUZ EN BOCA DEL CAÑÓN (MUZZLE FLASH LOCALIZADO)
         // ════════════════════════════════════════════════════════════════════
 
-        [Header("Destello de Luz (Muzzle Flash)")]
+        [Header("Destello de Luz Localizado (Muzzle Flash)")]
         [Tooltip("¿Activar destello de luz efímero en la boca del cañón al disparar?")]
         [SerializeField] private bool _enableMuzzleFlash = true;
 
-        [Tooltip("Duración perceptible del destello en segundos (0.12s a 0.15s, equivalente a 7-9 frames a 60 FPS).")]
-        [Range(0.04f, 0.35f)]
-        [SerializeField] private float _muzzleFlashDuration = 0.14f;
+        [Tooltip("Duración rápida del destello en la boca del cañón en segundos (un pop instantáneo y nítido de ~0.04s).")]
+        [Range(0.02f, 0.20f)]
+        [SerializeField] private float _muzzleFlashDuration = 0.04f;
 
         [Tooltip("Color cálido/anaranjado del destello del disparo.")]
-        [SerializeField] private Color _muzzleFlashColor = new Color(1.0f, 0.68f, 0.22f);
+        [SerializeField] private Color _muzzleFlashColor = new Color(1.0f, 0.75f, 0.30f);
 
-        [Tooltip("Intensidad lumínica mínima aleatoria.")]
-        [Range(1f, 25f)]
-        [SerializeField] private float _flashMinIntensity = 6.5f;
+        [Tooltip("Intensidad lumínica mínima localizada en el cañón.")]
+        [Range(0.1f, 10f)]
+        [SerializeField] private float _flashMinIntensity = 1.0f;
 
-        [Tooltip("Intensidad lumínica máxima aleatoria.")]
-        [Range(2f, 35f)]
-        [SerializeField] private float _flashMaxIntensity = 11.5f;
+        [Tooltip("Intensidad lumínica máxima localizada en el cañón.")]
+        [Range(0.2f, 15f)]
+        [SerializeField] private float _flashMaxIntensity = 2.0f;
 
-        [Tooltip("Radio de alcance del punto de luz en metros (6m a 10m).")]
-        [Range(2f, 25f)]
-        [SerializeField] private float _muzzleFlashRange = 9.0f;
+        [Tooltip("Radio de alcance del punto de luz en metros (reducido a 1.8m para iluminar sólo el cañón sin bañar toda la habitación).")]
+        [Range(0.5f, 5f)]
+        [SerializeField] private float _muzzleFlashRange = 1.8f;
 
         [Tooltip("Desplazamiento frontal adicional (en metros) para posicionar la luz por fuera del mesh del cañón.")]
         [Range(0.04f, 0.40f)]
         [SerializeField] private float _barrelForwardOffset = 0.14f;
 
-        [Tooltip("¿Generar un destello visual de sprite/malla en la boca del cañón sincronizado con la luz?")]
+        [Tooltip("¿Generar un destello visual de chispa en la boca del cañón sincronizado con la luz?")]
         [SerializeField] private bool _enableVisualFlashSprite = true;
 
         [Tooltip("Prefab opcional de partículas VFX para el destello del disparo.")]
         [SerializeField] private GameObject _customMuzzleFlashPrefab;
+
+        // ════════════════════════════════════════════════════════════════════
+        // BALA TRAZADORA (BULLET TRACER & TRAYECTORIA AL CENTRO)
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Bala Trazadora (Bullet Tracer)")]
+        [Tooltip("¿Activar la bala trazadora luminosa que viaja desde el cañón hacia el centro de la pantalla / objetivo?")]
+        [SerializeField] private bool _enableBulletTracer = true;
+
+        [Tooltip("Velocidad de desplazamiento de la bala trazadora en metros por segundo.")]
+        [Range(40f, 600f)]
+        [SerializeField] private float _tracerSpeed = 220f;
+
+        [Tooltip("Ancho de la estela luminosa de la bala trazadora.")]
+        [Range(0.01f, 0.15f)]
+        [SerializeField] private float _tracerWidth = 0.035f;
+
+        [Tooltip("Color de la cabeza luminosa de la bala trazadora.")]
+        [SerializeField] private Color _tracerColor = new Color(1.0f, 0.92f, 0.45f, 1.0f);
+
+        [Tooltip("Color de la cola/estela de la bala trazadora.")]
+        [SerializeField] private Color _tracerTailColor = new Color(1.0f, 0.45f, 0.10f, 0.0f);
+
+        [Tooltip("Prefab opcional para la bala trazadora. Si no se asigna, se autogenera un proyectil procedural.")]
+        [SerializeField] private GameObject _customTracerPrefab;
+
+        [Tooltip("¿Generar un pequeño chispazo luminoso al impactar el objetivo?")]
+        [SerializeField] private bool _enableImpactSparks = true;
 
         // ════════════════════════════════════════════════════════════════════
         // ENLACE CON EL HUD
@@ -230,6 +258,7 @@ namespace DemenciaNoLimite.Player
         private readonly Dictionary<string, WeaponCombatConfig> _configsById = new Dictionary<string, WeaponCombatConfig>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, int> _ammoMemoryByWeapon = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private Collider[] _playerColliders;
+        private Material _sharedTracerMaterial;
 
         // ════════════════════════════════════════════════════════════════════
         // EVENTOS PÚBLICOS
@@ -294,6 +323,15 @@ namespace DemenciaNoLimite.Player
             if (_customMuzzleVFXInstance != null)
             {
                 _customMuzzleVFXInstance.SetActive(false);
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (_sharedTracerMaterial != null)
+            {
+                Destroy(_sharedTracerMaterial);
+                _sharedTracerMaterial = null;
             }
         }
 
@@ -695,7 +733,7 @@ namespace DemenciaNoLimite.Player
                 quadGo.transform.SetParent(_firePoint, false);
                 quadGo.transform.localPosition = Vector3.zero;
                 quadGo.transform.localRotation = Quaternion.identity;
-                quadGo.transform.localScale = Vector3.one * 0.18f;
+                quadGo.transform.localScale = Vector3.one * 0.06f;
 
                 // Destruir colisionador inmediatamente para no interferir en físicas o raycast
                 var col = quadGo.GetComponent<Collider>();
@@ -1057,6 +1095,25 @@ namespace DemenciaNoLimite.Player
                 Color rayColor = hitEnemy ? Color.green : (hitFound ? Color.yellow : Color.red);
                 Debug.DrawRay(rayOrigin, rayDirection * lineDist, rayColor, _debugRayDuration);
             }
+
+            // 4. Bala trazadora luminosa que viaja desde el cañón hacia el centro de la pantalla
+            if (_enableBulletTracer)
+            {
+                Vector3 tracerStart;
+                if (_firePoint != null)
+                {
+                    tracerStart = _firePoint.position;
+                }
+                else
+                {
+                    tracerStart = rayOrigin + (_playerCamera.transform.right * 0.22f) 
+                                            - (_playerCamera.transform.up * 0.16f) 
+                                            + (_playerCamera.transform.forward * 0.35f);
+                }
+
+                Vector3 targetPos = hitFound ? hit.point : (rayOrigin + (rayDirection * range));
+                LanzarBalaTrazadora(tracerStart, targetPos, hitFound ? (RaycastHit?)hit : null);
+            }
         }
 
         private bool EsColisionadorDelJugador(Collider col)
@@ -1133,7 +1190,7 @@ namespace DemenciaNoLimite.Player
                 {
                     _visualFlashRenderer.transform.localRotation = Quaternion.Euler(0f, 0f, UnityEngine.Random.Range(0f, 360f));
                 }
-                _visualFlashRenderer.transform.localScale = Vector3.one * UnityEngine.Random.Range(0.24f, 0.36f);
+                _visualFlashRenderer.transform.localScale = Vector3.one * UnityEngine.Random.Range(0.05f, 0.08f);
                 _visualFlashRenderer.enabled = true;
             }
 
@@ -1145,10 +1202,10 @@ namespace DemenciaNoLimite.Player
                 _customMuzzleVFXInstance.SendMessage("Play", SendMessageOptions.DontRequireReceiver);
             }
 
-            // 3. Duración perceptible con pico sostenido y decaimiento suave (0.12s a 0.15s, 7-9 frames a 60 FPS)
-            float totalDuration = Mathf.Max(0.08f, _muzzleFlashDuration);
-            float peakHoldTime = totalDuration * 0.65f; // Mantener pico luminoso durante el 65% del tiempo (~0.09s)
-            float fadeTime = totalDuration * 0.35f;     // Decaimiento suave y realista en el 35% restante (~0.05s)
+            // 3. Destello instantáneo y contenido (~0.04s) estrictamente localizado en el cañón
+            float totalDuration = Mathf.Max(0.02f, _muzzleFlashDuration);
+            float peakHoldTime = totalDuration * 0.5f;
+            float fadeTime = totalDuration * 0.5f;
 
             yield return new WaitForSeconds(peakHoldTime);
 
@@ -1184,6 +1241,193 @@ namespace DemenciaNoLimite.Player
             }
 
             _muzzleFlashCoroutine = null;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // BALA TRAZADORA (BULLET TRACER PROCEDURAL)
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Genera y proyecta una bala trazadora luminosa que viaja físicamente desde la boca del cañón
+        /// (abajo a la derecha) hacia el centro de la pantalla / punto de impacto del Raycast.
+        /// </summary>
+        private void LanzarBalaTrazadora(Vector3 start, Vector3 end, RaycastHit? hitInfo)
+        {
+            try
+            {
+                GameObject tracerGo;
+                Vector3 direction = (end - start).normalized;
+                Quaternion rotation = (direction != Vector3.zero) ? Quaternion.LookRotation(direction) : Quaternion.identity;
+
+                if (_customTracerPrefab != null)
+                {
+                    tracerGo = Instantiate(_customTracerPrefab, start, rotation);
+                }
+                else
+                {
+                    tracerGo = new GameObject("BulletTracer_Instance");
+                    tracerGo.transform.position = start;
+                    tracerGo.transform.rotation = rotation;
+
+                    // 1. Cabeza de bala alargada y brillante orientada hacia adelante
+                    GameObject bulletHead = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                    bulletHead.name = "TracerHead";
+                    bulletHead.transform.SetParent(tracerGo.transform, false);
+                    bulletHead.transform.localPosition = Vector3.zero;
+                    bulletHead.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                    bulletHead.transform.localScale = new Vector3(0.016f, 0.055f, 0.016f);
+
+                    Collider headCol = bulletHead.GetComponent<Collider>();
+                    if (headCol != null) Destroy(headCol);
+
+                    Material tracerMat = ObtenerMaterialTrazador();
+                    MeshRenderer headRend = bulletHead.GetComponent<MeshRenderer>();
+                    if (headRend != null && tracerMat != null)
+                    {
+                        headRend.material = tracerMat;
+                        headRend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                        headRend.receiveShadows = false;
+                    }
+
+                    // 2. Estela aerodinámica luminosa (TrailRenderer)
+                    TrailRenderer trail = tracerGo.AddComponent<TrailRenderer>();
+                    trail.time = 0.065f;
+                    trail.startWidth = _tracerWidth;
+                    trail.endWidth = 0.002f;
+                    trail.minVertexDistance = 0.04f;
+                    trail.autodestruct = false;
+                    trail.emitting = true;
+
+                    if (tracerMat != null)
+                    {
+                        trail.material = tracerMat;
+                    }
+
+                    Gradient grad = new Gradient();
+                    grad.SetKeys(
+                        new GradientColorKey[] {
+                            new GradientColorKey(_tracerColor, 0.0f),
+                            new GradientColorKey(new Color(1f, 0.65f, 0.2f), 0.5f),
+                            new GradientColorKey(_tracerTailColor, 1.0f)
+                        },
+                        new GradientAlphaKey[] {
+                            new GradientAlphaKey(1.0f, 0.0f),
+                            new GradientAlphaKey(0.8f, 0.4f),
+                            new GradientAlphaKey(0.0f, 1.0f)
+                        }
+                    );
+                    trail.colorGradient = grad;
+                }
+
+                StartCoroutine(TracerFlightRoutine(tracerGo, start, end, hitInfo));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[WeaponCombatController] Fallback en lanzamiento de bala trazadora: {ex.Message}");
+            }
+        }
+
+        private IEnumerator TracerFlightRoutine(GameObject tracerGo, Vector3 start, Vector3 end, RaycastHit? hitInfo)
+        {
+            if (tracerGo == null) yield break;
+
+            float distance = Vector3.Distance(start, end);
+            // Duración calculada según velocidad (m/s) y acotada para garantizar una trayectoria visual nítida y emocionante
+            float duration = Mathf.Clamp(distance / Mathf.Max(30f, _tracerSpeed), 0.035f, 0.12f);
+            float elapsed = 0f;
+
+            while (elapsed < duration)
+            {
+                if (tracerGo == null) yield break;
+
+                elapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(elapsed / duration);
+
+                // Desplazamiento orgánico y veloz desde el arma hacia el centro de la pantalla
+                tracerGo.transform.position = Vector3.Lerp(start, end, t);
+
+                yield return null;
+            }
+
+            if (tracerGo != null)
+            {
+                tracerGo.transform.position = end;
+
+                // Dejar de emitir para que la cola se desvanezca limpiamente
+                TrailRenderer trail = tracerGo.GetComponent<TrailRenderer>();
+                if (trail != null)
+                {
+                    trail.emitting = false;
+                }
+
+                // Ocultar cabeza de bala
+                Transform head = tracerGo.transform.Find("TracerHead");
+                if (head != null)
+                {
+                    head.gameObject.SetActive(false);
+                }
+
+                // Generar chispazo en la superficie si impactó un objeto
+                if (_enableImpactSparks && hitInfo.HasValue)
+                {
+                    GenerarChispazoImpacto(hitInfo.Value);
+                }
+
+                // Destruir el GameObject una vez se apague la estela
+                Destroy(tracerGo, 0.07f);
+            }
+        }
+
+        private void GenerarChispazoImpacto(RaycastHit hit)
+        {
+            try
+            {
+                GameObject sparkGo = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                sparkGo.name = "ImpactSpark_Auto";
+                sparkGo.transform.position = hit.point + (hit.normal * 0.015f);
+                sparkGo.transform.rotation = Quaternion.LookRotation(hit.normal);
+                sparkGo.transform.localScale = Vector3.one * 0.08f;
+
+                var col = sparkGo.GetComponent<Collider>();
+                if (col != null) Destroy(col);
+
+                var rend = sparkGo.GetComponent<MeshRenderer>();
+                Material mat = ObtenerMaterialTrazador();
+                if (rend != null && mat != null)
+                {
+                    rend.material = mat;
+                    rend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    rend.receiveShadows = false;
+                }
+
+                Destroy(sparkGo, 0.045f);
+            }
+            catch { }
+        }
+
+        private Material ObtenerMaterialTrazador()
+        {
+            if (_sharedTracerMaterial == null)
+            {
+                Shader unlitShader = Shader.Find("Universal Render Pipeline/Unlit") 
+                                  ?? Shader.Find("Sprites/Default") 
+                                  ?? Shader.Find("Unlit/Color");
+
+                if (unlitShader != null)
+                {
+                    _sharedTracerMaterial = new Material(unlitShader);
+                    Color tracerCol = _tracerColor;
+                    if (_sharedTracerMaterial.HasProperty("_BaseColor")) _sharedTracerMaterial.SetColor("_BaseColor", tracerCol);
+                    if (_sharedTracerMaterial.HasProperty("_Color")) _sharedTracerMaterial.SetColor("_Color", tracerCol);
+                    if (_sharedTracerMaterial.HasProperty("_EmissionColor"))
+                    {
+                        _sharedTracerMaterial.EnableKeyword("_EMISSION");
+                        _sharedTracerMaterial.SetColor("_EmissionColor", new Color(4.5f, 3.2f, 1.2f));
+                    }
+                    if (_sharedTracerMaterial.HasProperty("_Cull")) _sharedTracerMaterial.SetFloat("_Cull", 0f);
+                }
+            }
+            return _sharedTracerMaterial;
         }
 
         // ════════════════════════════════════════════════════════════════════

@@ -655,7 +655,7 @@ namespace DemenciaNoLimite.Level
             // 2. Detección automática en la escena por nombres clave
             if (_autoDiscoverSceneSpawnPoints)
             {
-                var todosLosObjetos = FindObjectsByType<Transform>(FindObjectsSortMode.None);
+                var todosLosObjetos = FindObjectsByType<Transform>(FindObjectsInactive.Exclude);
                 foreach (var t in todosLosObjetos)
                 {
                     if (t == null) continue;
@@ -829,7 +829,7 @@ namespace DemenciaNoLimite.Level
             }
 
             // 3. Reescaneo por prefabs modulares 'SM_' en la escena
-            var todosLosTransforms = FindObjectsByType<Transform>(FindObjectsSortMode.None);
+            var todosLosTransforms = FindObjectsByType<Transform>(FindObjectsInactive.Exclude);
             foreach (var t in todosLosTransforms)
             {
                 if (t == null) continue;

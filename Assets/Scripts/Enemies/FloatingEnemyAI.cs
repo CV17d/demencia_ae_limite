@@ -84,6 +84,10 @@ namespace DemenciaNoLimite.Enemies
         [Tooltip("Capa de colisión del suelo para calibrar la altura de levitación.")]
         [SerializeField] private LayerMask _groundLayer = ~0;
 
+        [Header("Capas de Colisión y Obstáculos")]
+        [Tooltip("Capa de colisión de paredes y obstáculos para evitar empujar al jugador a través de muros o esquinas.")]
+        [SerializeField] private LayerMask _obstacleLayer = -1;
+
         [Header("Levitación Sinusoidal (Flotación Y)")]
         [Tooltip("Altura objetivo sobre el suelo o jugador.")]
         [SerializeField] private float _hoverHeight = 1.35f;
@@ -283,7 +287,8 @@ namespace DemenciaNoLimite.Enemies
                 Vector3 moveDir = moveDelta.normalized;
 
                 // Verificación contra muros para no empujar al jugador ni traspasar esquinas
-                if (_obstacleLayer == 0 || !Physics.Raycast(transform.position, moveDir, stepDist + 0.35f, _obstacleLayer, QueryTriggerInteraction.Ignore))
+                LayerMask obstacleMask = GetEffectiveObstacleMask();
+                if (obstacleMask == 0 || !Physics.Raycast(transform.position, moveDir, stepDist + 0.35f, obstacleMask, QueryTriggerInteraction.Ignore))
                 {
                     transform.position = Vector3.MoveTowards(transform.position, targetDestination, stepDist);
                 }
@@ -321,6 +326,21 @@ namespace DemenciaNoLimite.Enemies
             Vector3 curPos = transform.position;
             curPos.y = Mathf.MoveTowards(curPos.y, targetY, (_moveSpeed * 0.5f) * Time.deltaTime);
             transform.position = curPos;
+        }
+
+        /// <summary>
+        /// Obtiene la máscara efectiva de colisión contra obstáculos excluyendo las capas de Player y Enemy
+        /// para que los raycasts defensivos nunca detecten al propio jugador ni al enemigo como un muro.
+        /// </summary>
+        private LayerMask GetEffectiveObstacleMask()
+        {
+            if (_obstacleLayer.value == 0) return 0;
+            int playerLayer = _playerTransform != null ? _playerTransform.gameObject.layer : LayerMask.NameToLayer("Player");
+            int enemyLayer = gameObject.layer;
+            int excludeMask = 0;
+            if (playerLayer != -1) excludeMask |= (1 << playerLayer);
+            if (enemyLayer != -1) excludeMask |= (1 << enemyLayer);
+            return _obstacleLayer.value & ~excludeMask;
         }
 
         /// <summary>
@@ -417,7 +437,8 @@ namespace DemenciaNoLimite.Enemies
                     if (safeLunge > 0f)
                     {
                         // Raycast de comprobación para no atravesar muros al embestir
-                        if (!Physics.Raycast(transform.position, lungeDir.normalized, safeLunge + 0.3f, _obstacleLayer, QueryTriggerInteraction.Ignore))
+                        LayerMask obstacleMask = GetEffectiveObstacleMask();
+                        if (obstacleMask == 0 || !Physics.Raycast(transform.position, lungeDir.normalized, safeLunge + 0.3f, obstacleMask, QueryTriggerInteraction.Ignore))
                         {
                             transform.position += lungeDir.normalized * safeLunge;
                         }

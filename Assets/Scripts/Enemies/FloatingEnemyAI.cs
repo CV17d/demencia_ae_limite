@@ -86,10 +86,10 @@ namespace DemenciaNoLimite.Enemies
 
         [Header("Levitación Sinusoidal (Flotación Y)")]
         [Tooltip("Altura objetivo sobre el suelo o jugador.")]
-        [SerializeField] private float _hoverHeight = 1.6f;
+        [SerializeField] private float _hoverHeight = 1.35f;
 
         [Tooltip("Amplitud de la onda sinusoidal (distancia que sube y baja al flotar).")]
-        [SerializeField] private float _floatAmplitude = 0.25f;
+        [SerializeField] private float _floatAmplitude = 0.18f;
 
         [Tooltip("Frecuencia o velocidad de la oscilación vertical.")]
         [SerializeField] private float _floatFrequency = 2.4f;
@@ -735,10 +735,10 @@ namespace DemenciaNoLimite.Enemies
             }
 
             // Sincronizar dimensiones proporcionales a marcos de puerta 4x4
-            // Altura resultante en mundo ~1.92m y radio ~0.42m con escala 1.2
-            capsule.radius = 0.35f;
-            capsule.height = 1.6f;
-            capsule.center = new Vector3(0f, 0.8f, 0f);
+            // Con escala 0.36x: Altura resultante en mundo ~1.73m y radio ~0.38m
+            capsule.radius = 1.05f;
+            capsule.height = 4.8f;
+            capsule.center = Vector3.zero; // Sprite centrado en (0, 0, 0)
             capsule.direction = 1;
 
             // Kinematic Rigidbody para que Unity gestione colisiones sin empujes físicos erráticos en Y

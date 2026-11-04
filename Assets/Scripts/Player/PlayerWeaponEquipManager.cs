@@ -2,16 +2,14 @@
 // PlayerWeaponEquipManager.cs — Gestor de Equipamiento e Instanciamiento de Armas 3D
 // ============================================================================
 // Coordina la visualización en primera persona de los modelos 3D de todas las armas:
-// - Instancia y emparenta prefabs 3D directamente bajo el WeaponHolder de la Main Camera.
-// - Generalizado para todo el catálogo (Bingala, Demencia Revólver, Muak, Trabeca, etc.).
-// - Fuerza explícitamente la escala adecuada (respetando la escala nativa de 100 en modelos
-//   exportados en centímetros y evitando el colapso a Vector3.one).
-// - Búsqueda automática de prefabs en Assets/Prefabs/Entornos/Armas_Prefab/ o Resources.
-// - Neutralización total de físicas (Colliders, Rigidbodies, Joints) para no interferir
-//   con el CharacterController del jugador.
-// - Asigna recursivamente la capa "Weapon" garantizando el cullingMask de la Main Camera.
-// - Sincroniza el estado de la mano 2D diegética (PlayerHandController -> HandState.EquippedItem).
-// - Escucha automáticamente cambios de ranura de PlayerInventory y recogidas de WorldItemPickup.
+// - Sistema inteligente de auto-normalización de tamaño basado en Mesh/Render Bounds.
+// - Perfil de offset individual por arma (Posición, Rotación, Escala y Multiplicador).
+// - Calibración persistente y previsualización en vivo en el Inspector de Unity.
+// - Búsqueda automática y dinámica de prefabs en Assets/Prefabs/Entornos/Armas_Prefab/.
+// - Neutralización total de físicas (Colliders, Rigidbodies, Joints) para evitar
+//   colisiones o empujes sobre el CharacterController del jugador.
+// - Asignación recursiva de la capa "Weapon" garantizando el cullingMask de la Main Camera.
+// - Sincronización continua con PlayerHandController (HandState.EquippedItem) y PlayerInventory.
 // ============================================================================
 
 using System;
@@ -29,32 +27,64 @@ using UnityEditor;
 namespace DemenciaNoLimite.Player
 {
     /// <summary>
-    /// Mapeo serializable que asocia un identificador o WeaponData con su prefab 3D en el mundo.
+    /// Modo de auto-normalización de tamaño para modelos viewmodel en primera persona.
+    /// </summary>
+    public enum AutoNormalizationMode
+    {
+        [Tooltip("Normaliza automáticamente si el arma supera la dimensión máxima o no alcanza la mínima.")]
+        NormalizeIfOutOfBounds,
+
+        [Tooltip("Fuerza siempre el escalado para que la dimensión mayor coincida exactamente con targetVisualSize.")]
+        AlwaysNormalize,
+
+        [Tooltip("Desactiva la auto-normalización y utiliza exclusivamente los valores de escala manual.")]
+        ManualOnly
+    }
+
+    /// <summary>
+    /// Perfil de mapeo y offsets individuales para cada arma 3D en primera persona.
     /// </summary>
     [Serializable]
     public class Weapon3DMapping
     {
+        [Header("Identificación")]
         [Tooltip("Identificador único del arma (ej. 'bingala', 'revolver', 'demencia revolver', 'muak', 'trabeca').")]
         public string weaponId;
 
         [Tooltip("ScriptableObject de WeaponData opcional asociado al arma.")]
         public WeaponData weaponData;
 
-        [Tooltip("Prefab 3D que contiene el mesh, materiales y efectos visuales del arma en primera persona.")]
+        [Tooltip("Prefab 3D que contiene el mesh, materiales y efectos visuales del arma.")]
         public GameObject weaponPrefab;
 
-        [Tooltip("Desplazamiento local respecto al WeaponHolder.")]
+        [Header("Transform y Offsets Locales")]
+        [Tooltip("Desplazamiento de posición local respecto al WeaponHolder.")]
         public Vector3 localPositionOffset = Vector3.zero;
 
         [Tooltip("Rotación local (Euler) respecto al WeaponHolder.")]
         public Vector3 localRotationOffset = Vector3.zero;
 
-        [Tooltip("Escala local del modelo 3D. Por defecto (100, 100, 100) para modelos FBX/centimétricos.")]
-        public Vector3 localScale = new Vector3(100f, 100f, 100f);
+        [Header("Auto-Normalización y Escala")]
+        [Tooltip("¿Activar auto-normalización basada en Mesh Bounds para este modelo?")]
+        public bool useAutoBoundsNormalization = true;
 
-        [Tooltip("Multiplicador individual de escala para este modelo.")]
+        [Tooltip("Tamaño/longitud visual objetivo en metros frente a la cámara (ej. 0.30m para revólveres/pistolas, 0.48m para rifles). Si es 0, usa el estándar global.")]
+        [Range(0f, 1.5f)]
+        public float targetVisualSize = 0f;
+
+        [Tooltip("Multiplicador de escala individual para afinar el tamaño de este modelo.")]
         [Range(0.01f, 10f)]
         public float scaleMultiplier = 1f;
+
+        [Tooltip("Escala manual base (usada si la auto-normalización está desactivada o como fallback).")]
+        public Vector3 localScale = new Vector3(100f, 100f, 100f);
+
+        [Header("Alineación de Pivote")]
+        [Tooltip("Compensa automáticamente el centro geométrico del mesh si el pivote del modelo 3D fue exportado descentrado.")]
+        public bool autoCenterMeshPivot = false;
+
+        [Tooltip("Desplazamiento adicional manual para compensar el pivote/empuñadura.")]
+        public Vector3 pivotCompensationOffset = Vector3.zero;
     }
 
     [DisallowMultipleComponent]
@@ -66,32 +96,54 @@ namespace DemenciaNoLimite.Player
         // ════════════════════════════════════════════════════════════════════
 
         [Header("Catálogo de Armas 3D")]
-        [Tooltip("Lista mapeada de armas y sus respectivos prefabs 3D.")]
+        [Tooltip("Lista mapeada de armas y sus respectivos prefabs, escalas y perfiles de offset.")]
         [SerializeField] private List<Weapon3DMapping> _weaponCatalog = new List<Weapon3DMapping>();
 
         // ════════════════════════════════════════════════════════════════════
-        // CONFIGURACIÓN DE ESCALA Y VISIBILIDAD DE ARMAS 3D
+        // AUTO-NORMALIZACIÓN INTELIGENTE DE TAMAÑO (MESH BOUNDS)
         // ════════════════════════════════════════════════════════════════════
 
-        [Header("Configuración de Escala de Armas 3D")]
-        [Tooltip("Escala local forzada por defecto para las armas equipadas frente a la cámara (ej. (100, 100, 100) para modelos FBX).")]
+        [Header("Auto-Normalización Inteligente (Mesh Bounds)")]
+        [Tooltip("Activa la normalización automática del tamaño de las armas en base a los límites físicos (Mesh Bounds) de su geometría.")]
+        [SerializeField] private bool _enableAutoBoundsNormalization = true;
+
+        [Tooltip("Criterio de aplicación de la normalización por límites geométricos.")]
+        [SerializeField] private AutoNormalizationMode _normalizationMode = AutoNormalizationMode.NormalizeIfOutOfBounds;
+
+        [Tooltip("Dimensión máxima estándar (en metros) para armas en primera persona (ej. 0.34m para handguns/compactas).")]
+        [Range(0.15f, 1.2f)]
+        [SerializeField] private float _standardViewmodelSize = 0.34f;
+
+        [Tooltip("Dimensión mínima aceptable sin corrección (en metros). Si el modelo mide menos, se amplía automáticamente.")]
+        [SerializeField] private float _minVisualSize = 0.20f;
+
+        [Tooltip("Dimensión máxima aceptable sin corrección (en metros). Si el modelo mide más (ej. revólver a escala 100 mide > 1m), se reduce automáticamente.")]
+        [SerializeField] private float _maxVisualSize = 0.55f;
+
+        // ════════════════════════════════════════════════════════════════════
+        // CONFIGURACIÓN DE ESCALA GLOBAL Y RESERVA
+        // ════════════════════════════════════════════════════════════════════
+
+        [Header("Escala Global y Parámetros de Reserva")]
+        [Tooltip("Escala local de reserva para modelos FBX que no tengan normalización.")]
         [SerializeField] private Vector3 _defaultWeaponScale = new Vector3(100f, 100f, 100f);
 
-        [Tooltip("Multiplicador global de escala aplicado a las armas al ser equipadas frente a la cámara.")]
+        [Tooltip("Multiplicador global de escala aplicado a todas las armas equipadas.")]
+        [Range(0.01f, 5f)]
         [SerializeField] private float _globalScaleMultiplier = 1f;
 
-        [Tooltip("Si está activo, detecta si el prefab original tiene una escala nativa (ej. 100 en los prefabs) y la respeta en lugar de forzar (1,1,1).")]
+        [Tooltip("Respeta la escala nativa del prefab si está configurada en disco (ej. 100).")]
         [SerializeField] private bool _usePrefabNativeScale = true;
 
-        [Tooltip("Umbral de escala mínima. Si la escala detectada o del mapping es menor o igual a este valor (ej. 1.8), se forzará automáticamente a _defaultWeaponScale (100,100,100) para evitar que quede microscópica.")]
+        [Tooltip("Umbral de escala mínima para detectar colapso unitario accidental.")]
         [SerializeField] private float _tinyScaleThreshold = 1.8f;
 
         // ════════════════════════════════════════════════════════════════════
-        // ANCLAJE DIRECTO A CÁMARA PRINCIPAL (CERO DEPENDENCIAS SECUNDARIAS)
+        // ANCLAJE DIRECTO A CÁMARA PRINCIPAL
         // ════════════════════════════════════════════════════════════════════
 
         [Header("Anclaje a Cámara Principal")]
-        [Tooltip("Cámara principal del jugador (Main Camera / PlayerCamera). Si es nula, se busca y resuelve automáticamente.")]
+        [Tooltip("Cámara principal del jugador. Si es nula, se busca y resuelve automáticamente.")]
         [SerializeField] private Camera _mainCamera;
 
         [Tooltip("Transform contenedor donde se anclan los modelos 3D de las armas directamente como hijo de la Main Camera.")]
@@ -100,7 +152,7 @@ namespace DemenciaNoLimite.Player
         [Tooltip("Nombre de la capa para el modelo del arma (ej. 'Weapon' o 'Default').")]
         [SerializeField] private string _weaponLayerName = "Weapon";
 
-        [Tooltip("Asegura automáticamente que la Main Camera incluya esta capa en su cullingMask para que sea visible en pantalla.")]
+        [Tooltip("Asegura automáticamente que la Main Camera incluya esta capa en su cullingMask.")]
         [SerializeField] private bool _ensureCameraCullingMask = true;
 
         [Tooltip("Posición local por defecto del WeaponHolder frente a la vista de la cámara.")]
@@ -154,14 +206,7 @@ namespace DemenciaNoLimite.Player
         // EVENTOS PÚBLICOS
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Se dispara al equipar e instanciar un nuevo modelo 3D de arma.
-        /// </summary>
         public event Action<GameObject, WeaponData> OnWeaponEquipped;
-
-        /// <summary>
-        /// Se dispara al desequipar o limpiar el modelo 3D actual.
-        /// </summary>
         public event Action OnWeaponUnequipped;
 
         // ════════════════════════════════════════════════════════════════════
@@ -175,6 +220,7 @@ namespace DemenciaNoLimite.Player
         public bool HasWeaponEquipped => _currentSpawnedWeaponInstance != null;
         public Vector3 DefaultWeaponScale => _defaultWeaponScale;
         public float GlobalScaleMultiplier => _globalScaleMultiplier;
+        public float StandardViewmodelSize => _standardViewmodelSize;
         public IReadOnlyList<Weapon3DMapping> WeaponCatalog => _weaponCatalog;
 
         // ════════════════════════════════════════════════════════════════════
@@ -222,10 +268,17 @@ namespace DemenciaNoLimite.Player
         private void OnValidate()
         {
             ReconstruirDiccionarios();
+
+            // En tiempo de ejecución o edición en vivo, actualizar el arma activa si se ajustan sliders
+            if (_currentSpawnedWeaponInstance != null)
+            {
+                Weapon3DMapping mapping = BuscarMapping(_currentEquippedWeaponId, _currentEquippedWeaponData);
+                AplicarTransformYOffsets(_currentSpawnedWeaponInstance, mapping, null);
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // GESTIÓN DE EQUIPAMIENTO E INSTANCIAMIENTO 3D GENERALIZADO
+        // GESTIÓN DE EQUIPAMIENTO E INSTANCIAMIENTO 3D
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
@@ -272,10 +325,10 @@ namespace DemenciaNoLimite.Player
         }
 
         /// <summary>
-        /// Método nuclear y generalizado de equipamiento para todas las armas del juego:
+        /// Método central de equipamiento:
         /// - Resuelve mapping o busca automáticamente el prefab en el proyecto.
-        /// - Instancia limpio bajo WeaponHolder de la Main Camera.
-        /// - Fuerza explícitamente su escala adecuada (evitando el colapso microscópico).
+        /// - Instancia bajo el WeaponHolder de la Main Camera.
+        /// - Aplica el cálculo inteligente de escala (auto-normalización por Mesh Bounds y offsets individuales).
         /// - Neutraliza totalmente colisiones físicas (Colliders, Rigidbodies, Joints).
         /// - Asigna recursivamente la capa "Weapon" y sincroniza la mano 2D.
         /// </summary>
@@ -286,7 +339,7 @@ namespace DemenciaNoLimite.Player
                 ReconstruirDiccionarios();
             }
 
-            // 1. Limpiar cualquier modelo 3D previo instanciado
+            // 1. Limpiar cualquier modelo 3D previo
             if (_currentSpawnedWeaponInstance != null)
             {
                 Destroy(_currentSpawnedWeaponInstance);
@@ -301,7 +354,7 @@ namespace DemenciaNoLimite.Player
                 return;
             }
 
-            // 3. Buscar correspondencia en el catálogo configurado (exacta, alias o flexible)
+            // 3. Buscar correspondencia en el catálogo configurado
             Weapon3DMapping mapping = BuscarMapping(weaponId, data);
 
             // 4. Determinar prefab a instanciar (explícito > mapeado > búsqueda dinámica en proyecto)
@@ -313,7 +366,7 @@ namespace DemenciaNoLimite.Player
 
             if (prefabToUse == null)
             {
-                Debug.LogWarning($"[PlayerWeaponEquipManager] No se encontró prefab 3D para el arma identificada como '{weaponId}'. Sincronizando mano diegética.");
+                Debug.LogWarning($"[PlayerWeaponEquipManager] No se encontró prefab 3D para el arma '{weaponId}'. Sincronizando mano diegética.");
                 SincronizarManoDiegetica(HandState.EquippedItem);
                 return;
             }
@@ -325,24 +378,8 @@ namespace DemenciaNoLimite.Player
             _currentSpawnedWeaponInstance = Instantiate(prefabToUse, holder);
             _currentSpawnedWeaponInstance.name = $"Weapon3D_{_currentEquippedWeaponId}";
 
-            // 6. Restablecer transform: posición local, rotación y FUERZA EXPLÍCITA DE ESCALA
-            Vector3 posOffset = (mapping != null && mapping.localPositionOffset != Vector3.zero) ? mapping.localPositionOffset : Vector3.zero;
-            Vector3 rotOffset = (mapping != null && mapping.localRotationOffset != Vector3.zero) ? mapping.localRotationOffset : Vector3.zero;
-            Vector3 finalScale = CalcularEscalaArma(prefabToUse, mapping);
-
-            _currentSpawnedWeaponInstance.transform.SetParent(holder, false);
-            _currentSpawnedWeaponInstance.transform.localPosition = posOffset;
-            _currentSpawnedWeaponInstance.transform.localScale = finalScale;
-
-            if (rotOffset != Vector3.zero)
-            {
-                _currentSpawnedWeaponInstance.transform.localRotation = Quaternion.Euler(rotOffset);
-            }
-            else
-            {
-                // Conservar la rotación nativa del prefab si no hay rotación de offset explícita
-                _currentSpawnedWeaponInstance.transform.localRotation = prefabToUse.transform.localRotation;
-            }
+            // 6. Aplicar escala normalizada, posición y rotación relativas
+            AplicarTransformYOffsets(_currentSpawnedWeaponInstance, mapping, prefabToUse);
 
             // 7. Neutralizar colisiones físicas (Colliders, Rigidbodies, Joints) de forma total
             NeutralizarFisicasArma(_currentSpawnedWeaponInstance);
@@ -363,54 +400,159 @@ namespace DemenciaNoLimite.Player
             // 11. Notificar a observadores
             OnWeaponEquipped?.Invoke(_currentSpawnedWeaponInstance, _currentEquippedWeaponData);
 
-            Debug.Log($"[PlayerWeaponEquipManager] Arma 3D '{_currentEquippedWeaponId}' equipada con éxito bajo '{holder.name}'. Escala forzada: {finalScale}, PosLocal: {posOffset}");
+            Debug.Log($"[PlayerWeaponEquipManager] Arma 3D '{_currentEquippedWeaponId}' equipada bajo '{holder.name}'. " +
+                      $"Escala: {_currentSpawnedWeaponInstance.transform.localScale}, PosLocal: {_currentSpawnedWeaponInstance.transform.localPosition}");
         }
 
         /// <summary>
-        /// Calcula y fuerza la escala local adecuada del modelo 3D frente a la cámara para cualquier arma del juego,
-        /// respetando la escala nativa de 100 de modelos exportados en centímetros y evitando el colapso a Vector3.one.
+        /// Aplica la escala calculada, la posición local y la rotación según el perfil individual del arma.
+        /// </summary>
+        public void AplicarTransformYOffsets(GameObject weaponInstance, Weapon3DMapping mapping, GameObject prefabSource)
+        {
+            if (weaponInstance == null) return;
+
+            Transform holder = AsegurarWeaponHolder();
+            weaponInstance.transform.SetParent(holder, false);
+
+            // 1. Calcular y forzar escala normalizada inteligente
+            Vector3 finalScale = CalcularEscalaArma(weaponInstance, prefabSource, mapping);
+            weaponInstance.transform.localScale = finalScale;
+
+            // 2. Calcular posición local
+            Vector3 posOffset = (mapping != null) ? mapping.localPositionOffset : Vector3.zero;
+
+            // Compensar pivote si está habilitada la opción
+            if (mapping != null && mapping.autoCenterMeshPivot)
+            {
+                if (TryCalculateRenderBounds(weaponInstance, out Bounds b))
+                {
+                    Vector3 localCenter = holder.InverseTransformPoint(b.center);
+                    posOffset -= localCenter;
+                }
+            }
+
+            if (mapping != null && mapping.pivotCompensationOffset != Vector3.zero)
+            {
+                posOffset += mapping.pivotCompensationOffset;
+            }
+
+            weaponInstance.transform.localPosition = posOffset;
+
+            // 3. Calcular rotación local
+            if (mapping != null && mapping.localRotationOffset != Vector3.zero)
+            {
+                weaponInstance.transform.localRotation = Quaternion.Euler(mapping.localRotationOffset);
+            }
+            else if (prefabSource != null)
+            {
+                weaponInstance.transform.localRotation = prefabSource.transform.localRotation;
+            }
+        }
+
+        /// <summary>
+        /// Calcula la escala óptima del arma empleando auto-normalización basada en Mesh/Render Bounds
+        /// o respetando los ajustes manuales si están configurados.
+        /// </summary>
+        public Vector3 CalcularEscalaArma(GameObject weaponInstance, GameObject prefabSource, Weapon3DMapping mapping)
+        {
+            // 1. Escala base tentativa
+            Vector3 baseScale = _defaultWeaponScale;
+
+            if (mapping != null && mapping.localScale != Vector3.zero)
+            {
+                baseScale = mapping.localScale;
+            }
+            else if (_usePrefabNativeScale && prefabSource != null && prefabSource.transform.localScale.magnitude > _tinyScaleThreshold)
+            {
+                baseScale = prefabSource.transform.localScale;
+            }
+
+            // Aplicar escala tentativa temporal al objeto para medir sus Bounds reales
+            if (weaponInstance != null)
+            {
+                weaponInstance.transform.localScale = baseScale;
+            }
+
+            // 2. Verificar auto-normalización por Mesh Bounds
+            bool autoNormalize = _enableAutoBoundsNormalization && (mapping == null || mapping.useAutoBoundsNormalization);
+
+            if (autoNormalize && weaponInstance != null && _normalizationMode != AutoNormalizationMode.ManualOnly)
+            {
+                if (TryCalculateRenderBounds(weaponInstance, out Bounds renderBounds))
+                {
+                    float currentMaxDimension = Mathf.Max(renderBounds.size.x, renderBounds.size.y, renderBounds.size.z);
+
+                    if (currentMaxDimension > 0.001f)
+                    {
+                        float targetSize = (mapping != null && mapping.targetVisualSize > 0.01f)
+                            ? mapping.targetVisualSize
+                            : _standardViewmodelSize;
+
+                        bool isOutOfBounds = (currentMaxDimension < _minVisualSize || currentMaxDimension > _maxVisualSize);
+                        bool shouldScale = (_normalizationMode == AutoNormalizationMode.AlwaysNormalize) ||
+                                           (_normalizationMode == AutoNormalizationMode.NormalizeIfOutOfBounds && isOutOfBounds);
+
+                        if (shouldScale)
+                        {
+                            float factor = targetSize / currentMaxDimension;
+                            baseScale *= factor;
+
+                            Debug.Log($"[PlayerWeaponEquipManager] Auto-normalización de Bounds para '{weaponInstance.name}': " +
+                                      $"Dimensión Actual = {currentMaxDimension:F2}m -> Objetivo = {targetSize:F2}m (Factor: {factor:F3})");
+                        }
+                    }
+                }
+            }
+
+            // 3. Aplicar multiplicadores
+            float individualMultiplier = (mapping != null && mapping.scaleMultiplier > 0.001f) ? mapping.scaleMultiplier : 1f;
+            Vector3 finalScale = baseScale * (individualMultiplier * _globalScaleMultiplier);
+
+            // Salvaguarda contra escalas colapsadas
+            if (finalScale.x <= 0.0001f || finalScale.y <= 0.0001f || finalScale.z <= 0.0001f)
+            {
+                finalScale = _defaultWeaponScale;
+            }
+
+            return finalScale;
+        }
+
+        /// <summary>
+        /// Sobrecarga compatible hacia atrás para cálculo de escala.
         /// </summary>
         public Vector3 CalcularEscalaArma(GameObject prefabToUse, Weapon3DMapping mapping)
         {
-            Vector3 resolvedScale = _defaultWeaponScale; // (100, 100, 100) por defecto
+            return CalcularEscalaArma(prefabToUse, prefabToUse, mapping);
+        }
 
-            // 1. Si el prefab cuenta con una escala nativa configurada en el proyecto (ej. (100, 100, 100) en el prefab)
-            if (_usePrefabNativeScale && prefabToUse != null)
+        /// <summary>
+        /// Calcula los límites de renderizado combinados (Render Bounds) en el espacio de la escena
+        /// a partir de todos los MeshRenderer y SkinnedMeshRenderer presentes.
+        /// </summary>
+        public static bool TryCalculateRenderBounds(GameObject rootGo, out Bounds combinedBounds)
+        {
+            combinedBounds = new Bounds(Vector3.zero, Vector3.zero);
+            if (rootGo == null) return false;
+
+            Renderer[] renderers = rootGo.GetComponentsInChildren<Renderer>(true);
+            bool hasBounds = false;
+
+            for (int i = 0; i < renderers.Length; i++)
             {
-                Vector3 pScale = prefabToUse.transform.localScale;
-                if (pScale.magnitude > _tinyScaleThreshold)
+                if (renderers[i] is ParticleSystemRenderer || renderers[i] is TrailRenderer) continue;
+
+                if (!hasBounds)
                 {
-                    resolvedScale = pScale;
+                    combinedBounds = renderers[i].bounds;
+                    hasBounds = true;
+                }
+                else
+                {
+                    combinedBounds.Encapsulate(renderers[i].bounds);
                 }
             }
 
-            // 2. Si el mapping cuenta con una escala personalizada explícita (mayor al umbral microscópico)
-            if (mapping != null && mapping.localScale != Vector3.zero)
-            {
-                if (mapping.localScale.magnitude > _tinyScaleThreshold)
-                {
-                    resolvedScale = mapping.localScale;
-                }
-            }
-
-            // 3. Salvaguarda: si tras las evaluaciones la escala sigue siendo microscópica (<= threshold)
-            if (resolvedScale.magnitude <= _tinyScaleThreshold)
-            {
-                resolvedScale = _defaultWeaponScale;
-            }
-
-            // 4. Aplicar multiplicadores
-            if (mapping != null && mapping.scaleMultiplier > 0.001f && mapping.scaleMultiplier != 1f)
-            {
-                resolvedScale *= mapping.scaleMultiplier;
-            }
-
-            if (_globalScaleMultiplier > 0.001f && _globalScaleMultiplier != 1f)
-            {
-                resolvedScale *= _globalScaleMultiplier;
-            }
-
-            return resolvedScale;
+            return hasBounds;
         }
 
         /// <summary>
@@ -445,7 +587,7 @@ namespace DemenciaNoLimite.Player
                 return mapping;
             }
 
-            // 2. Coincidencia directa por ID exacto en el diccionario (incluyendo aliases registrados)
+            // 2. Coincidencia directa por ID exacto en el diccionario (incluyendo aliases)
             if (!string.IsNullOrEmpty(weaponId) && _mappingsById.TryGetValue(weaponId, out mapping))
             {
                 return mapping;
@@ -492,8 +634,7 @@ namespace DemenciaNoLimite.Player
         }
 
         /// <summary>
-        /// Busca de forma robusta y dinámica el prefab de cualquier arma en el proyecto (Editor y Runtime),
-        /// empleando coincidencia exacta, normalizada, tokens y búsqueda de respaldo.
+        /// Busca de forma robusta y dinámica el prefab de cualquier arma en el proyecto.
         /// </summary>
         public GameObject BuscarPrefabEnProyecto(string weaponId)
         {
@@ -531,7 +672,7 @@ namespace DemenciaNoLimite.Player
                     }
                 }
 
-                // Prioridad 3: Coincidencia de tokens individuales (ej. 'revolver' dentro de 'demencia revolver')
+                // Prioridad 3: Coincidencia de tokens individuales
                 string[] queryTokens = weaponId.Split(new[] { ' ', '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
                 foreach (string file in files)
                 {
@@ -610,7 +751,6 @@ namespace DemenciaNoLimite.Player
             {
                 _mainCamera = targetCam;
 
-                // Buscar WeaponHolder como hijo directo de la cámara
                 Transform existing = targetCam.transform.Find("WeaponHolder");
                 if (existing != null)
                 {
@@ -618,7 +758,6 @@ namespace DemenciaNoLimite.Player
                 }
                 else if (_weaponHolder != null && _weaponHolder.parent != targetCam.transform)
                 {
-                    // Si existía desvinculado o en otro transform, re-emparentarlo a la cámara activa
                     _weaponHolder.SetParent(targetCam.transform, false);
                     _weaponHolder.localPosition = _defaultHolderPosition;
                     _weaponHolder.localRotation = Quaternion.Euler(_defaultHolderRotation);
@@ -636,7 +775,6 @@ namespace DemenciaNoLimite.Player
             }
             else
             {
-                // Fallback temporal bajo este GameObject si la cámara aún no está disponible
                 if (_weaponHolder == null)
                 {
                     Transform existing = transform.Find("WeaponHolder");
@@ -668,21 +806,18 @@ namespace DemenciaNoLimite.Player
         {
             if (_mainCamera != null && _mainCamera.isActiveAndEnabled) return _mainCamera;
 
-            // 1. A través de PlayerManager
             if (_playerManager != null && _playerManager.PlayerCamera != null)
             {
                 _mainCamera = _playerManager.PlayerCamera.GetComponent<Camera>();
                 if (_mainCamera != null && _mainCamera.isActiveAndEnabled) return _mainCamera;
             }
 
-            // 2. Camera.main nativa
             if (Camera.main != null && Camera.main.isActiveAndEnabled)
             {
                 _mainCamera = Camera.main;
                 return _mainCamera;
             }
 
-            // 3. Buscar cámaras en la jerarquía del jugador o escena
             var cameras = FindObjectsByType<Camera>(FindObjectsInactive.Exclude);
             foreach (var cam in cameras)
             {
@@ -706,9 +841,6 @@ namespace DemenciaNoLimite.Player
         // ASIGNACIÓN RECURSIVA DE CAPA Y FILTRADO
         // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Asigna recursivamente la capa especificada a un GameObject y todos sus descendientes.
-        /// </summary>
         public void AsignarCapaRecursiva(GameObject obj, int targetLayer)
         {
             if (obj == null || targetLayer < 0 || targetLayer > 31) return;
@@ -740,7 +872,6 @@ namespace DemenciaNoLimite.Player
                 _cachedWeaponLayer = (cam != null) ? cam.gameObject.layer : 0;
             }
 
-            // Garantizar que la Main Camera renderice esta capa de forma inmediata
             if (_ensureCameraCullingMask && cam != null && _cachedWeaponLayer >= 0)
             {
                 cam.cullingMask |= (1 << _cachedWeaponLayer);
@@ -755,14 +886,14 @@ namespace DemenciaNoLimite.Player
         {
             if (weaponGo == null) return;
 
-            // 1. Desactivar y remover Joints primero para evitar advertencias nativas de física
+            // 1. Desactivar y remover Joints primero
             Joint[] joints = weaponGo.GetComponentsInChildren<Joint>(true);
             for (int i = 0; i < joints.Length; i++)
             {
                 if (joints[i] != null) Destroy(joints[i]);
             }
 
-            // 2. Desactivar y remover todos los colliders 3D para evitar interferencias con el CharacterController
+            // 2. Desactivar y remover todos los colliders 3D
             Collider[] colliders = weaponGo.GetComponentsInChildren<Collider>(true);
             for (int i = 0; i < colliders.Length; i++)
             {
@@ -785,7 +916,7 @@ namespace DemenciaNoLimite.Player
                 }
             }
 
-            // 4. Salvaguarda adicional: limpiar físicas 2D si alguna estuviera presente
+            // 4. Limpiar físicas 2D por salvaguarda
             Collider2D[] col2Ds = weaponGo.GetComponentsInChildren<Collider2D>(true);
             for (int i = 0; i < col2Ds.Length; i++)
             {
@@ -811,7 +942,6 @@ namespace DemenciaNoLimite.Player
         {
             if (weaponGo == null) return;
 
-            // Eliminar cualquier componente de recogida en el suelo que viniera adherido en el prefab
             var pickups = weaponGo.GetComponentsInChildren<DemenciaNoLimite.Pickups.WorldItemPickup>(true);
             for (int i = 0; i < pickups.Length; i++)
             {
@@ -1036,7 +1166,6 @@ namespace DemenciaNoLimite.Player
                 GameObject loadedPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(path.Replace('\\', '/'));
                 if (loadedPrefab == null) continue;
 
-                // Verificar si ya existe en el catálogo
                 bool exists = false;
                 foreach (var mapping in _weaponCatalog)
                 {
@@ -1044,30 +1173,69 @@ namespace DemenciaNoLimite.Player
                     if (mapping.weaponPrefab == loadedPrefab || string.Equals(mapping.weaponId, fileName, StringComparison.OrdinalIgnoreCase))
                     {
                         exists = true;
-                        // Si el mapping tiene escala unitaria (1,1,1) o cero, asegurar escala 100
-                        if (mapping.localScale == Vector3.one || mapping.localScale == Vector3.zero)
-                        {
-                            mapping.localScale = _defaultWeaponScale;
-                        }
                         break;
                     }
                 }
 
                 if (!exists)
                 {
+                    float targetSize = 0.34f;
+                    string lowerName = fileName.ToLowerInvariant();
+                    if (lowerName.Contains("revolver")) targetSize = 0.30f;
+                    else if (lowerName.Contains("bingala")) targetSize = 0.32f;
+                    else if (lowerName.Contains("muak")) targetSize = 0.36f;
+                    else if (lowerName.Contains("trabeca")) targetSize = 0.48f;
+
                     var newMapping = new Weapon3DMapping
                     {
                         weaponId = fileName.ToLowerInvariant(),
                         weaponPrefab = loadedPrefab,
                         localPositionOffset = Vector3.zero,
                         localRotationOffset = Vector3.zero,
-                        localScale = _defaultWeaponScale,
-                        scaleMultiplier = 1f
+                        useAutoBoundsNormalization = true,
+                        targetVisualSize = targetSize,
+                        scaleMultiplier = 1f,
+                        localScale = _defaultWeaponScale
                     };
                     _weaponCatalog.Add(newMapping);
-                    Debug.Log($"[PlayerWeaponEquipManager] Auto-sincronizada arma en catálogo: '{fileName}' (Escala: {_defaultWeaponScale})");
+                    Debug.Log($"[PlayerWeaponEquipManager] Auto-sincronizada arma en catálogo: '{fileName}' (Tamaño Objetivo: {targetSize:F2}m)");
                 }
             }
+        }
+
+        /// <summary>
+        /// Context Menu para guardar la posición, rotación y escala actuales del arma en el catálogo.
+        /// </summary>
+        [ContextMenu("Guardar Transform del Arma Actual en el Catálogo")]
+        public void GuardarTransformActualEnMapping()
+        {
+            if (_currentSpawnedWeaponInstance == null)
+            {
+                Debug.LogWarning("[PlayerWeaponEquipManager] No hay ningún arma instanciada actualmente para guardar.");
+                return;
+            }
+
+            Weapon3DMapping mapping = BuscarMapping(_currentEquippedWeaponId, _currentEquippedWeaponData);
+            if (mapping != null)
+            {
+                mapping.localPositionOffset = _currentSpawnedWeaponInstance.transform.localPosition;
+                mapping.localRotationOffset = _currentSpawnedWeaponInstance.transform.localRotation.eulerAngles;
+                mapping.localScale = _currentSpawnedWeaponInstance.transform.localScale;
+                EditorUtility.SetDirty(this);
+                Debug.Log($"[PlayerWeaponEquipManager] Perfil de '{_currentEquippedWeaponId}' guardado con éxito: " +
+                          $"Pos={mapping.localPositionOffset}, Rot={mapping.localRotationOffset}, Escala={mapping.localScale}");
+            }
+        }
+
+        /// <summary>
+        /// Context Menu para forzar la recalibración por Bounds del arma equipada.
+        /// </summary>
+        [ContextMenu("Recalcular Auto-Normalización del Arma Actual")]
+        public void RecalcularAutoNormalizacionArmaActual()
+        {
+            if (_currentSpawnedWeaponInstance == null) return;
+            Weapon3DMapping mapping = BuscarMapping(_currentEquippedWeaponId, _currentEquippedWeaponData);
+            AplicarTransformYOffsets(_currentSpawnedWeaponInstance, mapping, null);
         }
 #endif
 
@@ -1078,7 +1246,7 @@ namespace DemenciaNoLimite.Player
         /// <summary>
         /// Permite registrar programáticamente un nuevo prefab 3D en tiempo de ejecución.
         /// </summary>
-        public void RegistrarMapeoArma(string weaponId, GameObject prefab, Vector3 posOffset, Vector3 rotOffset, Vector3 scale, float scaleMultiplier = 1f)
+        public void RegistrarMapeoArma(string weaponId, GameObject prefab, Vector3 posOffset, Vector3 rotOffset, Vector3 scale, float scaleMultiplier = 1f, float targetSize = 0f)
         {
             if (string.IsNullOrEmpty(weaponId) || prefab == null) return;
 
@@ -1089,7 +1257,9 @@ namespace DemenciaNoLimite.Player
                 localPositionOffset = posOffset,
                 localRotationOffset = rotOffset,
                 localScale = (scale.magnitude > _tinyScaleThreshold) ? scale : _defaultWeaponScale,
-                scaleMultiplier = scaleMultiplier
+                scaleMultiplier = scaleMultiplier,
+                targetVisualSize = targetSize,
+                useAutoBoundsNormalization = true
             };
 
             RegistrarEnDiccionarioId(weaponId, mapping);
@@ -1116,7 +1286,20 @@ namespace DemenciaNoLimite.Player
             if (_currentSpawnedWeaponInstance != null)
             {
                 Weapon3DMapping mapping = BuscarMapping(_currentEquippedWeaponId, _currentEquippedWeaponData);
-                _currentSpawnedWeaponInstance.transform.localScale = CalcularEscalaArma(_currentSpawnedWeaponInstance, mapping);
+                AplicarTransformYOffsets(_currentSpawnedWeaponInstance, mapping, null);
+            }
+        }
+
+        /// <summary>
+        /// Modifica el tamaño estándar de viewmodel y recalibra el arma activa.
+        /// </summary>
+        public void SetStandardViewmodelSize(float newSize)
+        {
+            _standardViewmodelSize = Mathf.Clamp(newSize, 0.1f, 1.5f);
+            if (_currentSpawnedWeaponInstance != null)
+            {
+                Weapon3DMapping mapping = BuscarMapping(_currentEquippedWeaponId, _currentEquippedWeaponData);
+                AplicarTransformYOffsets(_currentSpawnedWeaponInstance, mapping, null);
             }
         }
     }

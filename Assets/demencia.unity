@@ -733,29 +733,50 @@ MonoBehaviour:
     weaponPrefab: {fileID: 5213449628940997264, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
     localPositionOffset: {x: -0.054, y: 0.083, z: -0.057}
     localRotationOffset: {x: 246.978, y: 58.929, z: 29.011}
-    localScale: {x: 25, y: 25, z: 25}
+    useAutoBoundsNormalization: 1
+    targetVisualSize: 0.32
     scaleMultiplier: 1
+    localScale: {x: 25, y: 25, z: 25}
+    autoCenterMeshPivot: 0
+    pivotCompensationOffset: {x: 0, y: 0, z: 0}
   - weaponId: revolver
     weaponData: {fileID: 0}
     weaponPrefab: {fileID: 3393748940634398630, guid: c3f16e4f06f4ea848804d23252a73558, type: 3}
     localPositionOffset: {x: 0, y: 0, z: 0}
     localRotationOffset: {x: 0, y: 0, z: 0}
-    localScale: {x: 100, y: 100, z: 100}
+    useAutoBoundsNormalization: 1
+    targetVisualSize: 0.3
     scaleMultiplier: 1
+    localScale: {x: 100, y: 100, z: 100}
+    autoCenterMeshPivot: 0
+    pivotCompensationOffset: {x: 0, y: 0, z: 0}
   - weaponId: muak
     weaponData: {fileID: 0}
     weaponPrefab: {fileID: 6901591607965511886, guid: 005466e1be3c4ef40ac9f07fe70a4dfb, type: 3}
     localPositionOffset: {x: 0, y: 0, z: 0}
     localRotationOffset: {x: 0, y: 0, z: 0}
-    localScale: {x: 100, y: 100, z: 100}
+    useAutoBoundsNormalization: 1
+    targetVisualSize: 0.36
     scaleMultiplier: 1
+    localScale: {x: 100, y: 100, z: 100}
+    autoCenterMeshPivot: 0
+    pivotCompensationOffset: {x: 0, y: 0, z: 0}
   - weaponId: trabeca
     weaponData: {fileID: 0}
     weaponPrefab: {fileID: 8578978686285870837, guid: c7d8921f069a71245afc0bc641454601, type: 3}
     localPositionOffset: {x: 0, y: 0, z: 0}
     localRotationOffset: {x: 0, y: 0, z: 0}
-    localScale: {x: 100, y: 100, z: 100}
+    useAutoBoundsNormalization: 1
+    targetVisualSize: 0.48
     scaleMultiplier: 1
+    localScale: {x: 100, y: 100, z: 100}
+    autoCenterMeshPivot: 0
+    pivotCompensationOffset: {x: 0, y: 0, z: 0}
+  _enableAutoBoundsNormalization: 1
+  _normalizationMode: 0
+  _standardViewmodelSize: 0.34
+  _minVisualSize: 0.2
+  _maxVisualSize: 0.55
   _defaultWeaponScale: {x: 100, y: 100, z: 100}
   _globalScaleMultiplier: 1
   _usePrefabNativeScale: 1

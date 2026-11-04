@@ -221,7 +221,7 @@ namespace DemenciaNoLimite.Player
         private Transform _firePoint;
         private Light _muzzleFlashLight;
         private MeshRenderer _visualFlashRenderer;
-        private ParticleSystem _customMuzzleParticles;
+        private GameObject _customMuzzleVFXInstance;
         private Coroutine _muzzleFlashCoroutine;
         private Coroutine _reloadCoroutine;
 
@@ -290,6 +290,10 @@ namespace DemenciaNoLimite.Player
             if (_visualFlashRenderer != null)
             {
                 _visualFlashRenderer.enabled = false;
+            }
+            if (_customMuzzleVFXInstance != null)
+            {
+                _customMuzzleVFXInstance.SetActive(false);
             }
         }
 
@@ -546,6 +550,10 @@ namespace DemenciaNoLimite.Player
             {
                 _visualFlashRenderer.enabled = false;
             }
+            if (_customMuzzleVFXInstance != null)
+            {
+                _customMuzzleVFXInstance.SetActive(false);
+            }
 
             _currentEquippedModel = null;
             _currentWeaponData = null;
@@ -553,7 +561,7 @@ namespace DemenciaNoLimite.Player
             _firePoint = null;
             _muzzleFlashLight = null;
             _visualFlashRenderer = null;
-            _customMuzzleParticles = null;
+            _customMuzzleVFXInstance = null;
 
             ActualizarHUD();
         }
@@ -664,13 +672,13 @@ namespace DemenciaNoLimite.Player
                 // 4. Configurar destello visual (Sprite/Mesh Quad) opcional
                 ConfigurarVisualFlashShape(weaponGo);
 
-                // 5. Instanciar sistema de partículas opcional si se asignó un prefab
-                if (_customMuzzleFlashPrefab != null && _customMuzzleParticles == null)
+                // 5. Instanciar prefab VFX opcional si se asignó
+                if (_customMuzzleFlashPrefab != null && _customMuzzleVFXInstance == null)
                 {
-                    GameObject vfxInstance = Instantiate(_customMuzzleFlashPrefab, _firePoint);
-                    vfxInstance.transform.localPosition = Vector3.zero;
-                    vfxInstance.transform.localRotation = Quaternion.identity;
-                    _customMuzzleParticles = vfxInstance.GetComponentInChildren<ParticleSystem>();
+                    _customMuzzleVFXInstance = Instantiate(_customMuzzleFlashPrefab, _firePoint);
+                    _customMuzzleVFXInstance.transform.localPosition = Vector3.zero;
+                    _customMuzzleVFXInstance.transform.localRotation = Quaternion.identity;
+                    _customMuzzleVFXInstance.SetActive(false);
                 }
             }
         }
@@ -1108,11 +1116,12 @@ namespace DemenciaNoLimite.Player
                 _visualFlashRenderer.enabled = true;
             }
 
-            // 2. Disparar partículas en sincronía exacta si están configuradas
-            if (_customMuzzleParticles != null)
+            // 2. Disparar prefab VFX opcional en sincronía exacta
+            if (_customMuzzleVFXInstance != null)
             {
-                _customMuzzleParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                _customMuzzleParticles.Play();
+                _customMuzzleVFXInstance.SetActive(false);
+                _customMuzzleVFXInstance.SetActive(true);
+                _customMuzzleVFXInstance.SendMessage("Play", SendMessageOptions.DontRequireReceiver);
             }
 
             // 3. Duración perceptible con pico sostenido y decaimiento suave (0.12s a 0.15s, 7-9 frames a 60 FPS)
@@ -1145,6 +1154,12 @@ namespace DemenciaNoLimite.Player
             if (_visualFlashRenderer != null)
             {
                 _visualFlashRenderer.enabled = false;
+            }
+
+            if (_customMuzzleVFXInstance != null)
+            {
+                _customMuzzleVFXInstance.SetActive(false);
+                _customMuzzleVFXInstance.SendMessage("Stop", SendMessageOptions.DontRequireReceiver);
             }
 
             _muzzleFlashCoroutine = null;

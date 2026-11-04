@@ -6,6 +6,8 @@
 //   - Significantly wider ("fat" tank proportions on X & Z axes)
 //   - Height kept strictly under the boss room's ceiling limit
 //   - CapsuleCollider and NavMeshAgent accurately calibrated to wider girth
+//   - 2D Billboard sprite rendering facing the player camera (Doom/Wolfenstein style)
+//   - Hit flash and Enraged visual feedback
 // Executes Phase Transitions, Enrage modes, Area Denial hazard spawning,
 // and Defense-Ignoring damage against Tank players.
 // ============================================================================
@@ -29,6 +31,14 @@ namespace DemenciaNoLimite.Boss
         [Tooltip("Significantly wider diameter (X & Z) for an imposing tank-like girth.")]
         [SerializeField] private float _targetDiameter = 2.6f;
 
+        [Header("2D Sprite & Billboard")]
+        [SerializeField] private SpriteRenderer _spriteRenderer;
+        [SerializeField] private Transform _visualTransform;
+        [SerializeField] private bool _useBillboard = true;
+        [SerializeField] private bool _lockVerticalPitch = true;
+        [SerializeField] private Sprite _bossSprite;
+        [SerializeField] private Color _hitFlashColor = new Color(1f, 0.25f, 0.25f, 1f);
+
         [Header("State & Stats")]
         [SerializeField] private BossStats _activeStats;
         [SerializeField] private int _currentPhase = 1;
@@ -45,10 +55,22 @@ namespace DemenciaNoLimite.Boss
         [Header("Hazard Spawn Prefab Fallback")]
         [SerializeField] private GameObject _hazardZonePrefab;
 
+        [Header("Ranged Attack & Projectiles")]
+        [Tooltip("Rango máximo de disparo hacia el jugador.")]
+        [SerializeField] private float _shootingRange = 25f;
+        [Tooltip("Prefab opcional para proyectil personalizado de jefe.")]
+        [SerializeField] private GameObject _customBulletPrefab;
+        [Tooltip("Color forzado para las balas del jefe (dejar en transparente para usar el color temático por jefe).")]
+        [SerializeField] private Color _bulletColorOverride = Color.clear;
+        private float _lastShootTime;
+
         private NavMeshAgent _agent;
         private CapsuleCollider _capsuleCollider;
         private Transform _playerTransform;
         private AdaptiveBossController _mathController;
+        private Camera _mainCamera;
+        private Color _originalColor = Color.white;
+        private Coroutine _hitFlashCoroutine;
         private bool _isInitialized;
 
         public event Action<float, float> OnHealthChanged; // current, max
@@ -65,7 +87,16 @@ namespace DemenciaNoLimite.Boss
         private void Awake()
         {
             _agent = GetComponent<NavMeshAgent>();
+            if (_agent == null)
+            {
+                _agent = gameObject.AddComponent<NavMeshAgent>();
+            }
+
             _capsuleCollider = GetComponent<CapsuleCollider>();
+            if (_capsuleCollider == null)
+            {
+                _capsuleCollider = gameObject.AddComponent<CapsuleCollider>();
+            }
 
             if (_agent != null && !_agent.isOnNavMesh)
             {
@@ -78,6 +109,25 @@ namespace DemenciaNoLimite.Boss
                 gameObject.layer = enemyLayer;
             }
             tag = "Enemy";
+
+            if (_spriteRenderer == null)
+            {
+                _spriteRenderer = GetComponentInChildren<SpriteRenderer>();
+            }
+
+            if (_visualTransform == null)
+            {
+                _visualTransform = _spriteRenderer != null ? _spriteRenderer.transform : transform;
+            }
+
+            if (_spriteRenderer != null)
+            {
+                _originalColor = _spriteRenderer.color;
+                if (_spriteRenderer.sprite == null && _bossSprite != null)
+                {
+                    _spriteRenderer.sprite = _bossSprite;
+                }
+            }
         }
 
         public void Initialize(BossStats stats, AdaptiveBossController mathController)
@@ -106,7 +156,7 @@ namespace DemenciaNoLimite.Boss
             _isInitialized = true;
             OnHealthChanged?.Invoke(_currentHealth, _activeStats.MaxHP);
 
-            Debug.Log($"[BossController] {stats.BossID} awakened with {stats.MaxHP} HP, {stats.BaseDamage} DMG, scaled to imposing tank dimensions (W:{_targetDiameter}m, H:{_targetHeight}m).");
+            Debug.Log($"[BossController] {stats.BossID} awakened with {stats.MaxHP} HP, {stats.BaseDamage} DMG, scaled to imposing dimensions (W:{_targetDiameter}m, H:{_targetHeight}m).");
         }
 
         /// <summary>
@@ -116,6 +166,30 @@ namespace DemenciaNoLimite.Boss
         public void ApplyTankProportionsAndHitbox()
         {
             float targetRadius = _targetDiameter * 0.5f;
+
+            // If using 2D Sprite Billboard
+            if (_spriteRenderer != null && _spriteRenderer.sprite != null)
+            {
+                transform.localScale = Vector3.one;
+
+                if (_capsuleCollider == null) _capsuleCollider = GetComponent<CapsuleCollider>();
+                if (_capsuleCollider == null) _capsuleCollider = gameObject.AddComponent<CapsuleCollider>();
+
+                _capsuleCollider.height = _targetHeight;
+                _capsuleCollider.radius = targetRadius;
+                _capsuleCollider.center = new Vector3(0f, _targetHeight * 0.5f, 0f);
+                _capsuleCollider.direction = 1; // Y-Axis
+
+                if (_agent == null) _agent = GetComponent<NavMeshAgent>();
+                if (_agent != null)
+                {
+                    _agent.height = _targetHeight;
+                    _agent.radius = targetRadius;
+                    _agent.baseOffset = 0f;
+                    _agent.avoidancePriority = 10;
+                }
+                return;
+            }
 
             // Detect if this is a Unity primitive capsule or custom model
             bool isPrimitiveCapsule = false;
@@ -173,6 +247,12 @@ namespace DemenciaNoLimite.Boss
 
         private void SetupBossVisuals()
         {
+            if (_spriteRenderer != null && _spriteRenderer.sprite != null)
+            {
+                // 2D Billboard boss active: do not create procedural primitive geometry
+                return;
+            }
+
             var rend = GetComponentInChildren<Renderer>();
             if (rend != null)
             {
@@ -303,6 +383,46 @@ namespace DemenciaNoLimite.Boss
             {
                 ExecuteCleaveAttack();
             }
+            // Ranged projectile attack when player is at distance
+            else if (distToPlayer <= _shootingRange && Time.time - _lastShootTime >= GetCurrentShootCooldown())
+            {
+                ExecuteRangedShoot(distToPlayer);
+            }
+        }
+
+        private void LateUpdate()
+        {
+            if (_useBillboard)
+            {
+                UpdateBillboardOrientation();
+            }
+        }
+
+        private void UpdateBillboardOrientation()
+        {
+            if (_mainCamera == null)
+            {
+                _mainCamera = Camera.main;
+                if (_mainCamera == null) return;
+            }
+
+            Transform target = _visualTransform != null ? _visualTransform : (_spriteRenderer != null ? _spriteRenderer.transform : transform);
+
+            if (_lockVerticalPitch)
+            {
+                // Cylindrical billboard (Y-axis upright only): sprite does not tilt vertically
+                Vector3 camForward = _mainCamera.transform.forward;
+                camForward.y = 0f;
+                if (camForward.sqrMagnitude > 0.001f)
+                {
+                    target.rotation = Quaternion.LookRotation(camForward.normalized);
+                }
+            }
+            else
+            {
+                // Full spherical billboard
+                target.rotation = _mainCamera.transform.rotation;
+            }
         }
 
         private void CheckEnrageCondition()
@@ -319,7 +439,235 @@ namespace DemenciaNoLimite.Boss
         {
             _isEnraged = true;
             Debug.Log($"[BossController] {_activeStats.BossID} ENRAGED! Damage and speed drastically amplified!");
+            if (_spriteRenderer != null)
+            {
+                _spriteRenderer.color = new Color(1f, 0.45f, 0.45f, 1f);
+            }
             OnEnrageStateChanged?.Invoke(true);
+        }
+
+        private float GetCurrentShootCooldown()
+        {
+            float baseCooldown = 1f / Mathf.Max(0.1f, _activeStats != null ? _activeStats.AttackSpeed * 0.75f : 0.8f);
+            return _isEnraged ? baseCooldown * 0.65f : baseCooldown;
+        }
+
+        private Vector3 GetBulletSpawnOrigin()
+        {
+            Vector3 toPlayer = _playerTransform != null 
+                ? (_playerTransform.position - transform.position) 
+                : transform.forward;
+            toPlayer.y = 0f;
+            Vector3 dir = toPlayer.sqrMagnitude > 0.001f ? toPlayer.normalized : transform.forward;
+
+            float spawnHeight = _targetHeight * 0.55f;
+            float forwardOffset = (_targetDiameter * 0.5f) + 0.4f;
+            return transform.position + Vector3.up * spawnHeight + dir * forwardOffset;
+        }
+
+        private void ExecuteRangedShoot(float distToPlayer)
+        {
+            _lastShootTime = Time.time;
+            _lastAttackTime = Time.time;
+
+            string bossId = _activeStats != null && !string.IsNullOrEmpty(_activeStats.BossID) 
+                ? _activeStats.BossID 
+                : gameObject.name;
+
+            if (bossId.Contains("CARNICERO") || bossId.Contains("Carnicero"))
+            {
+                // Carnicero: Escopeta de perdigones incandescentes
+                int pellets = _isEnraged ? 6 : 4;
+                float damage = (_activeStats != null ? _activeStats.BaseDamage : 15f) * (_isEnraged ? 0.45f : 0.35f);
+                Color fireColor = _bulletColorOverride != Color.clear ? _bulletColorOverride : new Color(1f, 0.50f, 0.05f);
+                FireShotgunSpread(pellets, 12f, damage, fireColor, 22f, 0.32f, 4.5f);
+                Debug.Log($"[BossController] {bossId} dispara ráfaga de escopeta ({pellets} perdigones ígneos)!");
+            }
+            else if (bossId.Contains("MAQUINA") || bossId.Contains("Maquina"))
+            {
+                // Maquina: Ráfaga rápida de bio-plasma desde los múltiples escapes/boca
+                int bursts = _isEnraged ? 5 : 3;
+                float damage = (_activeStats != null ? _activeStats.BaseDamage : 25f) * 0.42f;
+                Color toxicColor = _bulletColorOverride != Color.clear ? _bulletColorOverride : new Color(0.1f, 1f, 0.35f);
+                StartCoroutine(FireBurstRoutine(bursts, 0.12f, damage, toxicColor, 25f, 0.30f, false, 3.5f));
+                Debug.Log($"[BossController] {bossId} dispara ráfaga de plasma mecánico ({bursts} proyectiles tóxicos)!");
+            }
+            else if (bossId.Contains("DEMENCIA") || bossId.Contains("Demencia"))
+            {
+                // Demencia: Proyectil perforante de revólver maldito
+                int shots = _isEnraged ? 2 : 1;
+                float damage = (_activeStats != null ? _activeStats.BaseDamage : 40f) * 1.25f;
+                Color crimsonColor = _bulletColorOverride != Color.clear ? _bulletColorOverride : new Color(1f, 0.08f, 0.20f);
+                StartCoroutine(FireBurstRoutine(shots, 0.25f, damage, crimsonColor, 28f, 0.38f, true, 8f));
+                Debug.Log($"[BossController] {bossId} dispara tiro directo de revólver maldito ({shots} bala pesada)!");
+            }
+            else
+            {
+                // Genérico / Default Boss
+                float damage = _activeStats != null ? _activeStats.BaseDamage * 0.7f : 15f;
+                Vector3 spawnOrigin = GetBulletSpawnOrigin();
+                Vector3 targetChest = _playerTransform.position + Vector3.up * 1.0f;
+                Vector3 fireDir = (targetChest - spawnOrigin).normalized;
+                Color defColor = _bulletColorOverride != Color.clear ? _bulletColorOverride : new Color(1f, 0.2f, 0.2f);
+                SpawnBossBullet(spawnOrigin, fireDir, 22f, damage, defColor, 0.35f, 0.25f, false, 5f);
+            }
+        }
+
+        private void FireShotgunSpread(int count, float spreadAngle, float damage, Color color, float speed, float radius, float knockback)
+        {
+            Vector3 spawnOrigin = GetBulletSpawnOrigin();
+            Vector3 targetChest = _playerTransform.position + Vector3.up * 1.0f;
+            Vector3 baseDir = (targetChest - spawnOrigin).normalized;
+
+            for (int i = 0; i < count; i++)
+            {
+                float yaw = UnityEngine.Random.Range(-spreadAngle, spreadAngle);
+                float pitch = UnityEngine.Random.Range(-spreadAngle * 0.5f, spreadAngle * 0.5f);
+                Quaternion rot = Quaternion.Euler(pitch, yaw, 0f);
+                Vector3 fireDir = rot * baseDir;
+
+                SpawnBossBullet(
+                    spawnOrigin, 
+                    fireDir, 
+                    speed: speed + UnityEngine.Random.Range(-2f, 2f), 
+                    damage: damage, 
+                    bulletColor: color, 
+                    radius: radius, 
+                    trailWidth: radius * 0.8f,
+                    ignoreDef: false,
+                    knockback: knockback
+                );
+            }
+        }
+
+        private IEnumerator FireBurstRoutine(int count, float interval, float damage, Color color, float speed, float radius, bool ignoreDef = false, float knockback = 5f)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (!IsAlive || _playerTransform == null) yield break;
+
+                Vector3 spawnOrigin = GetBulletSpawnOrigin();
+                Vector3 targetChest = _playerTransform.position + Vector3.up * 1.0f;
+                Vector3 fireDir = (targetChest - spawnOrigin).normalized;
+
+                if (i > 0)
+                {
+                    Vector3 jitter = UnityEngine.Random.insideUnitSphere * 0.04f;
+                    fireDir = (fireDir + jitter).normalized;
+                }
+
+                SpawnBossBullet(spawnOrigin, fireDir, speed, damage, color, radius, radius * 0.85f, ignoreDef, knockback);
+
+                if (i < count - 1)
+                {
+                    yield return new WaitForSeconds(interval);
+                }
+            }
+        }
+
+        private GameObject SpawnBossBullet(
+            Vector3 origin, 
+            Vector3 direction, 
+            float speed, 
+            float damage, 
+            Color bulletColor, 
+            float radius = 0.32f, 
+            float trailWidth = 0.22f, 
+            bool ignoreDef = false, 
+            float knockback = 5f)
+        {
+            if (_customBulletPrefab != null)
+            {
+                var customObj = Instantiate(_customBulletPrefab, origin, Quaternion.LookRotation(direction));
+                var p = customObj.GetComponent<Projectile>() ?? customObj.AddComponent<Projectile>();
+                DamageInfo dInfo = new DamageInfo(damage, gameObject, origin, Vector3.up, direction, DamageSourceType.BossSpecial, _isEnraged, false, ignoreDef, knockback);
+                p.Initialize(dInfo, direction, speed);
+                return customObj;
+            }
+
+            // 1. Instanciar proyectil esférico de alto contraste visual
+            GameObject bulletObj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            bulletObj.name = "Boss_Bullet";
+            bulletObj.transform.position = origin;
+            bulletObj.transform.rotation = Quaternion.LookRotation(direction);
+            bulletObj.transform.localScale = Vector3.one * radius;
+
+            // Trigger para no empujar físicas erráticas; Projectile realiza SphereCast cinemático
+            var col = bulletObj.GetComponent<Collider>();
+            if (col != null)
+            {
+                col.isTrigger = true;
+            }
+
+            // 2. Material unlit/emisivo brillante y visible en la oscuridad
+            var rend = bulletObj.GetComponent<Renderer>();
+            Material bulletMat = null;
+            if (rend != null)
+            {
+                Shader unlitShader = Shader.Find("Universal Render Pipeline/Unlit") 
+                                  ?? Shader.Find("Sprites/Default") 
+                                  ?? Shader.Find("Unlit/Color");
+                if (unlitShader != null)
+                {
+                    bulletMat = new Material(unlitShader);
+                    if (bulletMat.HasProperty("_BaseColor")) bulletMat.SetColor("_BaseColor", bulletColor);
+                    if (bulletMat.HasProperty("_Color")) bulletMat.SetColor("_Color", bulletColor);
+                    if (bulletMat.HasProperty("_EmissionColor"))
+                    {
+                        bulletMat.EnableKeyword("_EMISSION");
+                        bulletMat.SetColor("_EmissionColor", bulletColor * 3.5f);
+                    }
+                    rend.material = bulletMat;
+                }
+                rend.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                rend.receiveShadows = false;
+            }
+
+            // 3. TrailRenderer dinámico para que la trayectoria de la bala sea 100% visible
+            var trail = bulletObj.AddComponent<TrailRenderer>();
+            trail.time = 0.35f;
+            trail.startWidth = trailWidth;
+            trail.endWidth = 0.03f;
+            trail.material = bulletMat != null ? bulletMat : (rend != null ? rend.material : new Material(Shader.Find("Sprites/Default")));
+
+            Gradient gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[] { new GradientColorKey(bulletColor, 0.0f), new GradientColorKey(bulletColor, 1.0f) },
+                new GradientAlphaKey[] { new GradientAlphaKey(0.95f, 0.0f), new GradientAlphaKey(0.0f, 1.0f) }
+            );
+            trail.colorGradient = gradient;
+
+            // 4. Luz puntual que proyecta resplandor en paredes y suelo en tiempo real
+            var light = bulletObj.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.color = bulletColor;
+            light.range = 5.5f;
+            light.intensity = 2.5f;
+
+            // 5. Componente Projectile cinemático balístico
+            var projectile = bulletObj.AddComponent<Projectile>();
+
+            int enemyLayer = LayerMask.NameToLayer("Enemy");
+            int mask = ~0;
+            if (enemyLayer != -1) mask &= ~(1 << enemyLayer);
+            projectile.SetCollisionMask(mask);
+
+            DamageInfo damageInfo = new DamageInfo(
+                amount: damage,
+                attacker: gameObject,
+                hitPoint: origin,
+                hitNormal: Vector3.up,
+                direction: direction,
+                sourceType: DamageSourceType.BossSpecial,
+                isCritical: _isEnraged,
+                isHeadshot: false,
+                ignoreDefense: ignoreDef || (_activeStats != null && _activeStats.DefenseIgnoreRatio > 0.4f),
+                knockbackForce: knockback
+            );
+
+            projectile.Initialize(damageInfo, direction, speed, gravity: 0f, explosionRadius: 0f);
+
+            return bulletObj;
         }
 
         private void ExecuteCleaveAttack()
@@ -404,6 +752,12 @@ namespace DemenciaNoLimite.Boss
             _currentHealth -= info.Amount;
             OnHealthChanged?.Invoke(_currentHealth, _activeStats.MaxHP);
 
+            if (_spriteRenderer != null)
+            {
+                if (_hitFlashCoroutine != null) StopCoroutine(_hitFlashCoroutine);
+                _hitFlashCoroutine = StartCoroutine(HitFlashRoutine());
+            }
+
             CheckPhaseTransition();
 
             if (_currentHealth <= 0f)
@@ -412,6 +766,22 @@ namespace DemenciaNoLimite.Boss
             }
 
             return info.Amount;
+        }
+
+        public void TakeDamage(float amount)
+        {
+            TakeDamage(new DamageInfo(amount: amount, attacker: null, sourceType: DamageSourceType.Bullet));
+        }
+
+        private IEnumerator HitFlashRoutine()
+        {
+            if (_spriteRenderer != null)
+            {
+                _spriteRenderer.color = _hitFlashColor;
+                yield return new WaitForSeconds(0.08f);
+                _spriteRenderer.color = _isEnraged ? new Color(1f, 0.45f, 0.45f, 1f) : _originalColor;
+            }
+            _hitFlashCoroutine = null;
         }
 
         private void CheckPhaseTransition()
@@ -457,5 +827,25 @@ namespace DemenciaNoLimite.Boss
 
             Destroy(gameObject, 1.5f);
         }
+
+#if UNITY_EDITOR
+        private void OnValidate()
+        {
+            if (_spriteRenderer == null)
+            {
+                _spriteRenderer = GetComponentInChildren<SpriteRenderer>();
+            }
+
+            if (_visualTransform == null && _spriteRenderer != null)
+            {
+                _visualTransform = _spriteRenderer.transform;
+            }
+
+            if (_spriteRenderer != null && _spriteRenderer.sprite == null && _bossSprite != null)
+            {
+                _spriteRenderer.sprite = _bossSprite;
+            }
+        }
+#endif
     }
 }

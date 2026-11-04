@@ -177,6 +177,9 @@ namespace DemenciaNoLimite.UI
 
         private void Update()
         {
+            // Si el nuevo InventoryUIController está activo, ceder la gestión de entrada y visualización
+            if (InventoryUIController.Instance != null) return;
+
             if (!_enableKeyToggle) return;
 
             // Alternar con teclas configuradas ([I] o [Tab])
@@ -481,6 +484,7 @@ namespace DemenciaNoLimite.UI
 
         private void OnGUI()
         {
+            if (InventoryUIController.Instance != null && InventoryUIController.Instance.IsOpen) return;
             if (!_isOpen) return;
 
             // Si hay un panel de Canvas uGUI activo, no duplicar dibujo OnGUI

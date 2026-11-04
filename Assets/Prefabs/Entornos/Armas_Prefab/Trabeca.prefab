@@ -67,5 +67,130 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: cd616c4f40f9cab429809152ff72c112, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 8041146562426573910}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: cd616c4f40f9cab429809152ff72c112, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1925299777171082715}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: cd616c4f40f9cab429809152ff72c112, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 616180109508694376}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: cd616c4f40f9cab429809152ff72c112, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 6539278466393781384}
   m_SourcePrefab: {fileID: 100100000, guid: cd616c4f40f9cab429809152ff72c112, type: 3}
+--- !u!1 &8578978686285870837 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: cd616c4f40f9cab429809152ff72c112, type: 3}
+  m_PrefabInstance: {fileID: 8921576404046990244}
+  m_PrefabAsset: {fileID: 0}
+--- !u!64 &8041146562426573910
+MeshCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8578978686285870837}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 5
+  m_Convex: 1
+  m_CookingOptions: 30
+  m_Mesh: {fileID: -1015231000119171746, guid: cd616c4f40f9cab429809152ff72c112, type: 3}
+--- !u!135 &1925299777171082715
+SphereCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8578978686285870837}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Radius: 1.8
+  m_Center: {x: -0.0000023900066, y: -0.0000011146183, z: 0.0036851813}
+--- !u!54 &616180109508694376
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8578978686285870837}
+  serializedVersion: 5
+  m_Mass: 1.5
+  m_LinearDamping: 0.5
+  m_AngularDamping: 0.5
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 1
+  m_IsKinematic: 1
+  m_Interpolate: 1
+  m_Constraints: 0
+  m_CollisionDetection: 0
+--- !u!114 &6539278466393781384
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8578978686285870837}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d464086123a1b0f48b8e8e4bb6d7e351, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DemenciaNoLimite.Pickups.WorldItemPickup
+  _itemType: 0
+  _itemName: Trabeca
+  _itemDescription: 
+  _weaponId: trabeca
+  _weapon3DPrefab: {fileID: 8578978686285870837}
+  _weaponData: {fileID: 0}
+  _amount: 1
+  _ammoType: 1
+  _healAmount: 25
+  _sanityRestoreAmount: 20
+  _interactKey: 101
+  _requireLookingAtItem: 1
+  _lookAtAngleThreshold: 65
+  _destroyOnPickup: 1
+  _pickupSound: {fileID: 0}
+  _pickupSoundVolume: 0.9
+  _enableIdleAnimation: 1
+  _bobSpeed: 2.2
+  _bobHeight: 0.06
+  _rotateSpeed: 25
+  _actionLabel: RECOGER
+  _externalPromptUI: {fileID: 0}
+  _showBuiltInHUD: 1
+  _onItemPickedUp:
+    m_PersistentCalls:
+      m_Calls: []

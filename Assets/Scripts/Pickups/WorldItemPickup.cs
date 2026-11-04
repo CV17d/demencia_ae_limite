@@ -30,7 +30,6 @@ namespace DemenciaNoLimite.Pickups
         CustomItem      // Objeto genérico o coleccionable narrativo
     }
 
-    [RequireComponent(typeof(Collider))]
     [DisallowMultipleComponent]
     [AddComponentMenu("Demencia No Limite/Pickups/World Item Pickup")]
     public class WorldItemPickup : MonoBehaviour
@@ -694,6 +693,13 @@ namespace DemenciaNoLimite.Pickups
                 if (_triggerCollider != null)
                 {
                     _triggerCollider.isTrigger = true;
+                }
+                else
+                {
+                    // Fallback autónomo si el objeto carece de colisionador
+                    BoxCollider defaultBox = gameObject.AddComponent<BoxCollider>();
+                    defaultBox.isTrigger = true;
+                    _triggerCollider = defaultBox;
                 }
             }
         }

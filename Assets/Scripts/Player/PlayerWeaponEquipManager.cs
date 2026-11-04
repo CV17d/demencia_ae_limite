@@ -381,11 +381,11 @@ namespace DemenciaNoLimite.Player
             // 6. Aplicar escala normalizada, posición y rotación relativas
             AplicarTransformYOffsets(_currentSpawnedWeaponInstance, mapping, prefabToUse);
 
-            // 7. Neutralizar colisiones físicas (Colliders, Rigidbodies, Joints) de forma total
-            NeutralizarFisicasArma(_currentSpawnedWeaponInstance);
-
-            // 8. Limpiar posibles scripts interactivos de suelo residuales en el viewmodel
+            // 7. Limpiar primero y de forma segura los scripts interactivos del viewmodel (elimina dependencias)
             EliminarComponentesInteractivos(_currentSpawnedWeaponInstance);
+
+            // 8. Neutralizar colisiones físicas (Colliders, Rigidbodies, Joints) de forma total
+            NeutralizarFisicasArma(_currentSpawnedWeaponInstance);
 
             // 9. Asignar capa recursivamente a todos los hijos y garantizar cullingMask en la cámara
             AsegurarCapaWeapon();
@@ -904,25 +904,20 @@ namespace DemenciaNoLimite.Player
         {
             if (weaponGo == null) return;
 
-            // 1. Desactivar y remover Joints primero
-            Joint[] joints = weaponGo.GetComponentsInChildren<Joint>(true);
-            for (int i = 0; i < joints.Length; i++)
-            {
-                if (joints[i] != null) Destroy(joints[i]);
-            }
+            // 1. Desactivar y remover primero los scripts de interacción para eliminar dependencias RequireComponent
+            EliminarComponentesInteractivos(weaponGo);
 
-            // 2. Desactivar y remover todos los colliders 3D
+            // 2. Desactivar inmediatamente todos los colisionadores 3D para evitar interferencias físicas inmediatas
             Collider[] colliders = weaponGo.GetComponentsInChildren<Collider>(true);
             for (int i = 0; i < colliders.Length; i++)
             {
                 if (colliders[i] != null)
                 {
                     colliders[i].enabled = false;
-                    Destroy(colliders[i]);
                 }
             }
 
-            // 3. Desactivar y remover Rigidbodies 3D
+            // 3. Desactivar y remover Rigidbodies 3D antes de eliminar colisionadores
             Rigidbody[] rbs = weaponGo.GetComponentsInChildren<Rigidbody>(true);
             for (int i = 0; i < rbs.Length; i++)
             {
@@ -930,18 +925,43 @@ namespace DemenciaNoLimite.Player
                 {
                     rbs[i].isKinematic = true;
                     rbs[i].detectCollisions = false;
-                    Destroy(rbs[i]);
+                    rbs[i].linearVelocity = Vector3.zero;
+                    rbs[i].angularVelocity = Vector3.zero;
+                    if (Application.isPlaying) Destroy(rbs[i]);
+                    else DestroyImmediate(rbs[i]);
                 }
             }
 
-            // 4. Limpiar físicas 2D por salvaguarda
+            // 4. Desactivar y remover Joints
+            Joint[] joints = weaponGo.GetComponentsInChildren<Joint>(true);
+            for (int i = 0; i < joints.Length; i++)
+            {
+                if (joints[i] != null)
+                {
+                    if (Application.isPlaying) Destroy(joints[i]);
+                    else DestroyImmediate(joints[i]);
+                }
+            }
+
+            // 5. Destruir de forma segura todos los colisionadores 3D
+            for (int i = 0; i < colliders.Length; i++)
+            {
+                if (colliders[i] != null)
+                {
+                    if (Application.isPlaying) Destroy(colliders[i]);
+                    else DestroyImmediate(colliders[i]);
+                }
+            }
+
+            // 6. Limpiar físicas 2D por salvaguarda
             Collider2D[] col2Ds = weaponGo.GetComponentsInChildren<Collider2D>(true);
             for (int i = 0; i < col2Ds.Length; i++)
             {
                 if (col2Ds[i] != null)
                 {
                     col2Ds[i].enabled = false;
-                    Destroy(col2Ds[i]);
+                    if (Application.isPlaying) Destroy(col2Ds[i]);
+                    else DestroyImmediate(col2Ds[i]);
                 }
             }
 
@@ -951,7 +971,8 @@ namespace DemenciaNoLimite.Player
                 if (rb2Ds[i] != null)
                 {
                     rb2Ds[i].simulated = false;
-                    Destroy(rb2Ds[i]);
+                    if (Application.isPlaying) Destroy(rb2Ds[i]);
+                    else DestroyImmediate(rb2Ds[i]);
                 }
             }
         }
@@ -965,7 +986,20 @@ namespace DemenciaNoLimite.Player
             {
                 if (pickups[i] != null)
                 {
-                    Destroy(pickups[i]);
+                    pickups[i].enabled = false;
+                    if (Application.isPlaying) Destroy(pickups[i]);
+                    else DestroyImmediate(pickups[i]);
+                }
+            }
+
+            var pickupBases = weaponGo.GetComponentsInChildren<DemenciaNoLimite.Pickups.PickupBase>(true);
+            for (int i = 0; i < pickupBases.Length; i++)
+            {
+                if (pickupBases[i] != null)
+                {
+                    pickupBases[i].enabled = false;
+                    if (Application.isPlaying) Destroy(pickupBases[i]);
+                    else DestroyImmediate(pickupBases[i]);
                 }
             }
         }

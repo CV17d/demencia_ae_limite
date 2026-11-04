@@ -141,24 +141,34 @@ namespace DemenciaNoLimite.Player
         [Tooltip("¿Activar destello de luz efímero en la boca del cañón al disparar?")]
         [SerializeField] private bool _enableMuzzleFlash = true;
 
-        [Tooltip("Duración efímera del destello en segundos (~0.05s).")]
-        [Range(0.02f, 0.15f)]
-        [SerializeField] private float _muzzleFlashDuration = 0.05f;
+        [Tooltip("Duración perceptible del destello en segundos (0.12s a 0.15s, equivalente a 7-9 frames a 60 FPS).")]
+        [Range(0.04f, 0.35f)]
+        [SerializeField] private float _muzzleFlashDuration = 0.14f;
 
         [Tooltip("Color cálido/anaranjado del destello del disparo.")]
-        [SerializeField] private Color _muzzleFlashColor = new Color(1.0f, 0.65f, 0.22f);
+        [SerializeField] private Color _muzzleFlashColor = new Color(1.0f, 0.68f, 0.22f);
 
         [Tooltip("Intensidad lumínica mínima aleatoria.")]
-        [Range(0.5f, 10f)]
-        [SerializeField] private float _flashMinIntensity = 2.8f;
+        [Range(1f, 25f)]
+        [SerializeField] private float _flashMinIntensity = 6.5f;
 
         [Tooltip("Intensidad lumínica máxima aleatoria.")]
-        [Range(1f, 15f)]
-        [SerializeField] private float _flashMaxIntensity = 5.2f;
+        [Range(2f, 35f)]
+        [SerializeField] private float _flashMaxIntensity = 11.5f;
 
-        [Tooltip("Radio de alcance del punto de luz en metros.")]
-        [Range(1f, 10f)]
-        [SerializeField] private float _muzzleFlashRange = 5.0f;
+        [Tooltip("Radio de alcance del punto de luz en metros (6m a 10m).")]
+        [Range(2f, 25f)]
+        [SerializeField] private float _muzzleFlashRange = 9.0f;
+
+        [Tooltip("Desplazamiento frontal adicional (en metros) para posicionar la luz por fuera del mesh del cañón.")]
+        [Range(0.04f, 0.40f)]
+        [SerializeField] private float _barrelForwardOffset = 0.14f;
+
+        [Tooltip("¿Generar un destello visual de sprite/malla en la boca del cañón sincronizado con la luz?")]
+        [SerializeField] private bool _enableVisualFlashSprite = true;
+
+        [Tooltip("Prefab opcional de partículas VFX para el destello del disparo.")]
+        [SerializeField] private GameObject _customMuzzleFlashPrefab;
 
         // ════════════════════════════════════════════════════════════════════
         // ENLACE CON EL HUD
@@ -210,6 +220,8 @@ namespace DemenciaNoLimite.Player
         private GameObject _currentEquippedModel;
         private Transform _firePoint;
         private Light _muzzleFlashLight;
+        private MeshRenderer _visualFlashRenderer;
+        private ParticleSystem _customMuzzleParticles;
         private Coroutine _muzzleFlashCoroutine;
         private Coroutine _reloadCoroutine;
 
@@ -274,6 +286,10 @@ namespace DemenciaNoLimite.Player
             if (_muzzleFlashLight != null)
             {
                 _muzzleFlashLight.enabled = false;
+            }
+            if (_visualFlashRenderer != null)
+            {
+                _visualFlashRenderer.enabled = false;
             }
         }
 
@@ -526,12 +542,18 @@ namespace DemenciaNoLimite.Player
             {
                 _muzzleFlashLight.enabled = false;
             }
+            if (_visualFlashRenderer != null)
+            {
+                _visualFlashRenderer.enabled = false;
+            }
 
             _currentEquippedModel = null;
             _currentWeaponData = null;
             _currentWeaponId = "";
             _firePoint = null;
             _muzzleFlashLight = null;
+            _visualFlashRenderer = null;
+            _customMuzzleParticles = null;
 
             ActualizarHUD();
         }
@@ -634,9 +656,72 @@ namespace DemenciaNoLimite.Player
                 _muzzleFlashLight.type = LightType.Point;
                 _muzzleFlashLight.color = _muzzleFlashColor;
                 _muzzleFlashLight.range = _muzzleFlashRange;
+                _muzzleFlashLight.cullingMask = ~0; // Ilumina todas las capas (vista en primera persona y entorno)
                 _muzzleFlashLight.shadows = LightShadows.None; // Máximo rendimiento sin costo de sombras
                 _muzzleFlashLight.intensity = 0f;
                 _muzzleFlashLight.enabled = false;
+
+                // 4. Configurar destello visual (Sprite/Mesh Quad) opcional
+                ConfigurarVisualFlashShape(weaponGo);
+
+                // 5. Instanciar sistema de partículas opcional si se asignó un prefab
+                if (_customMuzzleFlashPrefab != null && _customMuzzleParticles == null)
+                {
+                    GameObject vfxInstance = Instantiate(_customMuzzleFlashPrefab, _firePoint);
+                    vfxInstance.transform.localPosition = Vector3.zero;
+                    vfxInstance.transform.localRotation = Quaternion.identity;
+                    _customMuzzleParticles = vfxInstance.GetComponentInChildren<ParticleSystem>();
+                }
+            }
+        }
+
+        private void ConfigurarVisualFlashShape(GameObject weaponGo)
+        {
+            if (!_enableVisualFlashSprite || _firePoint == null) return;
+
+            Transform visualChild = _firePoint.Find("MuzzleFlash_VisualQuad");
+            if (visualChild == null)
+            {
+                GameObject quadGo = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                quadGo.name = "MuzzleFlash_VisualQuad";
+                quadGo.transform.SetParent(_firePoint, false);
+                quadGo.transform.localPosition = Vector3.zero;
+                quadGo.transform.localRotation = Quaternion.identity;
+                quadGo.transform.localScale = Vector3.one * 0.18f;
+
+                // Destruir colisionador inmediatamente para no interferir en físicas o raycast
+                var col = quadGo.GetComponent<Collider>();
+                if (col != null) Destroy(col);
+
+                // Asignar capa del arma
+                quadGo.layer = weaponGo.layer;
+
+                _visualFlashRenderer = quadGo.GetComponent<MeshRenderer>();
+                if (_visualFlashRenderer != null)
+                {
+                    Shader unlitShader = Shader.Find("Universal Render Pipeline/Unlit") 
+                                      ?? Shader.Find("Sprites/Default") 
+                                      ?? Shader.Find("Unlit/Color");
+
+                    if (unlitShader != null)
+                    {
+                        Material mat = new Material(unlitShader);
+                        mat.color = new Color(1.0f, 0.88f, 0.45f, 0.95f);
+                        _visualFlashRenderer.material = mat;
+                    }
+
+                    _visualFlashRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    _visualFlashRenderer.receiveShadows = false;
+                    _visualFlashRenderer.enabled = false;
+                }
+            }
+            else
+            {
+                _visualFlashRenderer = visualChild.GetComponent<MeshRenderer>();
+                if (_visualFlashRenderer != null)
+                {
+                    _visualFlashRenderer.enabled = false;
+                }
             }
         }
 
@@ -736,8 +821,9 @@ namespace DemenciaNoLimite.Player
             // El cañón suele situarse en la parte superior del frente del arma
             float barrelY = Mathf.Lerp(camTransform.InverseTransformPoint(center).y, maxYInCam, 0.75f);
 
-            // Re-proyectar al mundo y luego al espacio local del modelo de arma
-            Vector3 worldMuzzlePos = camTransform.TransformPoint(new Vector3(avgX, barrelY, maxZInCam + 0.03f));
+            // Re-proyectar al mundo con el offset frontal adicional garantizado para evitar oclusión con el mesh
+            float forwardOffset = Mathf.Max(0.06f, _barrelForwardOffset);
+            Vector3 worldMuzzlePos = camTransform.TransformPoint(new Vector3(avgX, barrelY, maxZInCam + forwardOffset));
             Vector3 localPos = weaponGo.transform.InverseTransformPoint(worldMuzzlePos);
 
             return localPos;
@@ -1008,15 +1094,59 @@ namespace DemenciaNoLimite.Player
             if (_muzzleFlashLight == null) yield break;
 
             // Intensidad aleatoria y activación de luz cálida
-            _muzzleFlashLight.intensity = UnityEngine.Random.Range(_flashMinIntensity, _flashMaxIntensity);
+            float targetIntensity = UnityEngine.Random.Range(_flashMinIntensity, _flashMaxIntensity);
+            _muzzleFlashLight.intensity = targetIntensity;
+            _muzzleFlashLight.range = _muzzleFlashRange;
+            _muzzleFlashLight.color = _muzzleFlashColor;
             _muzzleFlashLight.enabled = true;
 
-            yield return new WaitForSeconds(_muzzleFlashDuration);
+            // 1. Activar destello visual (Sprite/Mesh Quad) sincronizado
+            if (_visualFlashRenderer != null)
+            {
+                _visualFlashRenderer.transform.localRotation = Quaternion.Euler(0f, 0f, UnityEngine.Random.Range(0f, 360f));
+                _visualFlashRenderer.transform.localScale = Vector3.one * UnityEngine.Random.Range(0.14f, 0.22f);
+                _visualFlashRenderer.enabled = true;
+            }
 
+            // 2. Disparar partículas en sincronía exacta si están configuradas
+            if (_customMuzzleParticles != null)
+            {
+                _customMuzzleParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                _customMuzzleParticles.Play();
+            }
+
+            // 3. Duración perceptible con pico sostenido y decaimiento suave (0.12s a 0.15s, 7-9 frames a 60 FPS)
+            float totalDuration = Mathf.Max(0.08f, _muzzleFlashDuration);
+            float peakHoldTime = totalDuration * 0.65f; // Mantener pico luminoso durante el 65% del tiempo (~0.09s)
+            float fadeTime = totalDuration * 0.35f;     // Decaimiento suave y realista en el 35% restante (~0.05s)
+
+            yield return new WaitForSeconds(peakHoldTime);
+
+            // Desvanecimiento suave y orgánico de la luz
+            float elapsed = 0f;
+            while (elapsed < fadeTime)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(elapsed / fadeTime);
+                if (_muzzleFlashLight != null)
+                {
+                    _muzzleFlashLight.intensity = Mathf.Lerp(targetIntensity, 0f, t);
+                }
+                yield return null;
+            }
+
+            // 4. Apagar luz y destello visual
             if (_muzzleFlashLight != null)
             {
+                _muzzleFlashLight.intensity = 0f;
                 _muzzleFlashLight.enabled = false;
             }
+
+            if (_visualFlashRenderer != null)
+            {
+                _visualFlashRenderer.enabled = false;
+            }
+
             _muzzleFlashCoroutine = null;
         }
 

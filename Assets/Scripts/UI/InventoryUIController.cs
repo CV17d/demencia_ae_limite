@@ -177,6 +177,7 @@ namespace DemenciaNoLimite.UI
         private void Start()
         {
             ResolverReferenciasJugador();
+            SincronizarArmasConPlayerInventory();
             RegistrarArmasActualesPreexistentes();
             RefrescarVistaCompleta();
         }
@@ -1311,6 +1312,7 @@ namespace DemenciaNoLimite.UI
             stackTmp.fontSize = 13;
             stackTmp.fontStyle = FontStyles.Bold;
             stackTmp.color = new Color(1.0f, 1.0f, 1.0f, 0.95f);
+            InventorySlotUI.AsegurarFuenteTMP(stackTmp);
             stackGo.SetActive(false);
 
             // Badge equipado
@@ -1327,14 +1329,15 @@ namespace DemenciaNoLimite.UI
             badgeTmp.fontSize = 16;
             badgeTmp.fontStyle = FontStyles.Bold;
             badgeTmp.color = new Color(0.2f, 0.95f, 0.45f, 1f); // Verde fósforo
+            InventorySlotUI.AsegurarFuenteTMP(badgeTmp);
             badgeGo.SetActive(false);
 
             // Texto para nombre de arma si no hay ícono
             GameObject nameGo = new GameObject("ItemNameText");
             nameGo.transform.SetParent(slotGo.transform, false);
             var nameRt = nameGo.AddComponent<RectTransform>();
-            nameRt.anchorMin = new Vector2(0.05f, 0.12f);
-            nameRt.anchorMax = new Vector2(0.95f, 0.88f);
+            nameRt.anchorMin = new Vector2(0.04f, 0.08f);
+            nameRt.anchorMax = new Vector2(0.96f, 0.92f);
             nameRt.offsetMin = Vector2.zero;
             nameRt.offsetMax = Vector2.zero;
             var nameTmp = nameGo.AddComponent<TextMeshProUGUI>();
@@ -1342,9 +1345,10 @@ namespace DemenciaNoLimite.UI
             nameTmp.textWrappingMode = TextWrappingModes.Normal;
             nameTmp.enableAutoSizing = true;
             nameTmp.fontSizeMin = 8f;
-            nameTmp.fontSizeMax = 12f;
+            nameTmp.fontSizeMax = 13f;
             nameTmp.fontStyle = FontStyles.Bold;
             nameTmp.color = Color.white;
+            InventorySlotUI.AsegurarFuenteTMP(nameTmp);
             nameGo.SetActive(false);
 
             var slotUI = slotGo.AddComponent<InventorySlotUI>();

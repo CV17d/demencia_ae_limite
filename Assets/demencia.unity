@@ -352,7 +352,7 @@ Camera:
     y: 0
     width: 1
     height: 1
-  near clip plane: 0.3
+  near clip plane: 0.01
   far clip plane: 1000
   field of view: 60
   orthographic: 0
@@ -731,27 +731,35 @@ MonoBehaviour:
   - weaponId: bingala
     weaponData: {fileID: 0}
     weaponPrefab: {fileID: 5213449628940997264, guid: d7e82524532ead14aa48076fcdc62f81, type: 3}
-    localPositionOffset: {x: 0, y: 0, z: 0}
-    localRotationOffset: {x: 0, y: 0, z: 0}
-    localScale: {x: 100, y: 100, z: 100}
+    localPositionOffset: {x: -0.054, y: 0.083, z: -0.057}
+    localRotationOffset: {x: 246.978, y: 58.929, z: 29.011}
+    localScale: {x: 25, y: 25, z: 25}
+    scaleMultiplier: 1
   - weaponId: revolver
     weaponData: {fileID: 0}
     weaponPrefab: {fileID: 3393748940634398630, guid: c3f16e4f06f4ea848804d23252a73558, type: 3}
     localPositionOffset: {x: 0, y: 0, z: 0}
     localRotationOffset: {x: 0, y: 0, z: 0}
     localScale: {x: 100, y: 100, z: 100}
+    scaleMultiplier: 1
   - weaponId: muak
     weaponData: {fileID: 0}
     weaponPrefab: {fileID: 6901591607965511886, guid: 005466e1be3c4ef40ac9f07fe70a4dfb, type: 3}
     localPositionOffset: {x: 0, y: 0, z: 0}
     localRotationOffset: {x: 0, y: 0, z: 0}
     localScale: {x: 100, y: 100, z: 100}
+    scaleMultiplier: 1
   - weaponId: trabeca
     weaponData: {fileID: 0}
     weaponPrefab: {fileID: 8578978686285870837, guid: c7d8921f069a71245afc0bc641454601, type: 3}
     localPositionOffset: {x: 0, y: 0, z: 0}
     localRotationOffset: {x: 0, y: 0, z: 0}
     localScale: {x: 100, y: 100, z: 100}
+    scaleMultiplier: 1
+  _defaultWeaponScale: {x: 100, y: 100, z: 100}
+  _globalScaleMultiplier: 1
+  _usePrefabNativeScale: 1
+  _tinyScaleThreshold: 1.8
   _mainCamera: {fileID: 0}
   _weaponHolder: {fileID: 0}
   _weaponLayerName: Weapon
@@ -846,8 +854,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DemenciaNoLimite.Pickups.WorldItemPickup
   _itemType: 0
-  _itemName: "Pistola T\xE1ctica"
+  _itemName: Bingala
   _itemDescription: 
+  _weaponId: 
+  _weapon3DPrefab: {fileID: 0}
   _weaponData: {fileID: 0}
   _amount: 1
   _ammoType: 1

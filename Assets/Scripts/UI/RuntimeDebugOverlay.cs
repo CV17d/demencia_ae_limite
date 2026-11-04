@@ -24,6 +24,10 @@ namespace DemenciaNoLimite.UI
         private ElevatorUIController _elevatorUI;
         private BossHealthBarUI _bossUI;
 
+        [Header("Debug Panels")]
+        [Tooltip("Muestra el panel de navegación de la torre y botones de teletransporte (desactivado por defecto).")]
+        [SerializeField] private bool _showTowerDebugPanel = false;
+
         private Texture2D _whiteTex;
         private GUIStyle _headerStyle;
         private GUIStyle _subStyle;
@@ -93,8 +97,11 @@ namespace DemenciaNoLimite.UI
                 DrawBossBar();
             }
 
-            // 4. Tower Navigation & 27-Floor Testing Panel
-            DrawTowerProgressPanel();
+            // 4. Tower Navigation & 27-Floor Testing Panel (Oculto por defecto según requerimiento de diseño)
+            if (_showTowerDebugPanel)
+            {
+                DrawTowerProgressPanel();
+            }
 
             // 5. Elevator UI Dialog (if active)
             if (_elevatorUI != null && _elevatorUI.IsElevatorUIVisible)

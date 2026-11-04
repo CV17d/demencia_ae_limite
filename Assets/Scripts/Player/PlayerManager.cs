@@ -18,7 +18,6 @@ namespace DemenciaNoLimite.Player
 {
     [DisallowMultipleComponent]
     [RequireComponent(typeof(AudioSource))]
-    [RequireComponent(typeof(PlayerInventory))]
     public class PlayerManager : MonoBehaviour
     {
         // ════════════════════════════════════════════════════════════════════

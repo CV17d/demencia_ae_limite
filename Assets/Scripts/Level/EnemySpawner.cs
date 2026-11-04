@@ -18,6 +18,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.SceneManagement;
 using DemenciaNoLimite.Core;
 using DemenciaNoLimite.Core.Data;
 using DemenciaNoLimite.Core.Events;
@@ -33,6 +34,30 @@ namespace DemenciaNoLimite.Level
     [AddComponentMenu("Demencia No Limite/Level/Enemy Spawner")]
     public class EnemySpawner : MonoBehaviour
     {
+        // ════════════════════════════════════════════════════════════════════
+        // SINGLETON Y CONFIGURACIÓN DE SPAWN SIMULTÁNEO POR MAPA
+        // ════════════════════════════════════════════════════════════════════
+
+        public static EnemySpawner Instance { get; private set; }
+
+        [Header("Generación Aleatoria Simultánea por Todo el Mapa")]
+        [Tooltip("¿Generar automáticamente varios enemigos simultáneos distribuidos por todo el mapa al construirse el nivel?")]
+        [SerializeField] private bool _spawnSimultaneousOnMapGeneration = true;
+
+        [Tooltip("Cantidad mínima de enemigos a instanciar simultáneamente en el mapa.")]
+        [Range(1, 20)]
+        [SerializeField] private int _minEnemiesPerFloor = 5;
+
+        [Tooltip("Cantidad máxima de enemigos a instanciar simultáneamente en el mapa.")]
+        [Range(1, 30)]
+        [SerializeField] private int _maxEnemiesPerFloor = 9;
+
+        [Tooltip("Distancia mínima al jugador para la distribución inicial (evita spawnear sobre él).")]
+        [SerializeField] private float _minPlayerInitialDistance = 11.0f;
+
+        [Tooltip("Distancia mínima entre enemigos para evitar que aparezcan amontonados en la misma habitación.")]
+        [SerializeField] private float _minDistanceBetweenEnemies = 7.0f;
+
         // ════════════════════════════════════════════════════════════════════
         // PREFABS Y CATÁLOGOS
         // ════════════════════════════════════════════════════════════════════
@@ -169,6 +194,18 @@ namespace DemenciaNoLimite.Level
 
         private void Awake()
         {
+            if (Instance != null && Instance != this)
+            {
+                Destroy(this);
+                return;
+            }
+            Instance = this;
+
+            if (transform.parent == null)
+            {
+                DontDestroyOnLoad(gameObject);
+            }
+
             EnsureDefaultPrefabReferences();
             SetupEnemiesContainer();
 
@@ -188,18 +225,42 @@ namespace DemenciaNoLimite.Level
         {
             GameEvents.OnEnemyKilled += HandleEnemyKilledEvent;
             GameEvents.OnFloorReady += HandleFloorReadyEvent;
+            GameEvents.OnMapGenerationCompleted += HandleMapGenerationCompletedEvent;
+            SceneManager.sceneLoaded += HandleSceneLoadedEvent;
         }
 
         private void OnDisable()
         {
             GameEvents.OnEnemyKilled -= HandleEnemyKilledEvent;
             GameEvents.OnFloorReady -= HandleFloorReadyEvent;
+            GameEvents.OnMapGenerationCompleted -= HandleMapGenerationCompletedEvent;
+            SceneManager.sceneLoaded -= HandleSceneLoadedEvent;
             StopWaveSystem();
+
+            if (_delayedSpawnCoroutine != null)
+            {
+                StopCoroutine(_delayedSpawnCoroutine);
+                _delayedSpawnCoroutine = null;
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this)
+            {
+                Instance = null;
+            }
         }
 
         private void Start()
         {
             ResolvePlayerReference();
+
+            // Spawn simultáneo distribuido por todo el mapa si está configurado
+            if (_spawnSimultaneousOnMapGeneration && _activeEnemies.Count == 0)
+            {
+                IniciarSpawnDeEnemigos(0.7f);
+            }
 
             if (_enableWaveSystem && _autoStartWavesOnStart)
             {
@@ -559,7 +620,364 @@ namespace DemenciaNoLimite.Level
             if (config != null)
             {
                 _currentFloor = config.FloorNumber;
-                Debug.Log($"[EnemySpawner] Configurado para Piso {_currentFloor}.");
+                Debug.Log($"<color=#38BDF8><b>[EnemySpawner]</b> 📡 Evento GameEvents.OnFloorReady recibido para Piso {_currentFloor}.</color>");
+                if (_spawnSimultaneousOnMapGeneration)
+                {
+                    IniciarSpawnDeEnemigos(0.6f);
+                }
+            }
+        }
+
+        private void HandleMapGenerationCompletedEvent()
+        {
+            Debug.Log($"<color=#38BDF8><b>[EnemySpawner]</b> 📡 Evento GameEvents.OnMapGenerationCompleted recibido.</color>");
+            if (_spawnSimultaneousOnMapGeneration)
+            {
+                IniciarSpawnDeEnemigos(0.5f);
+            }
+        }
+
+        private void HandleSceneLoadedEvent(Scene scene, LoadSceneMode mode)
+        {
+            SetupEnemiesContainer();
+            if (_spawnSimultaneousOnMapGeneration)
+            {
+                IniciarSpawnDeEnemigos(0.8f);
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // GENERACIÓN ALEATORIA SIMULTÁNEA POR TODO EL MAPA
+        // ════════════════════════════════════════════════════════════════════
+
+        private Coroutine _delayedSpawnCoroutine;
+
+        /// <summary>
+        /// Inicia la secuencia de spawn simultáneo con retardo defensivo para estabilización de físicas.
+        /// </summary>
+        public void IniciarSpawnDeEnemigos(float delay = 0.6f)
+        {
+            if (!isActiveAndEnabled) return;
+
+            if (_delayedSpawnCoroutine != null)
+            {
+                StopCoroutine(_delayedSpawnCoroutine);
+            }
+            _delayedSpawnCoroutine = StartCoroutine(DelayedSpawnRoutine(delay));
+        }
+
+        private IEnumerator DelayedSpawnRoutine(float delay)
+        {
+            if (delay > 0f)
+            {
+                yield return new WaitForSeconds(delay);
+            }
+
+            // Esperar mientras LevelGenerator esté construyendo el nivel
+            int framesWait = 0;
+            while (LevelGenerator.Instance != null && LevelGenerator.Instance.IsGenerating && framesWait < 60)
+            {
+                framesWait++;
+                yield return null;
+            }
+
+            yield return new WaitForEndOfFrame();
+
+            SpawnSimultaneousEnemiesAcrossMap();
+            _delayedSpawnCoroutine = null;
+        }
+
+        /// <summary>
+        /// Instancia múltiples enemigos de forma simultánea distribuidos aleatoriamente por las distintas
+        /// habitaciones, módulos y pasillos del mapa, anclados exactamente al suelo transitable mediante raycast.
+        /// </summary>
+        [ContextMenu("Generar Enemigos Simultáneos por el Mapa")]
+        public void SpawnSimultaneousEnemiesAcrossMap()
+        {
+            EnsureDefaultPrefabReferences();
+            SetupEnemiesContainer();
+
+            GameObject enemyPrefab = _floatingEnemyPrefab != null ? _floatingEnemyPrefab : _enemyPrefabDefault;
+            if (enemyPrefab == null)
+            {
+                Debug.LogError("[EnemySpawner] ❌ No hay prefab de enemigo configurado para el spawn simultáneo.");
+                return;
+            }
+
+            // 1. Limpieza de enemigos de pisos anteriores
+            LimpiarEnemigosDelNivel();
+
+            // 2. Determinar cantidad de enemigos escalada por piso
+            int targetEnemyCount = UnityEngine.Random.Range(_minEnemiesPerFloor, _maxEnemiesPerFloor + 1);
+            targetEnemyCount += Mathf.FloorToInt((_currentFloor - 1) * 0.5f);
+            targetEnemyCount = Mathf.Clamp(targetEnemyCount, _minEnemiesPerFloor, _maxConcurrentEnemies);
+
+            // 3. Posición del jugador para resguardar la sala inicial
+            Transform player = GetPlayerTransform();
+            Vector3 playerPos = player != null ? player.position : Vector3.zero;
+
+            // 4. Obtener módulos arquitectónicos activos (habitaciones, pasillos, arenas)
+            List<GameObject> modulos = ObtenerModulosActivos(out string origenModulos);
+            Debug.Log($"<color=#38BDF8><b>[EnemySpawner]</b> 🔍 Módulos activos para spawn simultáneo: <b>{modulos.Count}</b> (Origen: {origenModulos}) | Objetivo: <b>{targetEnemyCount}</b> enemigos simultáneos.</color>");
+
+            List<Vector3> spawnedPositions = new List<Vector3>();
+
+            // Si hay puntos manuales asignados en el spawner, usarlos primero
+            if (_spawnPoints != null && _spawnPoints.Length > 0)
+            {
+                foreach (var pt in _spawnPoints)
+                {
+                    if (spawnedPositions.Count >= targetEnemyCount) break;
+                    if (pt != null && TryRaycastToGround(pt.position, out Vector3 groundPos))
+                    {
+                        if (Vector3.Distance(groundPos, playerPos) >= _minPlayerInitialDistance &&
+                            !EstaDemasiadoCercaDeOtrosEnemigos(groundPos, spawnedPositions, _minDistanceBetweenEnemies))
+                        {
+                            GameObject enemy = InstanciarEnemigo(enemyPrefab, groundPos);
+                            if (enemy != null)
+                            {
+                                spawnedPositions.Add(groundPos);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Distribuir a través de los módulos arquitectónicos
+            if (modulos.Count > 0)
+            {
+                List<GameObject> modulosShuffled = new List<GameObject>(modulos);
+                BarajarLista(modulosShuffled);
+
+                // Recorrer los módulos e instanciar en cada sala válida
+                foreach (var mod in modulosShuffled)
+                {
+                    if (spawnedPositions.Count >= targetEnemyCount) break;
+                    if (mod == null) continue;
+
+                    string mName = mod.name.ToLowerInvariant();
+                    // Omitir si es la sala de inicio y está cerca del jugador
+                    if (Vector3.Distance(mod.transform.position, playerPos) < _minPlayerInitialDistance &&
+                        (mName.Contains("start") || mName.Contains("inicio")))
+                    {
+                        continue;
+                    }
+
+                    if (TryFindWalkablePointInModule(mod, playerPos, spawnedPositions, out Vector3 validSpawnPos))
+                    {
+                        GameObject enemy = InstanciarEnemigo(enemyPrefab, validSpawnPos);
+                        if (enemy != null)
+                        {
+                            spawnedPositions.Add(validSpawnPos);
+                        }
+                    }
+                }
+            }
+
+            // 5. Si faltan enemigos para alcanzar la meta (o no hay módulos), rellenar con muestreo procedural disperso
+            int intentosRestantes = 40;
+            while (spawnedPositions.Count < targetEnemyCount && intentosRestantes > 0)
+            {
+                intentosRestantes--;
+                float randomAngle = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+                float randomDist = UnityEngine.Random.Range(_minPlayerInitialDistance, _maxSpawnRadius * 1.6f);
+                Vector3 candidatePoint = playerPos + new Vector3(Mathf.Cos(randomAngle) * randomDist, 0f, Mathf.Sin(randomAngle) * randomDist);
+
+                if (TryRaycastToGround(candidatePoint, out Vector3 groundPos))
+                {
+                    if (Vector3.Distance(groundPos, playerPos) >= _minPlayerInitialDistance &&
+                        !EstaDemasiadoCercaDeOtrosEnemigos(groundPos, spawnedPositions, _minDistanceBetweenEnemies))
+                    {
+                        GameObject enemy = InstanciarEnemigo(enemyPrefab, groundPos);
+                        if (enemy != null)
+                        {
+                            spawnedPositions.Add(groundPos);
+                        }
+                    }
+                }
+            }
+
+            Debug.Log($"<color=#55FF55><b>[EnemySpawner]</b> ✅ ¡Generación simultánea completada con éxito!</color> " +
+                      $"Se han instanciado <b>{spawnedPositions.Count}</b> enemigos flotantes distribuidos por el mapa (Piso: {_currentFloor}).");
+        }
+
+        private bool TryFindWalkablePointInModule(GameObject modulo, Vector3 playerPos, List<Vector3> spawnedPositions, out Vector3 validPoint)
+        {
+            validPoint = Vector3.zero;
+            if (modulo == null) return false;
+
+            Vector3 center = modulo.transform.position;
+
+            // Muestreo de varias posiciones candidatas dentro del módulo
+            Vector3[] offsets = new Vector3[]
+            {
+                Vector3.zero,
+                new Vector3(UnityEngine.Random.Range(-3f, 3f), 0f, UnityEngine.Random.Range(-3f, 3f)),
+                new Vector3(UnityEngine.Random.Range(-6f, 6f), 0f, UnityEngine.Random.Range(-6f, 6f)),
+                new Vector3(UnityEngine.Random.Range(-4f, 4f), 0f, UnityEngine.Random.Range(-4f, 4f))
+            };
+
+            for (int i = 0; i < offsets.Length; i++)
+            {
+                Vector3 sampleOrigin = center + offsets[i];
+                if (TryRaycastToGround(sampleOrigin, out Vector3 detectedGround))
+                {
+                    if (Vector3.Distance(detectedGround, playerPos) >= _minPlayerInitialDistance &&
+                        !EstaDemasiadoCercaDeOtrosEnemigos(detectedGround, spawnedPositions, _minDistanceBetweenEnemies))
+                    {
+                        validPoint = detectedGround;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private bool EstaDemasiadoCercaDeOtrosEnemigos(Vector3 candidate, List<Vector3> existing, float minDist)
+        {
+            for (int i = 0; i < existing.Count; i++)
+            {
+                if (Vector3.Distance(candidate, existing[i]) < minDist)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private GameObject InstanciarEnemigo(GameObject prefab, Vector3 position)
+        {
+            Transform parent = _enemiesContainer != null ? _enemiesContainer : transform;
+            GameObject instance = Instantiate(prefab, position, Quaternion.identity, parent);
+            instance.name = $"EnemigoFlotante_P{_currentFloor}_{_activeEnemies.Count + 1}";
+
+            int enemyLayer = LayerMask.NameToLayer("Enemy");
+            if (enemyLayer != -1) instance.layer = enemyLayer;
+            instance.tag = "Enemy";
+
+            _activeEnemies.Add(instance);
+            return instance;
+        }
+
+        public List<GameObject> ObtenerModulosActivos(out string origenDiagnostico)
+        {
+            List<GameObject> modulosValidos = new List<GameObject>();
+            origenDiagnostico = "Desconocido";
+
+            // 1. LevelGenerator.Instance o FindAnyObjectByType
+            var levelGen = LevelGenerator.Instance ?? FindAnyObjectByType<LevelGenerator>();
+            if (levelGen != null && levelGen.SpawnedModules != null && levelGen.SpawnedModules.Count > 0)
+            {
+                foreach (var m in levelGen.SpawnedModules)
+                {
+                    if (m != null && m.activeInHierarchy)
+                    {
+                        modulosValidos.Add(m);
+                    }
+                }
+
+                if (modulosValidos.Count > 0)
+                {
+                    origenDiagnostico = $"LevelGenerator.SpawnedModules ({modulosValidos.Count} módulos vivos)";
+                    return modulosValidos;
+                }
+            }
+
+            // 2. Reescaneo de contenedor raíz
+            string[] posiblesRaices = new[] { "CitySectorZero_Root", "City_Root", "=== LEVEL ===", "LevelRoot", "Dungeon_Root" };
+            foreach (var nombreRaiz in posiblesRaices)
+            {
+                var raizGo = GameObject.Find(nombreRaiz);
+                if (raizGo != null)
+                {
+                    for (int i = 0; i < raizGo.transform.childCount; i++)
+                    {
+                        var hijo = raizGo.transform.GetChild(i).gameObject;
+                        if (hijo != null && hijo.activeInHierarchy)
+                        {
+                            modulosValidos.Add(hijo);
+                        }
+                    }
+
+                    if (modulosValidos.Count > 0)
+                    {
+                        origenDiagnostico = $"Contenedor Raíz '{nombreRaiz}' ({modulosValidos.Count} módulos hijos)";
+                        return modulosValidos;
+                    }
+                }
+            }
+
+            // 3. Reescaneo por prefabs modulares 'SM_' en la escena
+            var todosLosTransforms = FindObjectsByType<Transform>(FindObjectsInactive.Exclude);
+            foreach (var t in todosLosTransforms)
+            {
+                if (t == null) continue;
+                string n = t.name;
+                if (n.StartsWith("SM_") && t.parent != null && (t.parent.name.Contains("Root") || t.parent.name.Contains("City") || t.parent.parent == null))
+                {
+                    if (!modulosValidos.Contains(t.gameObject))
+                    {
+                        modulosValidos.Add(t.gameObject);
+                    }
+                }
+            }
+
+            if (modulosValidos.Count > 0)
+            {
+                origenDiagnostico = $"Búsqueda Modular de Escena 'SM_' ({modulosValidos.Count} módulos)";
+                return modulosValidos;
+            }
+
+            origenDiagnostico = "Ningún módulo detectado";
+            return modulosValidos;
+        }
+
+        private void BarajarLista<T>(List<T> lista)
+        {
+            if (lista == null || lista.Count <= 1) return;
+            for (int i = 0; i < lista.Count; i++)
+            {
+                int r = UnityEngine.Random.Range(i, lista.Count);
+                T temp = lista[i];
+                lista[i] = lista[r];
+                lista[r] = temp;
+            }
+        }
+
+        /// <summary>
+        /// Destruye las instancias de enemigos del nivel anterior.
+        /// </summary>
+        [ContextMenu("Limpiar Enemigos del Nivel")]
+        public void LimpiarEnemigosDelNivel()
+        {
+            int destroyedCount = 0;
+            for (int i = _activeEnemies.Count - 1; i >= 0; i--)
+            {
+                if (_activeEnemies[i] != null)
+                {
+                    Destroy(_activeEnemies[i]);
+                    destroyedCount++;
+                }
+            }
+            _activeEnemies.Clear();
+
+            if (_enemiesContainer != null)
+            {
+                for (int i = _enemiesContainer.childCount - 1; i >= 0; i--)
+                {
+                    Transform child = _enemiesContainer.GetChild(i);
+                    if (child != null)
+                    {
+                        Destroy(child.gameObject);
+                        destroyedCount++;
+                    }
+                }
+            }
+
+            if (destroyedCount > 0)
+            {
+                Debug.Log($"<color=#94A3B8>[EnemySpawner] 🧹 Limpieza: {destroyedCount} enemigo(s) del nivel anterior eliminados.</color>");
             }
         }
 
@@ -945,6 +1363,10 @@ namespace DemenciaNoLimite.Level
             if (_floatingEnemyPrefab == null)
             {
                 _floatingEnemyPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/EnemigoFlotante.prefab");
+            }
+            if (_enemyPrefabDefault == null && _floatingEnemyPrefab != null)
+            {
+                _enemyPrefabDefault = _floatingEnemyPrefab;
             }
 #endif
         }

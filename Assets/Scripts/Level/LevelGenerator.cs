@@ -177,6 +177,7 @@ namespace DemenciaNoLimite.Level
         public int PisoMaximo => pisoMaximo;
         public int MaxModules => _maxModules;
         public IReadOnlyList<GameObject> SpawnedModules => _spawnedModulesList;
+        public static LevelGenerator Instance { get; private set; }
 
         // ════════════════════════════════════════════════════════════════════
         // CICLO DE VIDA MONOBEHAVIOUR
@@ -184,6 +185,13 @@ namespace DemenciaNoLimite.Level
 
         private void Awake()
         {
+            if (Instance != null && Instance != this)
+            {
+                Destroy(this);
+                return;
+            }
+            Instance = this;
+
             ObtenerOInicializarCityRoot();
 #if UNITY_EDITOR
             if (startRoom == null || startRoom.Count == 0 || elevadorSalidaPrefabs == null || elevadorSalidaPrefabs.Count == 0)
@@ -203,6 +211,14 @@ namespace DemenciaNoLimite.Level
                 {
                     GenerateCitySector();
                 }
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this)
+            {
+                Instance = null;
             }
         }
 
@@ -279,8 +295,9 @@ namespace DemenciaNoLimite.Level
             // 7. Reposicionar y reactivar de forma 100% segura al jugador tras finalizar y sincronizar físicas
             ReposicionarYReactivarJugador();
 
-            // 8. Respaldo directo para forzar el spawn de armas en el nuevo piso
+            // 8. Respaldo directo para forzar el spawn de armas y enemigos en el nuevo piso
             DemenciaNoLimite.Level.WeaponSpawner.Instance?.IniciarSpawnDeArmas(0.5f);
+            DemenciaNoLimite.Level.EnemySpawner.Instance?.IniciarSpawnDeEnemigos(0.6f);
         }
 
         /// <summary>
@@ -401,8 +418,9 @@ namespace DemenciaNoLimite.Level
             _isGenerating = false;
             Debug.Log($"[LevelGenerator] Piso {pisoActual} generado con éxito ({_spawnedModulesCount} módulos estructurales, {_placedModuleBounds.Count} volúmenes registrados).");
 
-            // 8. GARANTÍA DE SPAWN DE ARMAS Y NOTIFICACIÓN AL EVENT BUS
+            // 8. GARANTÍA DE SPAWN DE ARMAS, ENEMIGOS Y NOTIFICACIÓN AL EVENT BUS
             DemenciaNoLimite.Level.WeaponSpawner.Instance?.IniciarSpawnDeArmas(0.5f);
+            DemenciaNoLimite.Level.EnemySpawner.Instance?.IniciarSpawnDeEnemigos(0.6f);
             GameEvents.FireMapGenerationCompleted();
         }
 
@@ -1252,6 +1270,7 @@ namespace DemenciaNoLimite.Level
                 _spawnedModulesList.Add(exitElevator);
                 Debug.Log($"[LevelGenerator] [FALLBACK EXITOSO] Elevador de salida '{exitElevator.name}' colocado forzosamente reemplazando a '{targetName}'. Panel HABILITADO.");
                 DemenciaNoLimite.Level.WeaponSpawner.Instance?.IniciarSpawnDeArmas(0.5f);
+                DemenciaNoLimite.Level.EnemySpawner.Instance?.IniciarSpawnDeEnemigos(0.6f);
                 return;
             }
 
@@ -1307,6 +1326,7 @@ namespace DemenciaNoLimite.Level
                 _spawnedModulesList.Add(exitElevator);
                 Debug.Log($"[LevelGenerator] [FALLBACK EXITOSO] Elevador de salida '{exitElevator.name}' acoplado forzosamente a la sala de inicio. Panel HABILITADO.");
                 DemenciaNoLimite.Level.WeaponSpawner.Instance?.IniciarSpawnDeArmas(0.5f);
+                DemenciaNoLimite.Level.EnemySpawner.Instance?.IniciarSpawnDeEnemigos(0.6f);
             }
         }
 

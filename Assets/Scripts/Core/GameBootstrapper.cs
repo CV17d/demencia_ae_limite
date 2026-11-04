@@ -101,7 +101,9 @@ namespace DemenciaNoLimite
             var degradation = managerGo.AddComponent<MentalDegradationSystem>();
 
             // 2. Spawners
-            var enemySpawner = managerGo.AddComponent<EnemySpawner>();
+            var enemySpawner = managerGo.GetComponent<DemenciaNoLimite.Level.EnemySpawner>()
+                             ?? FindAnyObjectByType<DemenciaNoLimite.Level.EnemySpawner>()
+                             ?? managerGo.AddComponent<DemenciaNoLimite.Level.EnemySpawner>();
             var hazardSpawner = managerGo.AddComponent<HazardSpawner>();
             var weaponSpawner = managerGo.GetComponent<DemenciaNoLimite.Level.WeaponSpawner>()
                              ?? FindAnyObjectByType<DemenciaNoLimite.Level.WeaponSpawner>()
@@ -207,8 +209,10 @@ namespace DemenciaNoLimite
                 var uiGo = new GameObject("=== UI_CONTROLLERS ===");
                 uiGo.AddComponent<HUDController>();
                 uiGo.AddComponent<ElevatorUIController>();
-                uiGo.AddComponent<BossHealthBarUI>();
-                uiGo.AddComponent<InventoryUI>();
+                uiGo.AddComponent<BossHealthBarUI>();
+
+                uiGo.AddComponent<InventoryUI>();
+
                 uiGo.AddComponent<RuntimeDebugOverlay>(); // Draws on-screen graphics via OnGUI
             }
         }

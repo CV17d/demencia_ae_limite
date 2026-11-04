@@ -82,7 +82,10 @@ namespace DemenciaNoLimite.Pickups
         // ════════════════════════════════════════════════════════════════════
 
         [Header("Entrada de Usuario e Interacción")]
-        [Tooltip("Tecla requerida para recoger el ítem del suelo.")]
+        [Tooltip("Si está activo, recoge el arma/ítem automáticamente al entrar en contacto con el jugador (OnTriggerEnter).")]
+        [SerializeField] private bool _pickupOnTriggerEnter = true;
+
+        [Tooltip("Tecla requerida para recoger el ítem del suelo si la auto-recogida está desactivada.")]
         [SerializeField] private KeyCode _interactKey = KeyCode.E;
 
         [Tooltip("Si está activo, requiere que el jugador esté mirando en dirección al ítem además de estar dentro del Trigger.")]
@@ -325,6 +328,13 @@ namespace DemenciaNoLimite.Pickups
                 _isPlayerInPhysicalTrigger = true;
                 _isPlayerInRange = true;
 
+                // Si está habilitada la auto-recogida por contacto directo
+                if (_pickupOnTriggerEnter)
+                {
+                    EjecutarRecogida();
+                    return;
+                }
+
                 if (_externalPromptUI != null)
                 {
                     _externalPromptUI.SetActive(true);
@@ -416,7 +426,11 @@ namespace DemenciaNoLimite.Pickups
             switch (_itemType)
             {
                 case WorldItemType.Weapon:
-                    RecogerArma(pm, playerTarget);
+                    if (!RecogerArma(pm, playerTarget))
+                    {
+                        Debug.LogWarning($"[WorldItemPickup] ⚠️ El inventario no pudo registrar el arma '{_itemName}'. Se conserva activa en el suelo.");
+                        return;
+                    }
                     break;
 
                 case WorldItemType.Ammo:
@@ -462,7 +476,7 @@ namespace DemenciaNoLimite.Pickups
             FinalizarObjetoEnMundo();
         }
 
-        private void RecogerArma(PlayerManager pm, GameObject playerTarget)
+        private bool RecogerArma(PlayerManager pm, GameObject playerTarget)
         {
             string resolvedId = ObtenerWeaponId();
             Debug.Log($"[WorldItemPickup] Procesando recogida de arma: '{resolvedId}' (GameObject: '{gameObject.name}')");
@@ -538,15 +552,29 @@ namespace DemenciaNoLimite.Pickups
                 weaponToEquip.WeaponID = resolvedId;
             }
 
-            // 4. Agregar de forma obligatoria y garantizada al inventario
-            if (inventory != null)
+            // 4. Sincronizar con el panel de cuadrícula dinámico de InventoryUIController
+            int ammoFromWeapon = (_amount > 0) ? _amount : (weaponToEquip != null && weaponToEquip.MagazineSize > 0 ? weaponToEquip.MagazineSize : 12);
+            Sprite iconSprite = (_inventoryItemData != null) ? _inventoryItemData.ItemIcon : null;
+            string finalDisplayName = (!string.IsNullOrEmpty(_itemName) && _itemName != "Pistola Táctica") ? _itemName : resolvedId;
+
+            bool registroExitoso = false;
+
+            if (InventoryUIController.Instance != null)
             {
-                bool added = inventory.AddWeapon(weaponToEquip, autoEquip: true);
-                Debug.Log($"[WorldItemPickup] ✅ Arma '{weaponToEquip.DisplayName}' ({weaponToEquip.WeaponID}) registrada en PlayerInventory. Éxito: {added}. Ranuras totales: {inventory.Slots.Count}");
+                registroExitoso = InventoryUIController.Instance.RegisterOrPickupWeapon(
+                    weaponId: resolvedId,
+                    displayName: finalDisplayName,
+                    weaponData: weaponToEquip,
+                    icon: iconSprite,
+                    ammoAmount: ammoFromWeapon,
+                    out bool wasAddedAsNewSlot
+                );
             }
-            else
+            else if (inventory != null)
             {
-                Debug.LogError("[WorldItemPickup] Error crítico: No se pudo resolver ni crear PlayerInventory para registrar el arma.");
+                // Fallback directo a PlayerInventory si la UI aún no está inicializada
+                registroExitoso = inventory.AddWeapon(weaponToEquip, autoEquip: true);
+                Debug.Log($"[WorldItemPickup] ✅ Arma '{weaponToEquip.DisplayName}' ({weaponToEquip.WeaponID}) registrada en PlayerInventory. Éxito: {registroExitoso}. Ranuras totales: {inventory.Slots.Count}");
             }
 
             // 5. Llamada directa y garantizada a PlayerWeaponEquipManager para instanciar el modelo 3D bajo el WeaponHolder
@@ -558,6 +586,8 @@ namespace DemenciaNoLimite.Pickups
             {
                 Debug.LogWarning("[WorldItemPickup] No se encontró PlayerWeaponEquipManager en la escena para instanciar el arma 3D bajo la Main Camera.");
             }
+
+            return registroExitoso;
         }
 
         private void RecogerMunicion(PlayerManager pm, GameObject playerTarget)
@@ -633,14 +663,8 @@ namespace DemenciaNoLimite.Pickups
                 _externalPromptUI.SetActive(false);
             }
 
-            if (_destroyOnPickup)
-            {
-                Destroy(gameObject);
-            }
-            else
-            {
-                gameObject.SetActive(false);
-            }
+            // Desactivar el GameObject en el mundo (no destruir inmediatamente) para preservar la instancia
+            gameObject.SetActive(false);
         }
 
         // ════════════════════════════════════════════════════════════════════

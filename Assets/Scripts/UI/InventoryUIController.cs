@@ -671,6 +671,119 @@ namespace DemenciaNoLimite.UI
             OnInventoryUpdated?.Invoke();
         }
 
+        /// <summary>
+        /// Registra o recoge un arma en la cuadrícula del inventario.
+        /// - Si el arma ya existe: no duplica la ranura y suma su munición a la reserva.
+        /// - Si es un arma nueva: agrega dinámicamente una nueva ranura con sus datos y la equipa.
+        /// </summary>
+        public bool RegisterOrPickupWeapon(string weaponId, string displayName, WeaponData weaponData, Sprite icon, int ammoAmount, out bool wasAddedAsNewSlot)
+        {
+            wasAddedAsNewSlot = false;
+            if (string.IsNullOrEmpty(weaponId)) return false;
+
+            ResolverReferenciasJugador();
+
+            // 1. COMPROBAR SI EL ARMA YA EXISTE EN EL INVENTARIO
+            for (int i = 0; i < _slots.Count; i++)
+            {
+                var s = _slots[i];
+                if (s != null && !s.IsEmpty && s.ItemData != null && s.ItemData.Type == ItemType.Weapon)
+                {
+                    if (string.Equals(s.ItemData.WeaponId, weaponId, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(s.ItemData.ItemName, displayName, StringComparison.OrdinalIgnoreCase) ||
+                        (!string.IsNullOrEmpty(s.ItemData.Id) && string.Equals(s.ItemData.Id, weaponId, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        // Ya tiene el arma: Sumar munición a la reserva en lugar de duplicar
+                        WeaponType ammoType = (weaponData != null) ? weaponData.Type : (s.ItemData.WeaponData != null ? s.ItemData.WeaponData.Type : WeaponType.Hitscan);
+                        int ammoToAdd = ammoAmount > 0 ? ammoAmount : ((weaponData != null && weaponData.MagazineSize > 0) ? weaponData.MagazineSize : 15);
+
+                        if (_playerInventory != null)
+                        {
+                            _playerInventory.AddReserveAmmo(ammoType, ammoToAdd);
+                        }
+
+                        Debug.Log($"[InventoryUIController] 📦 Arma duplicada '{displayName}' recogida. Se sumaron {ammoToAdd} proyectiles a la reserva de {ammoType}.");
+
+                        RefrescarVistaCompleta();
+                        OnInventoryUpdated?.Invoke();
+                        return true;
+                    }
+                }
+            }
+
+            // 2. ES UN ARMA NUEVA: AGREGAR RANURA A LA CUADRÍCULA
+            wasAddedAsNewSlot = true;
+            var newWeaponItem = InventoryItemData.CreateWeaponItem(
+                id: weaponId,
+                displayName: !string.IsNullOrEmpty(displayName) ? displayName : weaponId,
+                desc: weaponData != null && !string.IsNullOrEmpty(weaponData.Description) ? weaponData.Description : "Arma de combate recuperada del sector de la Torre.",
+                wData: weaponData
+            );
+
+            if (icon != null)
+            {
+                newWeaponItem.ItemIcon = icon;
+            }
+
+            // Buscar primer casillero libre o crear uno adicional si la cuadrícula está llena
+            int targetSlotIndex = -1;
+            for (int i = 0; i < _slots.Count; i++)
+            {
+                if (_slots[i].IsEmpty)
+                {
+                    targetSlotIndex = i;
+                    break;
+                }
+            }
+
+            if (targetSlotIndex < 0)
+            {
+                // Expandir cuadrícula dinámicamente
+                var newSlot = new InventorySlot();
+                _slots.Add(newSlot);
+                targetSlotIndex = _slots.Count - 1;
+            }
+
+            _slots[targetSlotIndex] = new InventorySlot(newWeaponItem, 1, false);
+
+            // Registrar en PlayerInventory
+            if (_playerInventory != null)
+            {
+                if (weaponData == null)
+                {
+                    weaponData = ScriptableObject.CreateInstance<WeaponData>();
+                    weaponData.WeaponID = weaponId;
+                    weaponData.DisplayName = displayName;
+                    weaponData.BaseDamage = 30f;
+                    weaponData.MagazineSize = 12;
+                }
+                _playerInventory.AddWeapon(weaponData, autoEquip: true);
+            }
+
+            // Equipar en primera persona
+            if (_weaponEquipManager == null)
+            {
+                _weaponEquipManager = PlayerWeaponEquipManager.Instance ?? FindAnyObjectByType<PlayerWeaponEquipManager>();
+            }
+            if (_weaponEquipManager != null)
+            {
+                _weaponEquipManager.EquipWeaponExplicit(weaponId, weaponData, null);
+            }
+
+            // Marcar equipada
+            _selectedSlotIndex = targetSlotIndex;
+            for (int i = 0; i < _slots.Count; i++)
+            {
+                _slots[i].IsEquipped = (i == targetSlotIndex);
+            }
+
+            RefrescarVistaCompleta();
+            OnInventoryUpdated?.Invoke();
+
+            Debug.Log($"[InventoryUIController] ✅ Nueva arma agregada a la cuadrícula: '{displayName}' (Ranura {targetSlotIndex + 1}).");
+            return true;
+        }
+
         // ════════════════════════════════════════════════════════════════════
         // ACTUALIZACIÓN DE VISTA Y DETALLES
         // ════════════════════════════════════════════════════════════════════
@@ -711,6 +824,17 @@ namespace DemenciaNoLimite.UI
             }
 
             ActualizarPanelDetalles();
+
+            // Si el slot contiene un arma, empuñarla de inmediato en primera persona
+            if (_selectedSlotIndex >= 0 && _selectedSlotIndex < _slots.Count)
+            {
+                var slot = _slots[_selectedSlotIndex];
+                if (slot != null && !slot.IsEmpty && slot.ItemData != null && slot.ItemData.Type == ItemType.Weapon)
+                {
+                    EquipSelectedItem();
+                }
+            }
+
             OnSlotSelected?.Invoke(_selectedSlotIndex, (_selectedSlotIndex >= 0 && _selectedSlotIndex < _slots.Count) ? _slots[_selectedSlotIndex] : null);
         }
 
@@ -826,6 +950,7 @@ namespace DemenciaNoLimite.UI
         private void ConfigurarTMPParaSeguridadDeTexto(TMP_Text tmp)
         {
             if (tmp == null) return;
+            InventorySlotUI.AsegurarFuenteTMP(tmp);
             tmp.textWrappingMode = TextWrappingModes.Normal;
             tmp.overflowMode = TextOverflowModes.Ellipsis;
             tmp.enableAutoSizing = true;
@@ -835,12 +960,20 @@ namespace DemenciaNoLimite.UI
 
         private int EncontrarPrimerSlotConItem()
         {
+            // Priorizar slot del arma actualmente equipada
+            for (int i = 0; i < _slots.Count; i++)
+            {
+                if (!_slots[i].IsEmpty && _slots[i].IsEquipped) return i;
+            }
+
+            // Fallback al primer slot con cualquier ítem
             for (int i = 0; i < _slots.Count; i++)
             {
                 if (!_slots[i].IsEmpty) return i;
             }
             return 0;
         }
+
 
         // ════════════════════════════════════════════════════════════════════
         // VINCULACIÓN DE BOTONES Y CONSTRUCCIÓN DE SLOTS
@@ -990,6 +1123,7 @@ namespace DemenciaNoLimite.UI
             headerTmp.fontStyle = FontStyles.Bold;
             headerTmp.alignment = TextAlignmentOptions.Center;
             headerTmp.color = new Color(0.95f, 0.85f, 0.35f, 1.0f); // Ámbar CRT
+            InventorySlotUI.AsegurarFuenteTMP(headerTmp);
 
             // 4. Panel Izquierdo: Contenedor con GridLayoutGroup y ContentSizeFitter
             GameObject gridPanelGo = new GameObject("Grid_Container_Panel");
@@ -1001,8 +1135,8 @@ namespace DemenciaNoLimite.UI
             gridPanelRt.offsetMax = new Vector2(-15f, -70f);
 
             var gridLayout = gridPanelGo.AddComponent<GridLayoutGroup>();
-            gridLayout.cellSize = new Vector2(110f, 110f); // Cuadrados perfectos PS1
-            gridLayout.spacing = new Vector2(16f, 16f);
+            gridLayout.cellSize = new Vector2(116f, 116f); // Casillas cuadradas PS1 ampliadas
+            gridLayout.spacing = new Vector2(12f, 12f);
             gridLayout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
             gridLayout.constraintCount = 4; // 4 columnas x 3 filas = 12 casillas
             gridLayout.childAlignment = TextAnchor.UpperLeft;
@@ -1053,6 +1187,7 @@ namespace DemenciaNoLimite.UI
             _detailCategoryText = catGo.AddComponent<TextMeshProUGUI>();
             _detailCategoryText.fontSize = 12;
             _detailCategoryText.color = new Color(0.35f, 0.85f, 0.95f);
+            InventorySlotUI.AsegurarFuenteTMP(_detailCategoryText);
 
             // Previa de Icono en Detalle
             GameObject iconPreviewGo = new GameObject("Detail_IconPreview");
@@ -1122,6 +1257,7 @@ namespace DemenciaNoLimite.UI
             labelTmp.fontStyle = FontStyles.Bold;
             labelTmp.alignment = TextAlignmentOptions.Center;
             labelTmp.color = Color.white;
+            InventorySlotUI.AsegurarFuenteTMP(labelTmp);
 
             return btn;
         }
@@ -1131,7 +1267,7 @@ namespace DemenciaNoLimite.UI
             GameObject slotGo = new GameObject($"Slot_{slotIndex:D2}");
             slotGo.transform.SetParent(parent, false);
             var rt = slotGo.AddComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(110f, 110f);
+            rt.sizeDelta = new Vector2(116f, 116f);
 
             var bgImg = slotGo.AddComponent<Image>();
             bgImg.color = new Color(0.08f, 0.10f, 0.12f, 0.90f);
@@ -1193,8 +1329,26 @@ namespace DemenciaNoLimite.UI
             badgeTmp.color = new Color(0.2f, 0.95f, 0.45f, 1f); // Verde fósforo
             badgeGo.SetActive(false);
 
+            // Texto para nombre de arma si no hay ícono
+            GameObject nameGo = new GameObject("ItemNameText");
+            nameGo.transform.SetParent(slotGo.transform, false);
+            var nameRt = nameGo.AddComponent<RectTransform>();
+            nameRt.anchorMin = new Vector2(0.05f, 0.12f);
+            nameRt.anchorMax = new Vector2(0.95f, 0.88f);
+            nameRt.offsetMin = Vector2.zero;
+            nameRt.offsetMax = Vector2.zero;
+            var nameTmp = nameGo.AddComponent<TextMeshProUGUI>();
+            nameTmp.alignment = TextAlignmentOptions.Center;
+            nameTmp.textWrappingMode = TextWrappingModes.Normal;
+            nameTmp.enableAutoSizing = true;
+            nameTmp.fontSizeMin = 8f;
+            nameTmp.fontSizeMax = 12f;
+            nameTmp.fontStyle = FontStyles.Bold;
+            nameTmp.color = Color.white;
+            nameGo.SetActive(false);
+
             var slotUI = slotGo.AddComponent<InventorySlotUI>();
-            slotUI.AutoConfigurarReferencias(bgImg, borderImg, iconImg, stackTmp, badgeGo);
+            slotUI.AutoConfigurarReferencias(bgImg, borderImg, iconImg, stackTmp, badgeGo, nameTmp);
 
             return slotGo;
         }

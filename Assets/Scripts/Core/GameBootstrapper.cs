@@ -62,7 +62,13 @@ namespace DemenciaNoLimite
         {
             yield return null; // Wait 1 frame
             gm.StartNewRun();
-            Debug.Log("<color=green><b>[DEMENCIA NO LIMITE]</b> ¡Run iniciada! Bienvenido a la Torre de la Frontera.</color>");
+            // Garantizar que las armas de prueba (Revólver, Trabeca, Bingala) aparezcan en el Piso 01
+            yield return new WaitForEndOfFrame();
+            var player = GameObject.FindGameObjectWithTag("Player");
+            Vector3 playerPos = player != null ? player.transform.position : Vector3.zero;
+            DemenciaNoLimite.Level.WeaponSpawner.Instance?.GarantizarArmasInicialesPiso01(playerPos);
+
+            Debug.Log("<color=green><b>[DEMENCIA NO LIMITE]</b> ¡Run iniciada! Armas iniciales garantizadas en Piso 01.</color>");
         }
 
         private void EnsureLighting()

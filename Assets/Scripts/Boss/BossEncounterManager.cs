@@ -16,6 +16,9 @@ namespace DemenciaNoLimite.Boss
     public class BossEncounterManager : MonoBehaviour
     {
         [Header("Boss Prefabs")]
+        [SerializeField] private GameObject _bossCarniceroPrefab;
+        [SerializeField] private GameObject _bossMaquinaPrefab;
+        [SerializeField] private GameObject _bossDemenciaPrefab;
         [SerializeField] private GameObject _bossPrefabDefault;
 
         [Header("Arena References")]
@@ -58,7 +61,34 @@ namespace DemenciaNoLimite.Boss
             {
                 _bossMathController = FindAnyObjectByType<AdaptiveBossController>();
             }
+
+            EnsureDefaultPrefabReferences();
         }
+
+        private void EnsureDefaultPrefabReferences()
+        {
+#if UNITY_EDITOR
+            if (_bossCarniceroPrefab == null)
+                _bossCarniceroPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Jefes/Boss_Carnicero.prefab");
+            if (_bossMaquinaPrefab == null)
+                _bossMaquinaPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Jefes/Boss_Maquina.prefab");
+            if (_bossDemenciaPrefab == null)
+                _bossDemenciaPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Jefes/Boss_Demencia.prefab");
+#endif
+            if (_bossCarniceroPrefab == null)
+                _bossCarniceroPrefab = Resources.Load<GameObject>("Prefabs/Jefes/Boss_Carnicero") ?? Resources.Load<GameObject>("Boss_Carnicero");
+            if (_bossMaquinaPrefab == null)
+                _bossMaquinaPrefab = Resources.Load<GameObject>("Prefabs/Jefes/Boss_Maquina") ?? Resources.Load<GameObject>("Boss_Maquina");
+            if (_bossDemenciaPrefab == null)
+                _bossDemenciaPrefab = Resources.Load<GameObject>("Prefabs/Jefes/Boss_Demencia") ?? Resources.Load<GameObject>("Boss_Demencia");
+        }
+
+#if UNITY_EDITOR
+        private void OnValidate()
+        {
+            EnsureDefaultPrefabReferences();
+        }
+#endif
 
         private void OnFloorReady(FloorConfig config)
         {
@@ -82,6 +112,8 @@ namespace DemenciaNoLimite.Boss
 
             CleanupBoss();
 
+            EnsureDefaultPrefabReferences();
+
             // Generate adaptive stats
             BossStats stats = _bossMathController.GenerateBossStats(config, gm.Player, gm.EnemyBuffs);
 
@@ -93,10 +125,18 @@ namespace DemenciaNoLimite.Boss
             float elevation = FloorConfig.GetFloorElevation(config.FloorNumber);
             Vector3 spawnPos = new Vector3((arenaW / 2) * cellSize, elevation, (arenaH / 2) * cellSize);
 
+            GameObject prefabToSpawn = null;
+            if (config.BossID == "BOSS_ACT1_CARNICERO") prefabToSpawn = _bossCarniceroPrefab;
+            else if (config.BossID == "BOSS_ACT2_MAQUINA") prefabToSpawn = _bossMaquinaPrefab;
+            else if (config.BossID == "BOSS_ACT3_DEMENCIA") prefabToSpawn = _bossDemenciaPrefab;
+
+            if (prefabToSpawn == null) prefabToSpawn = _bossPrefabDefault;
+
             GameObject bossGo = null;
-            if (_bossPrefabDefault != null)
+            if (prefabToSpawn != null)
             {
-                bossGo = Instantiate(_bossPrefabDefault, spawnPos, Quaternion.identity);
+                bossGo = Instantiate(prefabToSpawn, spawnPos, Quaternion.identity);
+                bossGo.name = $"Boss_{config.BossID}";
             }
             else
             {

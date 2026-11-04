@@ -143,6 +143,7 @@ namespace DemenciaNoLimite.Pickups
         // ════════════════════════════════════════════════════════════════════
 
         private bool _isPlayerInRange = false;
+        private bool _isPlayerInPhysicalTrigger = false;
         private GameObject _cachedPlayerGo;
         private PlayerManager _cachedPlayerManager;
         private Camera _mainCamera;
@@ -187,6 +188,9 @@ namespace DemenciaNoLimite.Pickups
             {
                 ActualizarAnimacionReposo();
             }
+
+            // Detección continua de interacción por Raycast de la cámara
+            ActualizarInteraccionPorRaycast();
 
             // Detección de interacción por tecla
             if (_isPlayerInRange)
@@ -301,6 +305,7 @@ namespace DemenciaNoLimite.Pickups
             {
                 _cachedPlayerGo = playerGo;
                 _cachedPlayerManager = playerGo.GetComponentInParent<PlayerManager>() ?? PlayerManager.Instance;
+                _isPlayerInPhysicalTrigger = true;
                 _isPlayerInRange = true;
 
                 if (_externalPromptUI != null)
@@ -314,6 +319,7 @@ namespace DemenciaNoLimite.Pickups
         {
             if (EsJugadorValido(other, out GameObject playerGo))
             {
+                _isPlayerInPhysicalTrigger = false;
                 if (_cachedPlayerGo == playerGo || _cachedPlayerGo == null)
                 {
                     _isPlayerInRange = false;
@@ -585,8 +591,64 @@ namespace DemenciaNoLimite.Pickups
             return angle <= _lookAtAngleThreshold;
         }
 
+        /// <summary>
+        /// Detecta la interacción por Raycast directo cuando el jugador mira al ítem con la retícula.
+        /// </summary>
+        private void ActualizarInteraccionPorRaycast()
+        {
+            if (_mainCamera == null) _mainCamera = Camera.main;
+            if (_mainCamera == null) return;
+
+            // Si ya está físicamente dentro del trigger de proximidad, preservar estado
+            if (_isPlayerInPhysicalTrigger) return;
+
+            Ray ray = new Ray(_mainCamera.transform.position, _mainCamera.transform.forward);
+            float maxRaycastDist = 3.2f;
+
+            if (Physics.Raycast(ray, out RaycastHit hit, maxRaycastDist))
+            {
+                if (hit.collider != null && (hit.collider.gameObject == gameObject || hit.collider.transform.IsChildOf(transform)))
+                {
+                    if (!_isPlayerInRange)
+                    {
+                        PlayerManager pm = PlayerManager.Instance ?? FindAnyObjectByType<PlayerManager>();
+                        _cachedPlayerManager = pm;
+                        _cachedPlayerGo = pm != null ? pm.gameObject : null;
+                        _isPlayerInRange = true;
+
+                        if (_externalPromptUI != null)
+                        {
+                            _externalPromptUI.SetActive(true);
+                        }
+                    }
+                    return;
+                }
+            }
+
+            // Si estaba en rango por raycast y ya no se apunta al ítem, salir de rango
+            if (_isPlayerInRange && !_isPlayerInPhysicalTrigger)
+            {
+                _isPlayerInRange = false;
+                if (_externalPromptUI != null)
+                {
+                    _externalPromptUI.SetActive(false);
+                }
+            }
+        }
+
         private void ActualizarAnimacionReposo()
         {
+            Rigidbody rb = GetComponent<Rigidbody>();
+            if (rb != null && !rb.isKinematic)
+            {
+                // Si el objeto está cayendo o acelerado por físicas, actualizar punto de anclaje y no forzar posición
+                if (rb.linearVelocity.sqrMagnitude > 0.01f)
+                {
+                    _initialLocalPosition = transform.localPosition;
+                    return;
+                }
+            }
+
             // Rotación suave continua
             if (_rotateSpeed > 0f)
             {
@@ -603,10 +665,36 @@ namespace DemenciaNoLimite.Pickups
 
         private void AsegurarColliderTrigger()
         {
-            _triggerCollider = GetComponent<Collider>();
-            if (_triggerCollider != null)
+            Collider[] colliders = GetComponentsInChildren<Collider>(true);
+
+            // 1. Si ya existe un collider marcado expresamente como Trigger, usarlo
+            for (int i = 0; i < colliders.Length; i++)
             {
-                _triggerCollider.isTrigger = true;
+                if (colliders[i] != null && colliders[i].isTrigger)
+                {
+                    _triggerCollider = colliders[i];
+                    return;
+                }
+            }
+
+            // 2. Si hay Rigidbody, mantener los colisionadores físicos sólidos (para reposar en el suelo)
+            // y añadir un SphereCollider trigger secundario para proximidad
+            Rigidbody rb = GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                SphereCollider triggerSphere = gameObject.AddComponent<SphereCollider>();
+                triggerSphere.isTrigger = true;
+                triggerSphere.radius = 1.8f;
+                _triggerCollider = triggerSphere;
+            }
+            else
+            {
+                // Si no hay Rigidbody, el collider existente puede operar como Trigger
+                _triggerCollider = GetComponent<Collider>();
+                if (_triggerCollider != null)
+                {
+                    _triggerCollider.isTrigger = true;
+                }
             }
         }
 

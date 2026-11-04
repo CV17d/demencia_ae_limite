@@ -162,21 +162,62 @@ namespace DemenciaNoLimite.Player
         [SerializeField] private Vector3 _defaultHolderRotation = Vector3.zero;
 
         // ════════════════════════════════════════════════════════════════════
-        // INTEGRACIÓN DIEGÉTICA Y ANIMACIÓN PROCEDIMENTAL (SWAY)
+        // CAPA PROCEDIMENTAL DE BOBBING (PASOS) E INERCIA/SWAY (RATÓN)
         // ════════════════════════════════════════════════════════════════════
 
-        [Header("Balanceo e Inercia Procedimental (Weapon Sway)")]
+        [Header("Vaivén Procedimental por Pasos (Weapon Bobbing)")]
+        [Tooltip("Activa el vaivén cíclico del WeaponHolder sincronizado con los pasos y velocidad del jugador.")]
+        [SerializeField] private bool _enableWeaponBobbing = true;
+
+        [Tooltip("Frecuencia base del balanceo al caminar.")]
+        [SerializeField] private float _walkBobFrequency = 8.5f;
+
+        [Tooltip("Multiplicador de frecuencia cuando el jugador corre (sprint).")]
+        [SerializeField] private float _sprintBobMultiplier = 1.35f;
+
+        [Tooltip("Amplitud del desplazamiento horizontal cíclico (eje local X).")]
+        [SerializeField] private float _bobAmountX = 0.015f;
+
+        [Tooltip("Amplitud del desplazamiento vertical cíclico (eje local Y).")]
+        [SerializeField] private float _bobAmountY = 0.018f;
+
+        [Tooltip("Rotación angular procedural de ladeo (Roll en eje Z) al dar pasos.")]
+        [SerializeField] private float _bobTiltAngle = 1.2f;
+
+        [Tooltip("Velocidad de suavizado del bobbing (retorno fluido libre de tirones).")]
+        [SerializeField] private float _bobSmoothing = 10f;
+
+        [Header("Respiración en Reposo (Idle Breathing)")]
+        [Tooltip("Aplica una sutil oscilación senoidal cuando el jugador está detenido.")]
+        [SerializeField] private bool _enableIdleBreathing = true;
+
+        [Tooltip("Velocidad de la oscilación de respiración.")]
+        [SerializeField] private float _idleBreathingSpeed = 1.8f;
+
+        [Tooltip("Amplitud de la oscilación de respiración.")]
+        [SerializeField] private float _idleBreathingAmount = 0.003f;
+
+        [Header("Inercia y Sway por Entrada del Ratón (Mouse Sway)")]
         [Tooltip("Activa la inercia procedural del arma 3D en respuesta al movimiento del ratón.")]
         [SerializeField] private bool _enableWeaponSway = true;
 
-        [Tooltip("Sensibilidad de la inercia del arma.")]
+        [Tooltip("Sensibilidad de desplazamiento posicional por inercia.")]
         [SerializeField] private float _swayAmount = 1.2f;
 
-        [Tooltip("Límite máximo de desplazamiento por inercia.")]
-        [SerializeField] private float _maxSwayAmount = 0.05f;
+        [Tooltip("Límite máximo de desplazamiento posicional por inercia.")]
+        [SerializeField] private float _maxSwayAmount = 0.04f;
+
+        [Tooltip("Sensibilidad de rotación angular (Pitch / Yaw) por inercia del ratón.")]
+        [SerializeField] private float _swayRotAmount = 2.5f;
+
+        [Tooltip("Inclinación de ladeo (Roll) al girar la vista rápidamente.")]
+        [SerializeField] private float _swayRollAmount = 3.5f;
+
+        [Tooltip("Límite máximo de rotación angular por inercia en grados.")]
+        [SerializeField] private float _maxSwayRotAngle = 6.0f;
 
         [Tooltip("Velocidad de suavizado del retorno del arma a su posición central.")]
-        [SerializeField] private float _swaySmoothSpeed = 8f;
+        [SerializeField] private float _swaySmoothSpeed = 9f;
 
         // ════════════════════════════════════════════════════════════════════
         // COMPONENTES CACHEADOS
@@ -186,6 +227,8 @@ namespace DemenciaNoLimite.Player
         [SerializeField] private PlayerManager _playerManager;
         [SerializeField] private PlayerInventory _playerInventory;
         [SerializeField] private PlayerHandController _playerHandController;
+        [SerializeField] private FirstPersonController _fpsController;
+        [SerializeField] private CharacterController _characterController;
 
         // ════════════════════════════════════════════════════════════════════
         // ESTADO INTERNO
@@ -200,7 +243,16 @@ namespace DemenciaNoLimite.Player
 
         private Vector3 _holderInitialLocalPosition;
         private Quaternion _holderInitialLocalRotation;
+        private bool _holderBaseTransformInitialized = false;
+        private bool _hasExternalMotionComponent = false;
         private int _cachedWeaponLayer = -1;
+
+        // Variables de Motion Procedural
+        private float _bobTimer = 0f;
+        private Vector3 _currentBobPosition = Vector3.zero;
+        private Quaternion _currentBobRotation = Quaternion.identity;
+        private Vector3 _currentSwayPosition = Vector3.zero;
+        private Quaternion _currentSwayRotation = Quaternion.identity;
 
         // ════════════════════════════════════════════════════════════════════
         // EVENTOS PÚBLICOS
@@ -254,10 +306,7 @@ namespace DemenciaNoLimite.Player
 
         private void Update()
         {
-            if (_enableWeaponSway && _weaponHolder != null)
-            {
-                ActualizarWeaponSway();
-            }
+            ActualizarMotionProcedural();
         }
 
         private void OnDisable()
@@ -811,10 +860,11 @@ namespace DemenciaNoLimite.Player
                 }
             }
 
-            if (_weaponHolder != null)
+            if (_weaponHolder != null && !_holderBaseTransformInitialized)
             {
-                _holderInitialLocalPosition = _weaponHolder.localPosition;
-                _holderInitialLocalRotation = _weaponHolder.localRotation;
+                _holderInitialLocalPosition = _defaultHolderPosition;
+                _holderInitialLocalRotation = Quaternion.Euler(_defaultHolderRotation);
+                _holderBaseTransformInitialized = true;
             }
 
             return _weaponHolder;
@@ -1005,26 +1055,148 @@ namespace DemenciaNoLimite.Player
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // ANIMACIÓN PROCEDIMENTAL DE INERCIA (WEAPON SWAY)
+        // ANIMACIÓN PROCEDIMENTAL DE VAIVÉN (BOBBING) E INERCIA (SWAY)
         // ════════════════════════════════════════════════════════════════════
 
-        private void ActualizarWeaponSway()
+        /// <summary>
+        /// Actualiza la capa procedural acumulativa de vaivén de pasos (Bobbing),
+        /// respiración en reposo e inercia de ratón (Sway) sin alterar los offsets
+        /// locales individuales del arma equipada.
+        /// </summary>
+        private void ActualizarMotionProcedural()
         {
             if (_weaponHolder == null) return;
 
-            float mouseX = Input.GetAxisRaw("Mouse X") * _swayAmount * -0.01f;
-            float mouseY = Input.GetAxisRaw("Mouse Y") * _swayAmount * -0.01f;
+            // Si existe un script externo WeaponBobAndSway gestionando el holder, cederle el control
+            if (_hasExternalMotionComponent) return;
 
-            mouseX = Mathf.Clamp(mouseX, -_maxSwayAmount, _maxSwayAmount);
-            mouseY = Mathf.Clamp(mouseY, -_maxSwayAmount, _maxSwayAmount);
+            // 1. Calcular Vaivén Cíclico por Pasos (o Respiración en Reposo)
+            CalcularBobbing(out Vector3 targetBobPos, out Quaternion targetBobRot);
 
-            Vector3 targetPosition = _holderInitialLocalPosition + new Vector3(mouseX, mouseY, 0f);
+            // 2. Calcular Inercia y Sway por Entrada del Ratón
+            CalcularMouseSway(out Vector3 targetSwayPos, out Quaternion targetSwayRot);
 
-            _weaponHolder.localPosition = Vector3.Lerp(
-                _weaponHolder.localPosition,
-                targetPosition,
-                Time.deltaTime * _swaySmoothSpeed
-            );
+            // 3. Suavizado de traslaciones mediante Vector3.Lerp libre de tirones
+            _currentBobPosition = Vector3.Lerp(_currentBobPosition, targetBobPos, Time.deltaTime * _bobSmoothing);
+            _currentSwayPosition = Vector3.Lerp(_currentSwayPosition, targetSwayPos, Time.deltaTime * _swaySmoothSpeed);
+
+            // 4. Suavizado de rotaciones angulares mediante Quaternion.Slerp orgánico
+            _currentBobRotation = Quaternion.Slerp(_currentBobRotation, targetBobRot, Time.deltaTime * _bobSmoothing);
+            _currentSwayRotation = Quaternion.Slerp(_currentSwayRotation, targetSwayRot, Time.deltaTime * _swaySmoothSpeed);
+
+            // 5. Aplicar como capa no destructiva sobre la posición y rotación base del WeaponHolder
+            _weaponHolder.localPosition = _holderInitialLocalPosition + _currentBobPosition + _currentSwayPosition;
+            _weaponHolder.localRotation = _holderInitialLocalRotation * _currentBobRotation * _currentSwayRotation;
+        }
+
+        /// <summary>
+        /// Calcula el desplazamiento y rotación procedural basado en la velocidad horizontal
+        /// del CharacterController (o FirstPersonController) y el ritmo de los pasos.
+        /// </summary>
+        private void CalcularBobbing(out Vector3 bobPos, out Quaternion bobRot)
+        {
+            bobPos = Vector3.zero;
+            bobRot = Quaternion.identity;
+
+            if (!_enableWeaponBobbing) return;
+
+            // Obtener estado cinemático del jugador
+            Vector3 velocity = Vector3.zero;
+            bool isGrounded = true;
+            bool isSprinting = false;
+
+            if (_fpsController != null)
+            {
+                velocity = _fpsController.Velocity;
+                isGrounded = _fpsController.IsGrounded;
+                isSprinting = _fpsController.IsSprinting;
+            }
+            else if (_characterController != null)
+            {
+                velocity = _characterController.velocity;
+                isGrounded = _characterController.isGrounded;
+                isSprinting = Input.GetKey(KeyCode.LeftShift);
+            }
+            else
+            {
+                // Fallback por entradas de teclado en caso de no tener controlador físico enlazado
+                float h = Input.GetAxisRaw("Horizontal");
+                float v = Input.GetAxisRaw("Vertical");
+                if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)
+                {
+                    isSprinting = Input.GetKey(KeyCode.LeftShift);
+                    velocity = new Vector3(h, 0f, v).normalized * (isSprinting ? 7f : 4.5f);
+                }
+            }
+
+            Vector3 horizVelocity = new Vector3(velocity.x, 0f, velocity.z);
+            float speed = horizVelocity.magnitude;
+
+            // Si el jugador está sobre el suelo y moviéndose a velocidad perceptible (> 0.15 m/s)
+            if (isGrounded && speed > 0.15f)
+            {
+                // Modulación de frecuencia en función del sprint (sincronizada a 8.5Hz - 11.5Hz con PlayerHandController)
+                float freq = _walkBobFrequency * (isSprinting ? _sprintBobMultiplier : 1f);
+                _bobTimer += Time.deltaTime * freq;
+
+                // Modulación de amplitud por velocidad normalizada
+                float speedFactor = Mathf.Clamp(speed / 4.5f, 0.35f, 1.5f);
+                float sprintMult = isSprinting ? 1.25f : 1f;
+
+                // Eje Local X: Oscilación lateral en medio ciclo (Mathf.Cos), alternando pie izquierdo y derecho
+                float targetX = Mathf.Cos(_bobTimer * 0.5f) * _bobAmountX * speedFactor * sprintMult;
+
+                // Eje Local Y: Oscilación vertical de doble frecuencia (Mathf.Sin), reflejando dos rebotes por zancada
+                float sinY = Mathf.Sin(_bobTimer);
+                float targetY = (sinY * 0.7f - Mathf.Abs(sinY) * 0.3f) * _bobAmountY * speedFactor * sprintMult;
+
+                bobPos = new Vector3(targetX, targetY, 0f);
+
+                // Ladeo angular sutil (Roll) en Z con cada paso
+                float targetTiltZ = -Mathf.Cos(_bobTimer * 0.5f) * _bobTiltAngle * speedFactor;
+                bobRot = Quaternion.Euler(0f, 0f, targetTiltZ);
+            }
+            else
+            {
+                // En reposo: respiración sutil senoidal (Idle Breathing)
+                if (_enableIdleBreathing)
+                {
+                    float idleY = Mathf.Sin(Time.time * _idleBreathingSpeed) * _idleBreathingAmount;
+                    float idleX = Mathf.Cos(Time.time * (_idleBreathingSpeed * 0.5f)) * (_idleBreathingAmount * 0.5f);
+                    bobPos = new Vector3(idleX, idleY, 0f);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Calcula el retraso (lag) de posición y rotación por inercia en respuesta a la rotación de la cámara.
+        /// </summary>
+        private void CalcularMouseSway(out Vector3 swayPos, out Quaternion swayRot)
+        {
+            swayPos = Vector3.zero;
+            swayRot = Quaternion.identity;
+
+            if (!_enableWeaponSway) return;
+
+            // Leer movimiento relativo de la vista del ratón
+            float mouseX = Input.GetAxisRaw("Mouse X");
+            float mouseY = Input.GetAxisRaw("Mouse Y");
+
+            // Desplazamiento posicional inverso (lag físico de inercia)
+            float moveMult = _swayAmount * -0.01f;
+            float posX = Mathf.Clamp(mouseX * moveMult, -_maxSwayAmount, _maxSwayAmount);
+            float posY = Mathf.Clamp(mouseY * moveMult, -_maxSwayAmount, _maxSwayAmount);
+            swayPos = new Vector3(posX, posY, 0f);
+
+            // Rotación angular de arrastre:
+            // - Pitch (X): al mover la mirada verticalmente, la boca del cañón acompaña con retraso
+            // - Yaw (Y): al girar horizontalmente, la culata acompaña con retraso
+            // - Roll (Z): al girar rápido horizontalmente, el arma se ladea orgánicamente
+            float rotPitch = Mathf.Clamp(mouseY * _swayRotAmount, -_maxSwayRotAngle, _maxSwayRotAngle);
+            float rotYaw = Mathf.Clamp(-mouseX * _swayRotAmount, -_maxSwayRotAngle, _maxSwayRotAngle);
+            float rotRoll = Mathf.Clamp(mouseX * _swayRollAmount, -_maxSwayRotAngle * 1.25f, _maxSwayRotAngle * 1.25f);
+
+            swayRot = Quaternion.Euler(rotPitch, rotYaw, rotRoll);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -1103,6 +1275,33 @@ namespace DemenciaNoLimite.Player
             if (_playerHandController == null)
             {
                 _playerHandController = GetComponentInChildren<PlayerHandController>() ?? FindAnyObjectByType<PlayerHandController>();
+            }
+
+            if (_fpsController == null && _playerManager != null)
+            {
+                _fpsController = _playerManager.Controller;
+            }
+            if (_fpsController == null)
+            {
+                _fpsController = GetComponentInParent<FirstPersonController>() ?? FindAnyObjectByType<FirstPersonController>();
+            }
+
+            if (_characterController == null && _fpsController != null)
+            {
+                _characterController = _fpsController.CharacterController;
+            }
+            if (_characterController == null && _playerManager != null)
+            {
+                _characterController = _playerManager.CharacterController;
+            }
+            if (_characterController == null)
+            {
+                _characterController = GetComponentInParent<CharacterController>() ?? FindAnyObjectByType<CharacterController>();
+            }
+
+            if (_weaponHolder != null)
+            {
+                _hasExternalMotionComponent = _weaponHolder.GetComponent<WeaponBobAndSway>() != null || GetComponent<WeaponBobAndSway>() != null;
             }
         }
 
@@ -1352,6 +1551,43 @@ namespace DemenciaNoLimite.Player
             {
                 Weapon3DMapping mapping = BuscarMapping(_currentEquippedWeaponId, _currentEquippedWeaponData);
                 AplicarTransformYOffsets(_currentSpawnedWeaponInstance, mapping, null);
+            }
+        }
+
+        /// <summary>
+        /// Activa o desactiva el vaivén por pasos (Bobbing) del WeaponHolder en tiempo de ejecución.
+        /// </summary>
+        public void SetWeaponBobbingEnabled(bool enabled) => _enableWeaponBobbing = enabled;
+
+        /// <summary>
+        /// Activa o desactiva la inercia del ratón (Sway) del WeaponHolder en tiempo de ejecución.
+        /// </summary>
+        public void SetWeaponSwayEnabled(bool enabled) => _enableWeaponSway = enabled;
+
+        /// <summary>
+        /// Calibra dinámicamente la amplitud del vaivén en X (horizontal) y Y (vertical).
+        /// </summary>
+        public void SetBobAmount(float amountX, float amountY)
+        {
+            _bobAmountX = Mathf.Max(0f, amountX);
+            _bobAmountY = Mathf.Max(0f, amountY);
+        }
+
+        /// <summary>
+        /// Restablece inmediatamente los acumuladores procedurales de movimiento a cero.
+        /// </summary>
+        public void ResetProceduralMotion()
+        {
+            _currentBobPosition = Vector3.zero;
+            _currentBobRotation = Quaternion.identity;
+            _currentSwayPosition = Vector3.zero;
+            _currentSwayRotation = Quaternion.identity;
+            _bobTimer = 0f;
+
+            if (_weaponHolder != null)
+            {
+                _weaponHolder.localPosition = _holderInitialLocalPosition;
+                _weaponHolder.localRotation = _holderInitialLocalRotation;
             }
         }
     }

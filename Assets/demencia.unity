@@ -972,13 +972,28 @@ MonoBehaviour:
   _ensureCameraCullingMask: 1
   _defaultHolderPosition: {x: 0.22, y: -0.18, z: 0.42}
   _defaultHolderRotation: {x: 0, y: 0, z: 0}
+  _enableWeaponBobbing: 1
+  _walkBobFrequency: 8.5
+  _sprintBobMultiplier: 1.35
+  _bobAmountX: 0.015
+  _bobAmountY: 0.018
+  _bobTiltAngle: 1.2
+  _bobSmoothing: 10
+  _enableIdleBreathing: 1
+  _idleBreathingSpeed: 1.8
+  _idleBreathingAmount: 0.003
   _enableWeaponSway: 1
   _swayAmount: 1.2
-  _maxSwayAmount: 0.05
-  _swaySmoothSpeed: 8
+  _maxSwayAmount: 0.04
+  _swayRotAmount: 2.5
+  _swayRollAmount: 3.5
+  _maxSwayRotAngle: 6
+  _swaySmoothSpeed: 9
   _playerManager: {fileID: 0}
   _playerInventory: {fileID: 0}
   _playerHandController: {fileID: 0}
+  _fpsController: {fileID: 0}
+  _characterController: {fileID: 0}
 --- !u!1001 &1320025466
 PrefabInstance:
   m_ObjectHideFlags: 0

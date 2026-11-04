@@ -14,6 +14,7 @@
 using System;
 using System.Collections;
 using UnityEngine;
+using UnityEngine.Serialization;
 using DemenciaNoLimite.Combat;
 using DemenciaNoLimite.Core.Events;
 using DemenciaNoLimite.Player;
@@ -119,8 +120,10 @@ namespace DemenciaNoLimite.Enemies
         [Tooltip("Micro-embestida hacia adelante al ejecutar el ataque para mayor tensión visceral.")]
         [SerializeField] private float _attackLungeForce = 0.75f;
 
-        [Tooltip("Efecto de sonido al realizar el ataque.")]
-        [SerializeField] private AudioClip _attackSound;
+        [Header("Audio y Retroalimentación Sonora")]
+        [SerializeField] private AudioSource audioSource;
+        [FormerlySerializedAs("_attackSound")]
+        [SerializeField] private AudioClip attackClip;
 
         // ════════════════════════════════════════════════════════════════════
         // SALUD, DAÑO Y RETROCESO (IDAMAGEABLE / IKNOCKBACKABLE)
@@ -147,7 +150,6 @@ namespace DemenciaNoLimite.Enemies
         // ════════════════════════════════════════════════════════════════════
 
         private Transform _playerTransform;
-        private AudioSource _audioSource;
         private Color _originalColor = Color.white;
         private Coroutine _attackCoroutine;
         private Coroutine _hitFlashCoroutine;
@@ -192,13 +194,23 @@ namespace DemenciaNoLimite.Enemies
                 _visualTransform = transform;
             }
 
-            _audioSource = GetComponent<AudioSource>();
-            if (_audioSource == null)
+            if (audioSource == null)
             {
-                _audioSource = gameObject.AddComponent<AudioSource>();
-                _audioSource.spatialBlend = 1.0f; // 3D Audio
-                _audioSource.playOnAwake = false;
-                _audioSource.maxDistance = 25f;
+                audioSource = GetComponent<AudioSource>();
+            }
+
+            if (audioSource == null)
+            {
+                audioSource = gameObject.AddComponent<AudioSource>();
+                audioSource.playOnAwake = false;
+                audioSource.spatialBlend = 1f; // audio 3D
+                audioSource.maxDistance = 25f;
+            }
+            else
+            {
+                audioSource.playOnAwake = false;
+                audioSource.spatialBlend = 1f; // audio 3D
+                audioSource.maxDistance = 25f;
             }
 
             // Capa Enemy automática
@@ -442,9 +454,15 @@ namespace DemenciaNoLimite.Enemies
             SetSprite(_attackSprite != null ? _attackSprite : _baseSprite);
 
             // 2. Reproducir audio de ataque
-            if (_attackSound != null && _audioSource != null)
+            if (audioSource != null && attackClip != null)
             {
-                _audioSource.PlayOneShot(_attackSound);
+                audioSource.pitch = UnityEngine.Random.Range(0.9f, 1.1f);
+                audioSource.PlayOneShot(attackClip);
+                Debug.Log("[Audio Enemigo] Sonido de ataque ejecutado exitosamente");
+            }
+            else
+            {
+                Debug.LogWarning($"[Audio Enemigo] Falta audioSource o attackClip en {gameObject.name}");
             }
 
             // 3. Micro-embestida visceral controlada (con tope defensivo anti-empuje y sin atravesar al jugador)
@@ -585,9 +603,9 @@ namespace DemenciaNoLimite.Enemies
             _currentHealth -= damageTaken;
 
             // Retroalimentación de audio
-            if (_hurtSound != null && _audioSource != null)
+            if (_hurtSound != null && audioSource != null)
             {
-                _audioSource.PlayOneShot(_hurtSound);
+                audioSource.PlayOneShot(_hurtSound);
             }
 
             // Destello visual de impacto

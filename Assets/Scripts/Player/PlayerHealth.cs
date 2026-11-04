@@ -80,6 +80,21 @@ namespace DemenciaNoLimite.Player
             return actualDamageDealt;
         }
 
+        /// <summary>
+        /// Sobrecarga para compatibilidad con llamadas directas por valor y SendMessage("TakeDamage", float).
+        /// </summary>
+        public float TakeDamage(float amount)
+        {
+            return TakeDamage(new DamageInfo(
+                amount: amount,
+                attacker: null,
+                hitPoint: transform.position,
+                hitNormal: -transform.forward,
+                direction: transform.forward,
+                sourceType: DamageSourceType.Melee
+            ));
+        }
+
         public void ApplyKnockback(Vector3 force)
         {
             _knockbackVelocity += force;

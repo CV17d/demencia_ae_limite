@@ -430,6 +430,12 @@ namespace DemenciaNoLimite.Enemies
             float currentHorizontalDist = Vector2.Distance(enemyXZ, playerXZ);
             if (currentHorizontalDist > _attackRange * 1.35f) return;
 
+            // 1. Verificar si el jugador ya ha muerto para no continuar golpeando un cadáver
+            if (PlayerManager.Instance != null && !PlayerManager.Instance.IsAlive) return;
+
+            IDamageable playerDamageable = _playerTransform.GetComponentInParent<IDamageable>() ?? _playerTransform.GetComponent<IDamageable>();
+            if (playerDamageable != null && !playerDamageable.IsAlive) return;
+
             Vector3 attackDir = (_playerTransform.position - transform.position).normalized;
             DamageInfo damagePayload = new DamageInfo(
                 amount: _attackDamage,
@@ -445,15 +451,14 @@ namespace DemenciaNoLimite.Enemies
             );
 
             // Intentar aplicar vía IDamageable en el jugador
-            IDamageable playerDamageable = _playerTransform.GetComponentInParent<IDamageable>() ?? _playerTransform.GetComponent<IDamageable>();
-            if (playerDamageable != null && playerDamageable.IsAlive)
+            if (playerDamageable != null)
             {
                 playerDamageable.TakeDamage(damagePayload);
                 return;
             }
 
             // Enlace con PlayerManager y PlayerHealth
-            if (PlayerManager.Instance != null && PlayerManager.Instance.Health != null && PlayerManager.Instance.Health.IsAlive)
+            if (PlayerManager.Instance != null && PlayerManager.Instance.Health != null)
             {
                 PlayerManager.Instance.Health.TakeDamage(damagePayload);
                 return;
@@ -461,7 +466,6 @@ namespace DemenciaNoLimite.Enemies
 
             // Respaldo de eventos globales del proyecto
             GameEvents.FirePlayerDamaged(_attackDamage);
-            _playerTransform.SendMessage("TakeDamage", _attackDamage, SendMessageOptions.DontRequireReceiver);
         }
 
         // ════════════════════════════════════════════════════════════════════

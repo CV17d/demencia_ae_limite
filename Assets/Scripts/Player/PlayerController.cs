@@ -56,6 +56,11 @@ namespace DemenciaNoLimite.Player
         {
             Instance = this;
             _characterController = GetComponent<CharacterController>();
+            if (_characterController != null)
+            {
+                if (_characterController.slopeLimit < 55f) _characterController.slopeLimit = 55f;
+                if (_characterController.stepOffset < 0.35f) _characterController.stepOffset = 0.4f;
+            }
             ResolveCameraHolder();
 
             Cursor.lockState = CursorLockMode.Locked;
@@ -168,6 +173,15 @@ namespace DemenciaNoLimite.Player
 
             // Apply gravity
             _verticalVelocity += _gravity * Time.deltaTime;
+
+            // Proyección sobre rampas y pendientes para descenso suave
+            if (_isGrounded && Physics.Raycast(transform.position + Vector3.up * 0.2f, Vector3.down, out RaycastHit slopeHit, 1.4f, _groundMask, QueryTriggerInteraction.Ignore))
+            {
+                if (slopeHit.normal.y >= 0.3f && slopeHit.normal.y < 0.99f)
+                {
+                    moveDirection = Vector3.ProjectOnPlane(moveDirection, slopeHit.normal).normalized;
+                }
+            }
 
             Vector3 finalMove = (moveDirection * targetSpeed) + (Vector3.up * _verticalVelocity);
             _characterController.Move(finalMove * Time.deltaTime);

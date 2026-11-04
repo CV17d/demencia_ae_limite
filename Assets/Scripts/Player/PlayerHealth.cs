@@ -39,22 +39,52 @@ namespace DemenciaNoLimite.Player
 
         private void Update()
         {
-            // Amortiguar velocidad de retroceso con control estricto de colisión contra paredes
+            // Amortiguar velocidad de retroceso (knockback) con física reactiva
             if (_knockbackVelocity.sqrMagnitude > 0.01f)
             {
                 if (_characterController != null && _characterController.enabled)
                 {
-                    // Si el jugador ya colisiona lateralmente con un muro o esquina, cancelar el empuje de inmediato
-                    if ((_characterController.collisionFlags & CollisionFlags.Sides) != 0)
+                    _characterController.Move(_knockbackVelocity * Time.deltaTime);
+                }
+                _knockbackVelocity = Vector3.Lerp(_knockbackVelocity, Vector3.zero, Time.deltaTime * 10f);
+            }
+            else
+            {
+                _knockbackVelocity = Vector3.zero;
+            }
+        }
+
+        /// <summary>
+        /// Detecta colisiones físicas durante el movimiento.
+        /// Distingue paredes verticales (|hit.normal.y| < 0.3f) de rampas y suelos inclinados (hit.normal.y >= 0.3f),
+        /// frenando o deslizando el knockback únicamente contra muros reales sin bloquear el paso en rampas ni congelar el movimiento.
+        /// </summary>
+        private void OnControllerColliderHit(ControllerColliderHit hit)
+        {
+            // Solo actuar si hay una fuerza de retroceso (knockback) activa
+            if (_knockbackVelocity.sqrMagnitude <= 0.01f) return;
+
+            // 1. Distinguir paredes y obstáculos verticales de rampas, pendientes o escalones:
+            // Pared vertical: normal casi horizontal (|hit.normal.y| < 0.3f).
+            // Rampa o suelo inclinado: normal con inclinación vertical sustancial (|hit.normal.y| >= 0.3f).
+            if (Mathf.Abs(hit.normal.y) < 0.3f)
+            {
+                // 2. Verificar si el knockback empuja en dirección directa al muro (dot < 0)
+                float dot = Vector3.Dot(_knockbackVelocity, hit.normal);
+                if (dot < 0f)
+                {
+                    // Deslizar el retroceso a lo largo de la pared (restando la componente que penetra el muro)
+                    Vector3 normalHorizontal = new Vector3(hit.normal.x, 0f, hit.normal.z).normalized;
+                    _knockbackVelocity -= normalHorizontal * dot;
+
+                    // 3. Ajuste fino en esquinas: si el empuje queda atrapado en una esquina (baja magnitud residual
+                    // o choque frontal contra el vértice), extinguir el knockback para que el jugador nunca atraviese la pared,
+                    // permitiendo que los inputs de movimiento del usuario continúen respondiendo al 100%.
+                    if (_knockbackVelocity.sqrMagnitude < 0.15f || Vector3.Dot(_knockbackVelocity.normalized, -normalHorizontal) > 0.65f)
                     {
                         _knockbackVelocity = Vector3.zero;
                     }
-                    else
-                    {
-                        _characterController.Move(_knockbackVelocity * Time.deltaTime);
-                    }
                 }
-                _knockbackVelocity = Vector3.Lerp(_knockbackVelocity, Vector3.zero, Time.deltaTime * 10f);
             }
         }
 

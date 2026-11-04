@@ -107,6 +107,8 @@ namespace DemenciaNoLimite.Player
             {
                 if (_characterController.skinWidth < 0.05f) _characterController.skinWidth = 0.08f;
                 if (_characterController.minMoveDistance <= 0f) _characterController.minMoveDistance = 0f;
+                if (_characterController.slopeLimit < 55f) _characterController.slopeLimit = 55f;
+                if (_characterController.stepOffset < 0.35f) _characterController.stepOffset = 0.4f;
             }
         }
 
@@ -149,11 +151,11 @@ namespace DemenciaNoLimite.Player
             // Validacion combinada: CheckSphere prioritario con soporte del CharacterController
             _isGrounded = sphereHit || (_characterController != null && _characterController.isGrounded);
 
-            // Si esta en el suelo y cayendo, fijar una presion descendente suave (-2m/s)
-            // Esto "pega" el CharacterController a rampas y escalones evitando saltitos indeseados.
+            // Si esta en el suelo y cayendo, fijar una presion descendente (-3.5m/s)
+            // Esto "pega" el CharacterController a rampas y escalones evitando saltitos indeseados incluso en descensos rápidos.
             if (_isGrounded && _verticalVelocity < 0f)
             {
-                _verticalVelocity = -2f;
+                _verticalVelocity = -3.5f;
             }
         }
 
@@ -195,6 +197,19 @@ namespace DemenciaNoLimite.Player
             float targetSpeed = IsSprinting ? _sprintSpeed : _walkSpeed;
 
             Vector3 targetVelocity = targetDirection * targetSpeed;
+
+            // Detección y adaptación a rampas y superficies inclinadas transitables
+            int effectiveGroundMask = _groundLayers.value & ~(1 << gameObject.layer);
+            Vector3 rayOrigin = transform.position + Vector3.up * 0.25f;
+            if (_isGrounded && Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit slopeHit, 1.4f, effectiveGroundMask, QueryTriggerInteraction.Ignore))
+            {
+                // Si la normal en Y está entre 0.3f y 0.99f (rampa, pendiente o escalón transitable)
+                if (slopeHit.normal.y >= 0.3f && slopeHit.normal.y < 0.99f)
+                {
+                    // Proyectar movimiento horizontal sobre el plano inclinado para descensos y ascensos libres y continuos
+                    targetVelocity = Vector3.ProjectOnPlane(targetVelocity, slopeHit.normal);
+                }
+            }
 
             // Aceleracion o frenado progresivo para control organico sin deslizamientos
             float accelRate = IsMoving ? _acceleration : _deceleration;

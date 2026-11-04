@@ -278,7 +278,21 @@ namespace DemenciaNoLimite.Enemies
                 Vector3 stopTargetXZ = _playerTransform.position - (toPlayerXZ.normalized * _stoppingDistance);
                 Vector3 targetDestination = new Vector3(stopTargetXZ.x, targetY, stopTargetXZ.z);
 
-                transform.position = Vector3.MoveTowards(transform.position, targetDestination, _moveSpeed * Time.deltaTime);
+                Vector3 moveDelta = targetDestination - transform.position;
+                float stepDist = Mathf.Min(moveDelta.magnitude, _moveSpeed * Time.deltaTime);
+                Vector3 moveDir = moveDelta.normalized;
+
+                // Verificación contra muros para no empujar al jugador ni traspasar esquinas
+                if (_obstacleLayer == 0 || !Physics.Raycast(transform.position, moveDir, stepDist + 0.35f, _obstacleLayer, QueryTriggerInteraction.Ignore))
+                {
+                    transform.position = Vector3.MoveTowards(transform.position, targetDestination, stepDist);
+                }
+                else
+                {
+                    Vector3 curPos = transform.position;
+                    curPos.y = Mathf.MoveTowards(curPos.y, targetY, _moveSpeed * Time.deltaTime);
+                    transform.position = curPos;
+                }
             }
             else
             {
@@ -390,14 +404,24 @@ namespace DemenciaNoLimite.Enemies
                 _audioSource.PlayOneShot(_attackSound);
             }
 
-            // 3. Micro-embestida visceral hacia el jugador
+            // 3. Micro-embestida visceral controlada (con tope defensivo anti-empuje y sin atravesar al jugador)
             if (_playerTransform != null && _attackLungeForce > 0f)
             {
                 Vector3 lungeDir = (_playerTransform.position - transform.position);
                 lungeDir.y = 0f;
-                if (lungeDir.sqrMagnitude > 0.001f)
+                float currentDist = lungeDir.magnitude;
+                // No embestir si ya estamos demasiado cerca (respetando distancia de seguridad mínima)
+                if (currentDist > 1.4f)
                 {
-                    transform.position += lungeDir.normalized * (_attackLungeForce * 0.12f);
+                    float safeLunge = Mathf.Min(_attackLungeForce * 0.08f, currentDist - 1.35f);
+                    if (safeLunge > 0f)
+                    {
+                        // Raycast de comprobación para no atravesar muros al embestir
+                        if (!Physics.Raycast(transform.position, lungeDir.normalized, safeLunge + 0.3f, _obstacleLayer, QueryTriggerInteraction.Ignore))
+                        {
+                            transform.position += lungeDir.normalized * safeLunge;
+                        }
+                    }
                 }
             }
 
@@ -436,7 +460,10 @@ namespace DemenciaNoLimite.Enemies
             IDamageable playerDamageable = _playerTransform.GetComponentInParent<IDamageable>() ?? _playerTransform.GetComponent<IDamageable>();
             if (playerDamageable != null && !playerDamageable.IsAlive) return;
 
-            Vector3 attackDir = (_playerTransform.position - transform.position).normalized;
+            Vector3 attackDir = (_playerTransform.position - transform.position);
+            attackDir.y = 0f; // Puramente horizontal (nunca empujar hacia el suelo o techo)
+            attackDir.Normalize();
+
             DamageInfo damagePayload = new DamageInfo(
                 amount: _attackDamage,
                 attacker: gameObject,
@@ -447,7 +474,7 @@ namespace DemenciaNoLimite.Enemies
                 isCritical: false,
                 isHeadshot: false,
                 ignoreDefense: false,
-                knockbackForce: _attackKnockbackForce
+                knockbackForce: Mathf.Clamp(_attackKnockbackForce, 0.5f, 2.5f) // Tope de fuerza controlado
             );
 
             // Intentar aplicar vía IDamageable en el jugador

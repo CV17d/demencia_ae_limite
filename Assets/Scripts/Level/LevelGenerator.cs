@@ -278,6 +278,9 @@ namespace DemenciaNoLimite.Level
 
             // 7. Reposicionar y reactivar de forma 100% segura al jugador tras finalizar y sincronizar físicas
             ReposicionarYReactivarJugador();
+
+            // 8. Respaldo directo para forzar el spawn de armas en el nuevo piso
+            DemenciaNoLimite.Level.WeaponSpawner.Instance?.IniciarSpawnDeArmas(0.5f);
         }
 
         /// <summary>
@@ -379,10 +382,13 @@ namespace DemenciaNoLimite.Level
                 EjecutarFallbackEmergenciaElevadorSalida();
             }
 
+            // 6. SUELO CONTINUO DE SEGURIDAD (CIERRE DE BRECHAS Y ANTI-CAÍDA AL VACÍO)
+            CrearSueloDeSeguridadContinuo();
+
             // Sincronización global obligatoria de colisionadores antes de hornear NavMesh o posicionar al jugador
             Physics.SyncTransforms();
 
-            // 6. VALIDACIÓN EN CONSOLA (ALERTA VISUAL INMEDIATA EN EDITOR)
+            // 7. VALIDACIÓN EN CONSOLA (ALERTA VISUAL INMEDIATA EN EDITOR)
             if (!HayElevadorDeSalidaEnNivel())
             {
                 Debug.LogError($"[LevelGenerator] ERROR CRÍTICO FATAL: El Piso {pisoActual} ha finalizado su generación SIN elevador de salida (SM_Elevador_Mercader / SM_Elevador_Ruleta). ¡Imposible avanzar al siguiente piso!");
@@ -395,7 +401,8 @@ namespace DemenciaNoLimite.Level
             _isGenerating = false;
             Debug.Log($"[LevelGenerator] Piso {pisoActual} generado con éxito ({_spawnedModulesCount} módulos estructurales, {_placedModuleBounds.Count} volúmenes registrados).");
 
-            // 7. INTEGRACIÓN CRÍTICA CON IA: Notificación al Event Bus para horneado de NavMesh
+            // 8. GARANTÍA DE SPAWN DE ARMAS Y NOTIFICACIÓN AL EVENT BUS
+            DemenciaNoLimite.Level.WeaponSpawner.Instance?.IniciarSpawnDeArmas(0.5f);
             GameEvents.FireMapGenerationCompleted();
         }
 
@@ -1244,6 +1251,7 @@ namespace DemenciaNoLimite.Level
                 _instantiatedExitElevator = exitElevator;
                 _spawnedModulesList.Add(exitElevator);
                 Debug.Log($"[LevelGenerator] [FALLBACK EXITOSO] Elevador de salida '{exitElevator.name}' colocado forzosamente reemplazando a '{targetName}'. Panel HABILITADO.");
+                DemenciaNoLimite.Level.WeaponSpawner.Instance?.IniciarSpawnDeArmas(0.5f);
                 return;
             }
 
@@ -1298,6 +1306,7 @@ namespace DemenciaNoLimite.Level
                 _instantiatedExitElevator = exitElevator;
                 _spawnedModulesList.Add(exitElevator);
                 Debug.Log($"[LevelGenerator] [FALLBACK EXITOSO] Elevador de salida '{exitElevator.name}' acoplado forzosamente a la sala de inicio. Panel HABILITADO.");
+                DemenciaNoLimite.Level.WeaponSpawner.Instance?.IniciarSpawnDeArmas(0.5f);
             }
         }
 
@@ -1362,6 +1371,49 @@ namespace DemenciaNoLimite.Level
         }
 
         // ════════════════════════════════════════════════════════════════════
+        // SUELO CONTINUO DE SEGURIDAD (ANTI-CAÍDA AL VACÍO)
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Crea una superficie física sólida e invisible por debajo de toda la cota del nivel
+        /// para garantizar al 100% que ninguna costura visual o unión modular permita al jugador
+        /// caer al vacío físico.
+        /// </summary>
+        private void CrearSueloDeSeguridadContinuo()
+        {
+            if (_placedModuleBounds.Count == 0) return;
+
+            Bounds totalBounds = _placedModuleBounds[0];
+            for (int i = 1; i < _placedModuleBounds.Count; i++)
+            {
+                totalBounds.Encapsulate(_placedModuleBounds[i]);
+            }
+
+            Transform root = ObtenerOInicializarCityRoot();
+            Transform existingGuard = root.Find("=== SAFETY_FLOOR_GUARD ===");
+            GameObject guardGo = existingGuard != null ? existingGuard.gameObject : new GameObject("=== SAFETY_FLOOR_GUARD ===");
+            guardGo.transform.SetParent(root, false);
+
+            // Posicionado justo debajo del suelo base para actuar de red física impenetrable
+            Vector3 guardPos = new Vector3(totalBounds.center.x, -0.25f, totalBounds.center.z);
+            Vector3 guardSize = new Vector3(totalBounds.size.x + 18f, 0.5f, totalBounds.size.z + 18f);
+
+            guardGo.transform.position = guardPos;
+            guardGo.transform.rotation = Quaternion.identity;
+
+            BoxCollider box = guardGo.GetComponent<BoxCollider>();
+            if (box == null) box = guardGo.AddComponent<BoxCollider>();
+            box.size = guardSize;
+            box.center = Vector3.zero;
+            box.isTrigger = false;
+
+            int escenarioLayer = LayerMask.NameToLayer("Escenarios");
+            guardGo.layer = escenarioLayer != -1 ? escenarioLayer : 0;
+
+            Physics.SyncTransforms();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
         // SELECCIÓN Y REGISTRO DE MÓDULOS
         // ════════════════════════════════════════════════════════════════════
 
@@ -1371,6 +1423,20 @@ namespace DemenciaNoLimite.Level
         private GameObject SeleccionarPrefabParaFrontera()
         {
             double roll = _rng.NextDouble();
+
+            // Si quedan pocos conectores en la frontera (<= 1), forzar pasillos o cruces
+            // para evitar que habitaciones sin salida sellen la frontera antes de alcanzar la meta de módulos
+            if (_activeOpenSockets.Count <= 1)
+            {
+                if (intersections != null && intersections.Count > 0 && roll < 0.4)
+                {
+                    return intersections[_rng.Next(0, intersections.Count)];
+                }
+                if (corridors != null && corridors.Count > 0)
+                {
+                    return corridors[_rng.Next(0, corridors.Count)];
+                }
+            }
 
             // Probabilidad de sala segura
             if (roll < _safeRoomChance && safeRooms != null && safeRooms.Count > 0)
@@ -1540,6 +1606,16 @@ namespace DemenciaNoLimite.Level
                 AutoCargarPrefabsEditor();
             }
 #endif
+
+            // Desactivar todos los colisionadores de inmediato para purgar estructuras espaciales de PhysX
+            if (_cityRoot != null)
+            {
+                Collider[] cols = _cityRoot.GetComponentsInChildren<Collider>(true);
+                for (int c = 0; c < cols.Length; c++)
+                {
+                    if (cols[c] != null) cols[c].enabled = false;
+                }
+            }
 
             // Destrucción limpia de los módulos hijos en tiempo de juego o edición
             for (int i = _cityRoot.childCount - 1; i >= 0; i--)

@@ -307,6 +307,27 @@ namespace DemenciaNoLimite.Level
         }
 
         /// <summary>
+        /// Método de llamada directa y respaldo forzado para garantizar al 100% la aparición de armas
+        /// tras la construcción del nivel (incluso si LevelGenerator ejecutó su fallback de emergencia).
+        /// </summary>
+        public void IniciarSpawnDeArmas(float retardo = 0.5f)
+        {
+            if (!isActiveAndEnabled)
+            {
+                gameObject.SetActive(true);
+                enabled = true;
+            }
+
+            if (_delayedSpawnCoroutine != null)
+            {
+                StopCoroutine(_delayedSpawnCoroutine);
+                _delayedSpawnCoroutine = null;
+            }
+
+            _delayedSpawnCoroutine = StartCoroutine(RutinaSpawnConRetardo($"IniciarSpawnDeArmas directo ({retardo:F2}s)", retardo));
+        }
+
+        /// <summary>
         /// Solicita la ejecución del spawn con un retardo seguro que permite que la geometría
         /// y los colisionadores de la nueva escena se asienten completamente.
         /// </summary>
@@ -320,12 +341,17 @@ namespace DemenciaNoLimite.Level
                 _delayedSpawnCoroutine = null;
             }
 
-            _delayedSpawnCoroutine = StartCoroutine(RutinaSpawnConRetardo(motivo));
+            _delayedSpawnCoroutine = StartCoroutine(RutinaSpawnConRetardo(motivo, 0.25f));
         }
 
-        private IEnumerator RutinaSpawnConRetardo(string motivo)
+        private IEnumerator RutinaSpawnConRetardo(string motivo, float retardoInicial = 0f)
         {
             Debug.Log($"<color=#38BDF8><b>[WeaponSpawner]</b> ⏳ Iniciando secuencia de spawn retardada por: <b>{motivo}</b> (Piso: {_currentFloor}). Esperando estabilización geométrica...</color>");
+
+            if (retardoInicial > 0f)
+            {
+                yield return new WaitForSeconds(retardoInicial);
+            }
 
             // 1. Esperar al final del frame para que todos los GameObjects de la nueva escena/módulos se hayan instanciado
             yield return new WaitForEndOfFrame();
@@ -352,11 +378,20 @@ namespace DemenciaNoLimite.Level
             }
 
             // 5. Pequeño margen de seguridad para físicas
-            yield return new WaitForSeconds(0.25f);
+            yield return new WaitForSeconds(0.2f);
             Physics.SyncTransforms();
 
             // 6. Ejecutar la generación en el nuevo escenario
             SpawnWeaponsForCurrentFloor();
+
+            // 7. Auto-reintento de respaldo defensivo si aún no hay armas
+            if (_spawnedWeapons.Count == 0)
+            {
+                Debug.LogWarning("[WeaponSpawner] ⚠️ Primer intento arrojó 0 armas. Ejecutando reintento de respaldo de emergencia...");
+                yield return new WaitForSeconds(0.4f);
+                Physics.SyncTransforms();
+                SpawnWeaponsForCurrentFloor();
+            }
 
             _delayedSpawnCoroutine = null;
         }

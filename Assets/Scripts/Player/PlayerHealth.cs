@@ -21,6 +21,8 @@ namespace DemenciaNoLimite.Player
 
         [Header("Knockback Settings")]
         [SerializeField] private CharacterController _characterController;
+        [Tooltip("Velocidad máxima permitida de empuje para evitar atravesar esquinas o muros.")]
+        [SerializeField] private float _maxKnockbackSpeed = 4.5f;
         private Vector3 _knockbackVelocity;
 
         public bool IsAlive => CurrentHealth > 0f;
@@ -37,14 +39,22 @@ namespace DemenciaNoLimite.Player
 
         private void Update()
         {
-            // Dampen knockback velocity
+            // Amortiguar velocidad de retroceso con control estricto de colisión contra paredes
             if (_knockbackVelocity.sqrMagnitude > 0.01f)
             {
                 if (_characterController != null && _characterController.enabled)
                 {
-                    _characterController.Move(_knockbackVelocity * Time.deltaTime);
+                    // Si el jugador ya colisiona lateralmente con un muro o esquina, cancelar el empuje de inmediato
+                    if ((_characterController.collisionFlags & CollisionFlags.Sides) != 0)
+                    {
+                        _knockbackVelocity = Vector3.zero;
+                    }
+                    else
+                    {
+                        _characterController.Move(_knockbackVelocity * Time.deltaTime);
+                    }
                 }
-                _knockbackVelocity = Vector3.Lerp(_knockbackVelocity, Vector3.zero, Time.deltaTime * 8f);
+                _knockbackVelocity = Vector3.Lerp(_knockbackVelocity, Vector3.zero, Time.deltaTime * 10f);
             }
         }
 
@@ -97,7 +107,12 @@ namespace DemenciaNoLimite.Player
 
         public void ApplyKnockback(Vector3 force)
         {
-            _knockbackVelocity += force;
+            // Retroceso estrictamente en el plano horizontal (impide atravesar el suelo o salir volando al techo)
+            force.y = 0f;
+
+            // Limitar la magnitud total acumulada para impedir que el jugador sea catapultado fuera del mapa
+            Vector3 targetVel = _knockbackVelocity + force;
+            _knockbackVelocity = Vector3.ClampMagnitude(targetVel, _maxKnockbackSpeed);
         }
 
         private void Die()

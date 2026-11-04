@@ -434,12 +434,15 @@ namespace DemenciaNoLimite.Level
             {
                 _wasKinematic = _frozenRB.isKinematic;
                 _wasUseGravity = _frozenRB.useGravity;
+                if (!_frozenRB.isKinematic)
+                {
 #if UNITY_6000_0_OR_NEWER
-                _frozenRB.linearVelocity = Vector3.zero;
+                    _frozenRB.linearVelocity = Vector3.zero;
 #else
-                _frozenRB.velocity = Vector3.zero;
+                    _frozenRB.velocity = Vector3.zero;
 #endif
-                _frozenRB.angularVelocity = Vector3.zero;
+                    _frozenRB.angularVelocity = Vector3.zero;
+                }
                 _frozenRB.isKinematic = true;
                 _frozenRB.useGravity = false;
             }
@@ -515,12 +518,15 @@ namespace DemenciaNoLimite.Level
                 {
                     _frozenRB.isKinematic = _wasKinematic;
                     _frozenRB.useGravity = _wasUseGravity;
+                    if (!_frozenRB.isKinematic)
+                    {
 #if UNITY_6000_0_OR_NEWER
-                    _frozenRB.linearVelocity = Vector3.zero;
+                        _frozenRB.linearVelocity = Vector3.zero;
 #else
-                    _frozenRB.velocity = Vector3.zero;
+                        _frozenRB.velocity = Vector3.zero;
 #endif
-                    _frozenRB.angularVelocity = Vector3.zero;
+                        _frozenRB.angularVelocity = Vector3.zero;
+                    }
                 }
 
                 // 4. Reactivar FirstPersonController

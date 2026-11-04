@@ -983,10 +983,18 @@ namespace DemenciaNoLimite.Player
             {
                 if (rbs[i] != null)
                 {
+                    // Si el cuerpo era dinámico, anular velocidades ANTES de marcarlo como kinematic
+                    if (!rbs[i].isKinematic)
+                    {
+#if UNITY_6000_0_OR_NEWER
+                        rbs[i].linearVelocity = Vector3.zero;
+#else
+                        rbs[i].velocity = Vector3.zero;
+#endif
+                        rbs[i].angularVelocity = Vector3.zero;
+                    }
                     rbs[i].isKinematic = true;
                     rbs[i].detectCollisions = false;
-                    rbs[i].linearVelocity = Vector3.zero;
-                    rbs[i].angularVelocity = Vector3.zero;
                     if (Application.isPlaying) Destroy(rbs[i]);
                     else DestroyImmediate(rbs[i]);
                 }

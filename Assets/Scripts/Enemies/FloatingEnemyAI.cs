@@ -735,10 +735,10 @@ namespace DemenciaNoLimite.Enemies
             }
 
             // Sincronizar dimensiones proporcionales a marcos de puerta 4x4
-            // Altura resultante en mundo ~2.52m y radio ~0.57m con escala 1.8
-            capsule.radius = 0.32f;
-            capsule.height = 1.4f;
-            capsule.center = new Vector3(0f, 0.7f, 0f);
+            // Altura resultante en mundo ~1.92m y radio ~0.42m con escala 1.2
+            capsule.radius = 0.35f;
+            capsule.height = 1.6f;
+            capsule.center = new Vector3(0f, 0.8f, 0f);
             capsule.direction = 1;
 
             // Kinematic Rigidbody para que Unity gestione colisiones sin empujes físicos erráticos en Y

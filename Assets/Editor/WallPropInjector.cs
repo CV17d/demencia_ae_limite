@@ -9,18 +9,25 @@ using UnityEngine;
 namespace DemenciaNoLimite.Editor
 {
     /// <summary>
-    /// Inyector de Props de Pared para escenarios modulares de SectorCero.
-    /// Utiliza 4 Raycasts laterales cardinales a 1.5m de altura para detectar muros,
-    /// alinear props contra la pared mirando al interior del cuarto (LookRotation(hit.normal))
-    /// y aplicar variación orgánica de altura (+-0.5m).
+    /// Inyector de Props de Pared adaptativo y seguro contra explosiones físicas para SectorCero.
+    /// Características técnicas:
+    /// 1. Preparación Automática: Añade MeshCollider a cualquier MeshRenderer sin colisionador en el cuarto.
+    /// 2. Raycast Adaptativo: Lanza 4 rayos cardinales locales a 1.5m con alcance extendido a 15m.
+    /// 3. Inyección Segura:
+    ///    - Offset normal de +0.05m (hit.normal * 0.05f) para evitar que el prop se incruste en la malla.
+    ///    - LookRotation(hit.normal) para orientar el prop mirando al interior del cuarto.
+    ///    - Desfase vertical aleatorio en Y [-0.3f, 0.4f].
+    /// 4. Neutralización Física: Fuerza isTrigger = true en todos los colliders del prop instanciado,
+    ///    eliminando al 100% las fuerzas físicas reactivas o expulsiones entre geometrías.
     /// </summary>
     public static class WallPropInjector
     {
         public const string SCENARIOS_FOLDER = "Assets/Prefabs/Entornos/SectorCero";
         public const string WALL_PROPS_FOLDER = "Assets/Prefabs/Entornos/Props_Pared";
-        public const float RAYCAST_MAX_DISTANCE = 10.0f;
+        public const float RAYCAST_MAX_DISTANCE = 15.0f;
         public const float SPAWN_PROBABILITY = 0.60f;
         public const float RAYCAST_HEIGHT = 1.5f;
+        public const float WALL_NORMAL_OFFSET = 0.05f;
 
         // ════════════════════════════════════════════════════════════════════
         // ENTRADA DE MENÚ EN UNITY EDITOR
@@ -34,7 +41,7 @@ namespace DemenciaNoLimite.Editor
         }
 
         /// <summary>
-        /// Ejecuta el proceso de detección de muros e inyección de props de pared en todos los escenarios.
+        /// Ejecuta el proceso de detección adaptativa por Raycast e inyección segura en todos los escenarios.
         /// </summary>
         public static void EjecutarInyeccionWallProps(bool mostrarDialogo = true)
         {
@@ -44,7 +51,7 @@ namespace DemenciaNoLimite.Editor
             if (wallPropPrefabs == null || wallPropPrefabs.Count == 0)
             {
                 string errorMsg = $"[WallPropInjector] ERROR: No se encontraron prefabs en '{WALL_PROPS_FOLDER}'. " +
-                                  "Asegúrate de haber organizado los props de pared antes de inyectar.";
+                                  "Asegúrate de que la carpeta contenga prefabs de pared antes de inyectar.";
                 Debug.LogError(errorMsg);
                 if (mostrarDialogo)
                 {
@@ -60,12 +67,13 @@ namespace DemenciaNoLimite.Editor
                 return;
             }
 
-            Debug.Log($"<color=#38BDF8><b>[WallPropInjector]</b> Iniciando inyección de Props de Pared sobre {scenarioGuids.Length} escenarios " +
-                      $"utilizando {wallPropPrefabs.Count} modelos únicos con Raycasts laterales...</color>");
+            Debug.Log($"<color=#38BDF8><b>[WallPropInjector]</b> Iniciando inyección segura de Props de Pared sobre {scenarioGuids.Length} escenarios " +
+                      $"(Raycast adaptativo 15m, offset normal 0.05m e isTrigger forzado)...</color>");
 
             int totalEscenariosProcesados = 0;
             int totalWallPropsInyectados = 0;
             int totalWallPropsLimpiados = 0;
+            int totalCollidersParedGenerados = 0;
 
             AssetDatabase.StartAssetEditing();
 
@@ -85,14 +93,14 @@ namespace DemenciaNoLimite.Editor
                         continue;
                     }
 
-                    EditorUtility.DisplayProgressBar("Inyectando Props de Pared",
+                    EditorUtility.DisplayProgressBar("Inyectando Props de Pared (Físicas Seguras)",
                         $"Procesando: {scenarioName} ({i + 1}/{scenarioGuids.Length})",
                         (float)i / scenarioGuids.Length);
 
                     GameObject scenarioPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
                     if (scenarioPrefab == null) continue;
 
-                    // Instanciar en la escena temporalmente para habilitar físicas y raycasts precisos
+                    // Instanciar temporalmente en la escena para operar con el motor de físicas
                     GameObject scenarioInstance = (GameObject)PrefabUtility.InstantiatePrefab(scenarioPrefab);
                     if (scenarioInstance == null)
                     {
@@ -102,20 +110,24 @@ namespace DemenciaNoLimite.Editor
                     scenarioInstance.transform.position = Vector3.zero;
                     scenarioInstance.transform.rotation = Quaternion.identity;
 
-                    // Forzar sincronización de las matrices de colisión en el motor de físicas
-                    Physics.SyncTransforms();
-
                     try
                     {
-                        // 1. LIMPIEZA: Eliminar cualquier objeto hijo cuyo nombre comience con "WallProp_"
+                        // 1. LIMPIEZA PREVIA: Destruir cualquier hijo con prefijo "WallProp_"
                         int limpiados = LimpiarWallPropsPrevios(scenarioInstance);
                         totalWallPropsLimpiados += limpiados;
 
-                        // 2. BÚSQUEDA DE PAREDES: Origen en el centro exacto del cuarto a 1.5m de altura
+                        // 2. PREPARACIÓN AUTOMÁTICA DE PAREDES:
+                        // Garantiza que cualquier MeshRenderer sin Collider obtenga un MeshCollider
+                        int collidersNuevos = PrepararCollidersDeParedes(scenarioInstance);
+                        totalCollidersParedGenerados += collidersNuevos;
+
+                        // Sincronizar matrices físicas antes del Raycast
+                        Physics.SyncTransforms();
+
+                        // 3. RAYCAST ADAPTATIVO (15m en 4 direcciones cardinales locales)
                         Vector3 origenLocal = new Vector3(0f, RAYCAST_HEIGHT, 0f);
                         Vector3 origenMundo = scenarioInstance.transform.TransformPoint(origenLocal);
 
-                        // 4 Direcciones cardinales locales
                         Vector3[] direcciones = new Vector3[]
                         {
                             scenarioInstance.transform.forward,  // Adelante (Z+)
@@ -124,24 +136,22 @@ namespace DemenciaNoLimite.Editor
                             scenarioInstance.transform.right     // Derecha (X+)
                         };
 
-                        int propsEnEsteCuarto = 0;
-
                         foreach (Vector3 dir in direcciones)
                         {
-                            // Lanzar raycast ignorando triggers (para detectar solo muros sólidos)
+                            // Lanzar Raycast ignorando triggers (solo muros sólidos)
                             if (Physics.Raycast(origenMundo, dir, out RaycastHit hit, RAYCAST_MAX_DISTANCE, ~0, QueryTriggerInteraction.Ignore))
                             {
-                                // 3. INYECCIÓN Y ALINEACIÓN (60% de probabilidad por pared detectada)
+                                // 4. INYECCIÓN SEGURA (60% probabilidad)
                                 if (UnityEngine.Random.value <= SPAWN_PROBABILITY)
                                 {
                                     GameObject propElegido = wallPropPrefabs[UnityEngine.Random.Range(0, wallPropPrefabs.Count)];
 
-                                    // Posición exacta del impacto + offset vertical aleatorio [-0.5f, 0.5f]
-                                    float offsetVertical = UnityEngine.Random.Range(-0.5f, 0.5f);
-                                    Vector3 posicionFinal = hit.point + new Vector3(0f, offsetVertical, 0f);
+                                    // Posición crítica anti-incrustación: hit.point + (hit.normal * 0.05f)
+                                    // Altura aleatoria entre -0.3f y 0.4f
+                                    float offsetVertical = UnityEngine.Random.Range(-0.3f, 0.4f);
+                                    Vector3 posicionFinal = hit.point + (hit.normal * WALL_NORMAL_OFFSET) + new Vector3(0f, offsetVertical, 0f);
 
-                                    // Rotación crítica: LookRotation(hit.normal) para que la espalda quede pegada al muro
-                                    // y el frente del prop apunte hacia el interior del cuarto
+                                    // Rotación crítica: LookRotation(hit.normal)
                                     Quaternion rotacionFinal = Quaternion.LookRotation(hit.normal);
 
                                     // Instanciar como hijo del escenario
@@ -155,13 +165,16 @@ namespace DemenciaNoLimite.Editor
                                     propInstance.transform.rotation = rotacionFinal;
                                     propInstance.name = $"WallProp_{propElegido.name}";
 
+                                    // 5. NEUTRALIZACIÓN FÍSICA (CRÍTICO: isTrigger = true)
+                                    // Desactiva fuerzas físicas de colisión para evitar explosiones/empujes
+                                    NeutralizarColisionesFisicas(propInstance);
+
                                     totalWallPropsInyectados++;
-                                    propsEnEsteCuarto++;
                                 }
                             }
                         }
 
-                        // 4. GUARDADO DE CAMBIOS
+                        // 6. GUARDADO DE CAMBIOS
                         PrefabUtility.SavePrefabAsset(scenarioInstance);
                         PrefabUtility.SaveAsPrefabAsset(scenarioInstance, path);
 
@@ -185,34 +198,82 @@ namespace DemenciaNoLimite.Editor
                 AssetDatabase.Refresh();
             }
 
-            string resumen = $"<b>[WallPropInjector] ✔ Inyección de Props de Pared Finalizada:</b>\n" +
-                             $"• Escenarios evaluados: {totalEscenariosProcesados}\n" +
+            string resumen = $"<b>[WallPropInjector] ✔ Inyección Segura de Props de Pared Finalizada:</b>\n" +
+                             $"• Escenarios evaluados y guardados: {totalEscenariosProcesados}\n" +
                              $"• Props de pared inyectados (60% éxito): {totalWallPropsInyectados}\n" +
-                             $"• Objetos WallProp obsoletos limpiados: {totalWallPropsLimpiados}\n" +
-                             $"• Catálogo utilizado: {wallPropPrefabs.Count} prefabs sólidos";
+                             $"• Mallas de pared preparadas con MeshCollider: {totalCollidersParedGenerados}\n" +
+                             $"• Props antiguos eliminados: {totalWallPropsLimpiados}\n" +
+                             $"• Físicas protegidas: Offset normal (0.05m) e isTrigger = TRUE en todos los props.";
 
             Debug.Log($"<color=#4ADE80>{resumen}</color>");
 
             if (mostrarDialogo)
             {
-                EditorUtility.DisplayDialog("Props de Pared Inyectados",
-                    $"Proceso completado exitosamente:\n\n" +
+                EditorUtility.DisplayDialog("Inyección Segura de Props de Pared",
+                    $"Proceso completado exitosamente sin conflictos físicos:\n\n" +
                     $"• Escenarios procesados: {totalEscenariosProcesados}\n" +
-                    $"• Props de pared colocados: {totalWallPropsInyectados}\n" +
-                    $"• Props antiguos eliminados: {totalWallPropsLimpiados}\n" +
-                    $"• Alineación: LookRotation(hit.normal) hacia el interior.\n" +
-                    $"• Variación de altura: +-0.5m aplicada.\n\n" +
-                    "Revisa la consola de Unity para más detalles.",
+                    $"• Props inyectados: {totalWallPropsInyectados}\n" +
+                    $"• Colliders de pared generados: {totalCollidersParedGenerados}\n" +
+                    $"• Muros antiguos limpiados: {totalWallPropsLimpiados}\n\n" +
+                    "Configuración aplicada:\n" +
+                    "✔ Raycast adaptativo a 15m\n" +
+                    "✔ Separación normal de 5cm (sin incrustación)\n" +
+                    "✔ isTrigger = TRUE (sin explosiones de físicas)",
                     "Excelente");
             }
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // MÉTODOS AUXILIARES
+        // MÉTODOS AUXILIARES DE PREVENCIÓN FÍSICA
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Carga todos los prefabs disponibles en la carpeta Props_Pared.
+        /// Itera por todos los Transform hijos. Si un objeto tiene MeshRenderer pero carece
+        /// de Collider, le añade un MeshCollider para asegurar que el Raycast siempre encuentre el muro.
+        /// </summary>
+        private static int PrepararCollidersDeParedes(GameObject root)
+        {
+            int agregados = 0;
+            MeshRenderer[] renderers = root.GetComponentsInChildren<MeshRenderer>(true);
+
+            foreach (MeshRenderer mr in renderers)
+            {
+                if (mr == null) continue;
+
+                Collider col = mr.GetComponent<Collider>();
+                if (col == null)
+                {
+                    MeshFilter mf = mr.GetComponent<MeshFilter>();
+                    if (mf != null && mf.sharedMesh != null)
+                    {
+                        MeshCollider mc = mr.gameObject.AddComponent<MeshCollider>();
+                        mc.sharedMesh = mf.sharedMesh;
+                        agregados++;
+                    }
+                }
+            }
+
+            return agregados;
+        }
+
+        /// <summary>
+        /// Neutraliza cualquier fuerza física forzando isTrigger = true en todos los Colliders
+        /// del prop de pared instanciado, impidiendo explosiones físicas por superposición.
+        /// </summary>
+        private static void NeutralizarColisionesFisicas(GameObject propInstance)
+        {
+            Collider[] colliders = propInstance.GetComponentsInChildren<Collider>(true);
+            foreach (Collider c in colliders)
+            {
+                if (c != null)
+                {
+                    c.isTrigger = true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Carga todos los prefabs de pared disponibles en Assets/Prefabs/Entornos/Props_Pared.
         /// </summary>
         private static List<GameObject> CargarPrefabsWallProps()
         {
@@ -267,4 +328,3 @@ namespace DemenciaNoLimite.Editor
     }
 }
 #endif
-

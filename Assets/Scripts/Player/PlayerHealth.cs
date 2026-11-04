@@ -22,7 +22,8 @@ namespace DemenciaNoLimite.Player
         [Header("Knockback Settings")]
         [SerializeField] private CharacterController _characterController;
         [Tooltip("Velocidad máxima permitida de empuje para evitar atravesar esquinas o muros.")]
-        [SerializeField] private float _maxKnockbackSpeed = 4.5f;
+        [SerializeField] private float _maxKnockbackSpeed = 1.2f;
+        private Vector3 _lastSafeGroundedPosition;
         private Vector3 _knockbackVelocity;
 
         public bool IsAlive => CurrentHealth > 0f;
@@ -39,14 +40,43 @@ namespace DemenciaNoLimite.Player
 
         private void Update()
         {
-            // Amortiguar velocidad de retroceso (knockback) con física reactiva
+            // 1. Guardar última posición segura en tierra firme
+            if (_characterController != null && _characterController.enabled && _characterController.isGrounded)
+            {
+                _lastSafeGroundedPosition = transform.position;
+            }
+
+            // 2. Red de seguridad anti-vacío: rescate inmediato si es expulsado fuera del mapa
+            if (_lastSafeGroundedPosition != Vector3.zero && transform.position.y < _lastSafeGroundedPosition.y - 3.5f)
+            {
+                _knockbackVelocity = Vector3.zero;
+                if (_characterController != null) _characterController.enabled = false;
+                transform.position = _lastSafeGroundedPosition + Vector3.up * 0.2f;
+                if (_characterController != null) _characterController.enabled = true;
+                Debug.LogWarning("[PlayerHealth] 🛡️ Jugador protegido contra caída al vacío. Reposicionado en suelo seguro.");
+            }
+
+            // 3. Amortiguar velocidad de retroceso (knockback) con chequeo preventivo contra muros
             if (_knockbackVelocity.sqrMagnitude > 0.01f)
             {
-                if (_characterController != null && _characterController.enabled)
+                float moveDist = _knockbackVelocity.magnitude * Time.deltaTime;
+                Vector3 moveDir = _knockbackVelocity.normalized;
+
+                // SphereCast preventivo: si hay una pared detrás, cancelar knockback antes de que la física penetre
+                int obstacleMask = ~((1 << gameObject.layer) | (1 << LayerMask.NameToLayer("Enemy")));
+                if (Physics.SphereCast(transform.position + Vector3.up * 0.8f, 0.35f, moveDir, out RaycastHit preHit, moveDist + 0.25f, obstacleMask, QueryTriggerInteraction.Ignore))
+                {
+                    if (Mathf.Abs(preHit.normal.y) < 0.35f)
+                    {
+                        _knockbackVelocity = Vector3.zero;
+                    }
+                }
+
+                if (_knockbackVelocity.sqrMagnitude > 0.01f && _characterController != null && _characterController.enabled)
                 {
                     _characterController.Move(_knockbackVelocity * Time.deltaTime);
                 }
-                _knockbackVelocity = Vector3.Lerp(_knockbackVelocity, Vector3.zero, Time.deltaTime * 10f);
+                _knockbackVelocity = Vector3.Lerp(_knockbackVelocity, Vector3.zero, Time.deltaTime * 14f);
             }
             else
             {

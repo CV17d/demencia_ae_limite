@@ -219,6 +219,29 @@ namespace DemenciaNoLimite.Enemies
         {
             ResolveCameraAndPlayer();
             SetSprite(_baseSprite);
+            ConfigurePlayerCollisionAvoidance();
+        }
+
+        /// <summary>
+        /// Desactiva colisiones directas de contacto físico entre el enemigo (kinemático) y el CharacterController del jugador.
+        /// Esto impide al 100% que el enemigo empuje o catapulte al jugador fuera del escenario a través de paredes.
+        /// Las armas y proyectiles continúan detectando al enemigo normalmente mediante Raycast.
+        /// </summary>
+        private void ConfigurePlayerCollisionAvoidance()
+        {
+            if (_playerTransform == null) return;
+            Collider myCol = GetComponent<Collider>();
+            Collider[] playerCols = _playerTransform.GetComponentsInChildren<Collider>();
+            if (myCol != null && playerCols != null)
+            {
+                foreach (var pCol in playerCols)
+                {
+                    if (pCol != null)
+                    {
+                        Physics.IgnoreCollision(myCol, pCol, true);
+                    }
+                }
+            }
         }
 
         private void Update()
@@ -495,7 +518,7 @@ namespace DemenciaNoLimite.Enemies
                 isCritical: false,
                 isHeadshot: false,
                 ignoreDefense: false,
-                knockbackForce: Mathf.Clamp(_attackKnockbackForce, 0.5f, 2.5f) // Tope de fuerza controlado
+                knockbackForce: Mathf.Clamp(_attackKnockbackForce, 0.1f, 0.7f) // Tope muy suave para no empujar a través de paredes
             );
 
             // Intentar aplicar vía IDamageable en el jugador
@@ -775,6 +798,7 @@ namespace DemenciaNoLimite.Enemies
                     GameObject p = GameObject.FindGameObjectWithTag("Player");
                     if (p != null) _playerTransform = p.transform;
                 }
+                ConfigurePlayerCollisionAvoidance();
             }
         }
 

@@ -760,13 +760,13 @@ namespace DemenciaNoLimite.Level
                 }
             }
 
-            // Distribuir a través de los módulos arquitectónicos
+            // Distribuir a través de los módulos arquitectónicos reales (salas, arenas, pasillos)
             if (modulos.Count > 0)
             {
                 List<GameObject> modulosShuffled = new List<GameObject>(modulos);
                 BarajarLista(modulosShuffled);
 
-                // Recorrer los módulos e instanciar en cada sala válida
+                // Ronda 1: Intentar 1 enemigo por sala/módulo verificado
                 foreach (var mod in modulosShuffled)
                 {
                     if (spawnedPositions.Count >= targetEnemyCount) break;
@@ -789,26 +789,26 @@ namespace DemenciaNoLimite.Level
                         }
                     }
                 }
-            }
 
-            // 5. Si faltan enemigos para alcanzar la meta (o no hay módulos), rellenar con muestreo procedural disperso
-            int intentosRestantes = 40;
-            while (spawnedPositions.Count < targetEnemyCount && intentosRestantes > 0)
-            {
-                intentosRestantes--;
-                float randomAngle = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
-                float randomDist = UnityEngine.Random.Range(_minPlayerInitialDistance, _maxSpawnRadius * 1.6f);
-                Vector3 candidatePoint = playerPos + new Vector3(Mathf.Cos(randomAngle) * randomDist, 0f, Mathf.Sin(randomAngle) * randomDist);
-
-                if (TryRaycastToGround(candidatePoint, out Vector3 groundPos))
+                // Ronda 2: Si aún faltan enemigos, permitir un segundo spawn únicamente en módulos grandes (arenas, hangares, cruces)
+                if (spawnedPositions.Count < targetEnemyCount)
                 {
-                    if (Vector3.Distance(groundPos, playerPos) >= _minPlayerInitialDistance &&
-                        !EstaDemasiadoCercaDeOtrosEnemigos(groundPos, spawnedPositions, _minDistanceBetweenEnemies))
+                    foreach (var mod in modulosShuffled)
                     {
-                        GameObject enemy = InstanciarEnemigo(enemyPrefab, groundPos);
-                        if (enemy != null)
+                        if (spawnedPositions.Count >= targetEnemyCount) break;
+                        if (mod == null) continue;
+
+                        string mName = mod.name.ToLowerInvariant();
+                        if (mName.Contains("arena") || mName.Contains("hangar") || mName.Contains("fabrica") || mName.Contains("cruce") || mName.Contains("recibidor"))
                         {
-                            spawnedPositions.Add(groundPos);
+                            if (TryFindWalkablePointInModule(mod, playerPos, spawnedPositions, out Vector3 validSpawnPos))
+                            {
+                                GameObject enemy = InstanciarEnemigo(enemyPrefab, validSpawnPos);
+                                if (enemy != null)
+                                {
+                                    spawnedPositions.Add(validSpawnPos);
+                                }
+                            }
                         }
                     }
                 }
@@ -823,26 +823,90 @@ namespace DemenciaNoLimite.Level
             validPoint = Vector3.zero;
             if (modulo == null) return false;
 
-            Vector3 center = modulo.transform.position;
-
-            // Muestreo de varias posiciones candidatas dentro del módulo
-            Vector3[] offsets = new Vector3[]
+            // 1. Obtener los límites geométricos reales del módulo a partir de sus Renderers o Colliders
+            Renderer[] rends = modulo.GetComponentsInChildren<Renderer>();
+            Bounds bounds;
+            if (rends != null && rends.Length > 0)
             {
-                Vector3.zero,
-                new Vector3(UnityEngine.Random.Range(-3f, 3f), 0f, UnityEngine.Random.Range(-3f, 3f)),
-                new Vector3(UnityEngine.Random.Range(-6f, 6f), 0f, UnityEngine.Random.Range(-6f, 6f)),
-                new Vector3(UnityEngine.Random.Range(-4f, 4f), 0f, UnityEngine.Random.Range(-4f, 4f))
-            };
-
-            for (int i = 0; i < offsets.Length; i++)
-            {
-                Vector3 sampleOrigin = center + offsets[i];
-                if (TryRaycastToGround(sampleOrigin, out Vector3 detectedGround))
+                bounds = rends[0].bounds;
+                for (int r = 1; r < rends.Length; r++)
                 {
-                    if (Vector3.Distance(detectedGround, playerPos) >= _minPlayerInitialDistance &&
-                        !EstaDemasiadoCercaDeOtrosEnemigos(detectedGround, spawnedPositions, _minDistanceBetweenEnemies))
+                    bounds.Encapsulate(rends[r].bounds);
+                }
+            }
+            else
+            {
+                Collider[] cols = modulo.GetComponentsInChildren<Collider>();
+                if (cols != null && cols.Length > 0)
+                {
+                    bounds = cols[0].bounds;
+                    for (int c = 1; c < cols.Length; c++)
                     {
-                        validPoint = detectedGround;
+                        bounds.Encapsulate(cols[c].bounds);
+                    }
+                }
+                else
+                {
+                    bounds = new Bounds(modulo.transform.position, new Vector3(4f, 4f, 4f));
+                }
+            }
+
+            // Margen interior de seguridad: meterse 1.2m hacia adentro de las paredes para nunca nacer fuera
+            float safeExtX = Mathf.Max(0.4f, bounds.extents.x - 1.2f);
+            float safeExtZ = Mathf.Max(0.4f, bounds.extents.z - 1.2f);
+
+            int playerLayer = LayerMask.NameToLayer("Player");
+            int enemyLayer = LayerMask.NameToLayer("Enemy");
+            LayerMask effectiveMask = _groundLayer.value & ~((1 << playerLayer) | (1 << enemyLayer));
+            float refFloorY = playerPos != Vector3.zero ? playerPos.y : modulo.transform.position.y;
+
+            // 2. Muestreo de puntos estrictamente contenidos en el volumen interior del módulo
+            for (int intento = 0; intento < 8; intento++)
+            {
+                Vector3 sampleXZ;
+                if (intento == 0)
+                {
+                    sampleXZ = new Vector3(bounds.center.x, bounds.center.y, bounds.center.z);
+                }
+                else
+                {
+                    sampleXZ = new Vector3(
+                        bounds.center.x + UnityEngine.Random.Range(-safeExtX, safeExtX),
+                        bounds.center.y,
+                        bounds.center.z + UnityEngine.Random.Range(-safeExtZ, safeExtZ)
+                    );
+                }
+
+                // Raycast vertical desde el interior de la habitación hacia abajo
+                Vector3 rayOrigin = new Vector3(sampleXZ.x, refFloorY + 1.2f, sampleXZ.z);
+
+                if (Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, 4.0f, effectiveMask, QueryTriggerInteraction.Ignore))
+                {
+                    // A. El colisionador impactado DEBE pertenecer a este módulo (garantiza que no es suelo exterior)
+                    if (!hit.collider.transform.IsChildOf(modulo.transform) && !modulo.transform.IsChildOf(hit.collider.transform))
+                    {
+                        continue;
+                    }
+
+                    // B. Pendiente transitable adecuada (descartar muros)
+                    if (hit.normal.y < _minWalkableSlope) continue;
+
+                    // C. La altura debe corresponder estrictamente al nivel del piso del jugador
+                    if (Mathf.Abs(hit.point.y - refFloorY) > 2.2f) continue;
+
+                    // D. Debe tener techo interior arriba (garantiza que está dentro de la sala y no en la azotea/techo)
+                    Vector3 ceilOrigin = hit.point + Vector3.up * 0.2f;
+                    if (!Physics.Raycast(ceilOrigin, Vector3.up, out RaycastHit ceilHit, 16.0f, effectiveMask | _obstacleLayer, QueryTriggerInteraction.Ignore))
+                    {
+                        continue; // Sin techo -> Exterior
+                    }
+                    if (ceilHit.distance < 1.6f) continue; // Techo demasiado bajo
+
+                    // E. Validar distancias con el jugador y otros enemigos
+                    if (Vector3.Distance(hit.point, playerPos) >= _minPlayerInitialDistance &&
+                        !EstaDemasiadoCercaDeOtrosEnemigos(hit.point, spawnedPositions, _minDistanceBetweenEnemies))
+                    {
+                        validPoint = hit.point + Vector3.up * _groundSpawnOffset;
                         return true;
                     }
                 }

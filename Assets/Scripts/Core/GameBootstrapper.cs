@@ -209,6 +209,7 @@ namespace DemenciaNoLimite
                 uiGo.AddComponent<ElevatorUIController>();
                 uiGo.AddComponent<BossHealthBarUI>();
 
+                uiGo.AddComponent<InventoryUIController>();
                 uiGo.AddComponent<InventoryUI>();
 
                 uiGo.AddComponent<RuntimeDebugOverlay>(); // Draws on-screen graphics via OnGUI

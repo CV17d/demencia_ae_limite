@@ -527,28 +527,46 @@ namespace DemenciaNoLimite.Player
 
         /// <summary>
         /// Calcula los límites de renderizado combinados (Render Bounds) en el espacio de la escena
-        /// a partir de todos los MeshRenderer y SkinnedMeshRenderer presentes.
+        /// a partir exclusivamente de todos los MeshRenderer y SkinnedMeshRenderer presentes.
         /// </summary>
         public static bool TryCalculateRenderBounds(GameObject rootGo, out Bounds combinedBounds)
         {
             combinedBounds = new Bounds(Vector3.zero, Vector3.zero);
             if (rootGo == null) return false;
 
-            Renderer[] renderers = rootGo.GetComponentsInChildren<Renderer>(true);
             bool hasBounds = false;
 
-            for (int i = 0; i < renderers.Length; i++)
+            // 1. Evaluar MeshRenderer estándar de la geometría 3D
+            MeshRenderer[] meshRenderers = rootGo.GetComponentsInChildren<MeshRenderer>(true);
+            for (int i = 0; i < meshRenderers.Length; i++)
             {
-                if (renderers[i] is ParticleSystemRenderer || renderers[i] is TrailRenderer) continue;
+                if (meshRenderers[i] == null) continue;
 
                 if (!hasBounds)
                 {
-                    combinedBounds = renderers[i].bounds;
+                    combinedBounds = meshRenderers[i].bounds;
                     hasBounds = true;
                 }
                 else
                 {
-                    combinedBounds.Encapsulate(renderers[i].bounds);
+                    combinedBounds.Encapsulate(meshRenderers[i].bounds);
+                }
+            }
+
+            // 2. Evaluar SkinnedMeshRenderer (para mallas con rigging o animadas)
+            SkinnedMeshRenderer[] skinnedRenderers = rootGo.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            for (int i = 0; i < skinnedRenderers.Length; i++)
+            {
+                if (skinnedRenderers[i] == null) continue;
+
+                if (!hasBounds)
+                {
+                    combinedBounds = skinnedRenderers[i].bounds;
+                    hasBounds = true;
+                }
+                else
+                {
+                    combinedBounds.Encapsulate(skinnedRenderers[i].bounds);
                 }
             }
 

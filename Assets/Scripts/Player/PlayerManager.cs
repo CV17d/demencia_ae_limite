@@ -12,6 +12,7 @@ using UnityEngine;
 using DemenciaNoLimite.Core;
 using DemenciaNoLimite.Core.Data;
 using DemenciaNoLimite.Horror;
+using DemenciaNoLimite.UI;
 
 namespace DemenciaNoLimite.Player
 {
@@ -103,6 +104,7 @@ namespace DemenciaNoLimite.Player
         public PlayerHandController HandController => _handController;
         public PlayerWeaponEquipManager WeaponEquipManager => _weaponEquipManager;
         public WeaponCombatController CombatController => _combatController;
+        public InventoryUI InventoryUI => InventoryUI.Instance ?? FindAnyObjectByType<InventoryUI>();
 
         public bool IsAlive => _health == null || _health.IsAlive;
         public float CurrentGuilt => _sanityManager != null ? _sanityManager.CurrentGuilt : (SanityManager.Instance != null ? SanityManager.Instance.CurrentGuilt : 0);

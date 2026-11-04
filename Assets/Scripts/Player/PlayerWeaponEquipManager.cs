@@ -266,6 +266,8 @@ namespace DemenciaNoLimite.Player
         // PROPIEDADES PÚBLICAS
         // ════════════════════════════════════════════════════════════════════
 
+        public static PlayerWeaponEquipManager Instance { get; private set; }
+
         public GameObject CurrentSpawnedWeapon => _currentSpawnedWeaponInstance;
         public WeaponData CurrentEquippedWeaponData => _currentEquippedWeaponData;
         public string CurrentEquippedWeaponId => _currentEquippedWeaponId;
@@ -283,10 +285,27 @@ namespace DemenciaNoLimite.Player
 
         private void Awake()
         {
+            if (Instance == null)
+            {
+                Instance = this;
+            }
+            else if (Instance != this)
+            {
+                Instance = this;
+            }
+
             ResolverComponentesLocales();
             ReconstruirDiccionarios();
             AsegurarWeaponHolder();
             AsegurarCapaWeapon();
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this)
+            {
+                Instance = null;
+            }
         }
 
         private void OnEnable()
@@ -1247,6 +1266,14 @@ namespace DemenciaNoLimite.Player
         {
             if (activeSlot != null && activeSlot.Data != null)
             {
+                // Si el arma activa ya está instanciada y coincide, evitar reinstanciación redundante
+                if (_currentSpawnedWeaponInstance != null &&
+                    _currentEquippedWeaponData == activeSlot.Data &&
+                    string.Equals(_currentEquippedWeaponId, activeSlot.Data.WeaponID, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
                 EquipWeaponExplicit(activeSlot.Data.WeaponID, activeSlot.Data, null);
             }
             else

@@ -13,6 +13,8 @@ namespace DemenciaNoLimite.Player
 {
     public class PlayerInventory : MonoBehaviour
     {
+        public static PlayerInventory Instance { get; private set; }
+
         [Header("Weapon Slots")]
         [SerializeField] private WeaponData[] _startingWeapons;
         [SerializeField] private int _maxWeaponSlots = 3;
@@ -25,6 +27,11 @@ namespace DemenciaNoLimite.Player
 
         public event Action<WeaponSlotInstance> OnActiveWeaponChanged;
         public event Action<int, int> OnAmmoUpdated; // currentMag, reserveAmmo
+        public event Action OnInventoryChanged;
+
+        public IReadOnlyList<WeaponSlotInstance> Slots => _slots;
+        public int CurrentSlotIndex => _currentSlotIndex;
+        public int MaxWeaponSlots => _maxWeaponSlots;
 
         public WeaponSlotInstance ActiveWeaponInstance => 
             (_slots.Count > 0 && _currentSlotIndex >= 0 && _currentSlotIndex < _slots.Count) 
@@ -33,6 +40,15 @@ namespace DemenciaNoLimite.Player
 
         private void Awake()
         {
+            if (Instance == null)
+            {
+                Instance = this;
+            }
+            else if (Instance != this)
+            {
+                Instance = this;
+            }
+
             // Initialize standard ammo pools
             _ammoReserves[WeaponType.Hitscan] = 60;
             _ammoReserves[WeaponType.Projectile] = 20;
@@ -42,8 +58,16 @@ namespace DemenciaNoLimite.Player
             {
                 foreach (var w in _startingWeapons)
                 {
-                    if (w != null) AddWeapon(w);
+                    if (w != null) AddWeapon(w, autoEquip: false);
                 }
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this)
+            {
+                Instance = null;
             }
         }
 
@@ -63,6 +87,8 @@ namespace DemenciaNoLimite.Player
             {
                 var instance = new WeaponSlotInstance(weaponData);
                 _slots.Add(instance);
+                OnInventoryChanged?.Invoke();
+
                 if (autoEquip || _slots.Count == 1)
                 {
                     EquipSlot(_slots.Count - 1);
@@ -74,6 +100,7 @@ namespace DemenciaNoLimite.Player
             if (_slots.Count > 0)
             {
                 _slots[_currentSlotIndex] = new WeaponSlotInstance(weaponData);
+                OnInventoryChanged?.Invoke();
                 EquipSlot(_currentSlotIndex);
                 return true;
             }
@@ -81,6 +108,9 @@ namespace DemenciaNoLimite.Player
             return false;
         }
 
+        /// <summary>
+        /// Equipa la ranura indicada y comunica el cambio a PlayerWeaponEquipManager.
+        /// </summary>
         public void EquipSlot(int slotIndex)
         {
             if (slotIndex < 0 || slotIndex >= _slots.Count) return;
@@ -89,6 +119,74 @@ namespace DemenciaNoLimite.Player
             var active = ActiveWeaponInstance;
             OnActiveWeaponChanged?.Invoke(active);
             NotifyAmmoChange();
+
+            // Comunicación directa con PlayerWeaponEquipManager para asegurar instanciación y reemplazo del viewmodel
+            var equipMgr = PlayerWeaponEquipManager.Instance ?? FindAnyObjectByType<PlayerWeaponEquipManager>();
+            if (equipMgr != null)
+            {
+                if (active != null && active.Data != null)
+                {
+                    equipMgr.EquipWeaponExplicit(active.Data.WeaponID, active.Data, null);
+                }
+                else
+                {
+                    equipMgr.UnequipCurrentWeapon();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Busca y equipa el arma que coincida con el WeaponData proporcionado.
+        /// </summary>
+        public bool EquipWeapon(WeaponData weaponData)
+        {
+            if (weaponData == null) return false;
+
+            for (int i = 0; i < _slots.Count; i++)
+            {
+                if (_slots[i] != null && (_slots[i].Data == weaponData || string.Equals(_slots[i].Data?.WeaponID, weaponData.WeaponID, StringComparison.OrdinalIgnoreCase)))
+                {
+                    EquipSlot(i);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Busca y equipa el arma por su identificador de texto o nombre legible.
+        /// </summary>
+        public bool EquipWeapon(string weaponId)
+        {
+            if (string.IsNullOrEmpty(weaponId)) return false;
+
+            for (int i = 0; i < _slots.Count; i++)
+            {
+                if (_slots[i] != null && _slots[i].Data != null)
+                {
+                    if (string.Equals(_slots[i].Data.WeaponID, weaponId, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(_slots[i].Data.DisplayName, weaponId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        EquipSlot(i);
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        public bool ContainsWeapon(string weaponId)
+        {
+            if (string.IsNullOrEmpty(weaponId)) return false;
+            for (int i = 0; i < _slots.Count; i++)
+            {
+                if (_slots[i] != null && _slots[i].Data != null &&
+                    string.Equals(_slots[i].Data.WeaponID, weaponId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public void NextWeapon()

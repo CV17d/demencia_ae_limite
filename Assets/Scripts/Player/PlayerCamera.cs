@@ -91,7 +91,7 @@ namespace DemenciaNoLimite.Player
         {
             UpdateRecoil();
 
-            if (!_canLook) return;
+            if (!_canLook || Cursor.lockState != CursorLockMode.Locked) return;
 
             HandleMouseLook();
         }

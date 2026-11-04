@@ -897,6 +897,9 @@ namespace DemenciaNoLimite.Player
         {
             if (!HasWeaponEquipped) return;
 
+            // Bloquear disparo si el cursor está desbloqueado para interactuar con menús o inventario
+            if (Cursor.lockState != CursorLockMode.Locked) return;
+
             bool isAuto = _activeConfig != null && _activeConfig.isAutomatic;
             bool triggerPressed = isAuto
                 ? (Input.GetButton("Fire1") || Input.GetMouseButton(0))

@@ -204,7 +204,8 @@ namespace DemenciaNoLimite
                 var uiGo = new GameObject("=== UI_CONTROLLERS ===");
                 uiGo.AddComponent<HUDController>();
                 uiGo.AddComponent<ElevatorUIController>();
-                uiGo.AddComponent<BossHealthBarUI>();
+                uiGo.AddComponent<BossHealthBarUI>();
+                uiGo.AddComponent<InventoryUI>();
                 uiGo.AddComponent<RuntimeDebugOverlay>(); // Draws on-screen graphics via OnGUI
             }
         }

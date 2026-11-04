@@ -533,8 +533,157 @@ namespace DemenciaNoLimite.Level
                 armasInstanciadas += EscanearSuperficiesEnModulos(targetWeaponCount - armasInstanciadas, playerPos);
             }
 
+            // 5. Garantizar al 100% las 3 armas de prueba en el Piso 01 o si faltan armas
+            if (_currentFloor <= 1 || _spawnedWeapons.Count < 3)
+            {
+                GarantizarArmasInicialesPiso01(playerPos);
+            }
+
             Debug.Log($"<color=#55FF55><b>[WeaponSpawner]</b> ✅ ¡Generación de armas completada con éxito!</color> " +
-                      $"Armas activas generadas en Piso {_currentFloor}: <b>{armasInstanciadas}</b> (Objetivo establecido: {targetWeaponCount}).");
+                      $"Armas activas generadas en Piso {_currentFloor}: <b>{_spawnedWeapons.Count}</b> (Objetivo establecido: {targetWeaponCount}).");
+        }
+
+        /// <summary>
+        /// Garantiza al 100% que los prefabs de armas clave (Revólver, Trabeca, Bingala) sigan
+        /// instanciándose en sus posiciones de prueba/spawn en el Piso 01 si fueron eliminadas accidentalmente.
+        /// </summary>
+        public void GarantizarArmasInicialesPiso01(Vector3 playerPos)
+        {
+            AsegurarContenedorArmas();
+
+            Transform playerTransform = GameObject.FindGameObjectWithTag("Player")?.transform;
+            Vector3 center = (playerTransform != null) ? playerTransform.position : (playerPos != Vector3.zero ? playerPos : Vector3.zero);
+            Vector3 forward = (playerTransform != null) ? playerTransform.forward : Vector3.forward;
+            Vector3 right = (playerTransform != null) ? playerTransform.right : Vector3.right;
+
+            // Datos de las 3 armas garantizadas para el Piso 01
+            var armasPiso01 = new (string id, string nombre, Vector3 offset)[]
+            {
+                ("demencia revolver", "Demencia Revólver", forward * 3.2f - right * 1.8f),
+                ("Trabeca", "Trabeca", forward * 4.4f),
+                ("bingala", "Bingala", forward * 3.2f + right * 1.8f)
+            };
+
+            for (int i = 0; i < armasPiso01.Length; i++)
+            {
+                var info = armasPiso01[i];
+
+                // Verificar si ya existe en la escena un pickup con este arma
+                bool yaExiste = false;
+                var pickupsEnEscena = FindObjectsByType<WorldItemPickup>(FindObjectsInactive.Exclude);
+                foreach (var p in pickupsEnEscena)
+                {
+                    if (p != null)
+                    {
+                        string pId = p.ObtenerWeaponId();
+                        if (string.Equals(pId, info.id, StringComparison.OrdinalIgnoreCase) ||
+                            p.name.IndexOf(info.id, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            p.name.IndexOf(info.nombre, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            yaExiste = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (yaExiste) continue;
+
+                // Buscar prefab en catálogo o PlayerWeaponEquipManager
+                GameObject prefab = BuscarPrefabEnCatalogoOManager(info.id);
+                Vector3 targetPos = center + info.offset;
+
+                if (AjustarASuperficiePlana(targetPos, out Vector3 surfacePos))
+                {
+                    targetPos = surfacePos;
+                }
+                else
+                {
+                    targetPos.y = center.y + 0.15f;
+                }
+
+                GameObject weaponObj;
+                if (prefab != null)
+                {
+                    weaponObj = Instantiate(prefab, targetPos, Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f), _weaponsContainer);
+                }
+                else
+                {
+                    // Fallback representativo si el prefab aún no está enlazado
+                    weaponObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    weaponObj.transform.position = targetPos;
+                    weaponObj.transform.localScale = new Vector3(0.2f, 0.1f, 0.5f);
+                    if (_weaponsContainer != null) weaponObj.transform.SetParent(_weaponsContainer);
+                }
+
+                weaponObj.name = $"Pickup_{info.nombre}_Piso01";
+
+                var pickup = weaponObj.GetComponent<WorldItemPickup>() ?? weaponObj.AddComponent<WorldItemPickup>();
+                pickup.ConfigurarComoArma(info.id, info.nombre, prefab);
+
+                var col = weaponObj.GetComponent<Collider>();
+                if (col == null)
+                {
+                    var sc = weaponObj.AddComponent<SphereCollider>();
+                    sc.isTrigger = true;
+                    sc.radius = 1.4f;
+                }
+                else
+                {
+                    col.isTrigger = true;
+                }
+
+                var rb = weaponObj.GetComponent<Rigidbody>() ?? weaponObj.AddComponent<Rigidbody>();
+                rb.isKinematic = true;
+                rb.useGravity = false;
+
+                if (!_spawnedWeapons.Contains(weaponObj))
+                {
+                    _spawnedWeapons.Add(weaponObj);
+                }
+
+                Debug.Log($"<color=#38BDF8><b>[WeaponSpawner]</b> 🔫 Restaurada arma en Piso 01: '<b>{info.nombre}</b>' en {targetPos:F2}.</color>");
+            }
+        }
+
+        private GameObject BuscarPrefabEnCatalogoOManager(string weaponId)
+        {
+            if (_weaponCatalog != null)
+            {
+                foreach (var item in _weaponCatalog)
+                {
+                    if (item != null && item.weaponPrefab != null &&
+                        (string.Equals(item.weaponId, weaponId, StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(item.displayName, weaponId, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return item.weaponPrefab;
+                    }
+                }
+            }
+
+            var equipMgr = DemenciaNoLimite.Player.PlayerWeaponEquipManager.Instance ?? FindAnyObjectByType<DemenciaNoLimite.Player.PlayerWeaponEquipManager>();
+            if (equipMgr != null)
+            {
+                var mapping = equipMgr.BuscarMapping(weaponId, null);
+                if (mapping != null && mapping.weaponPrefab != null)
+                {
+                    return mapping.weaponPrefab;
+                }
+            }
+
+#if UNITY_EDITOR
+            string[] files = System.IO.Directory.Exists(WEAPONS_FOLDER_PATH) 
+                ? System.IO.Directory.GetFiles(WEAPONS_FOLDER_PATH, "*.prefab", System.IO.SearchOption.TopDirectoryOnly) 
+                : new string[0];
+            foreach (var f in files)
+            {
+                string fn = System.IO.Path.GetFileNameWithoutExtension(f);
+                if (string.Equals(fn, weaponId, StringComparison.OrdinalIgnoreCase) || fn.IndexOf(weaponId, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(f.Replace('\\', '/'));
+                }
+            }
+#endif
+            return null;
         }
 
         // ════════════════════════════════════════════════════════════════════

@@ -60,6 +60,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: -7511558181221131132, guid: 4887cd5fa4883a545a76bb095c0c96a9, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: a2ee61e01960b804987e0c9437f6f2a6, type: 2}
     - target: {fileID: 919132149155446097, guid: 4887cd5fa4883a545a76bb095c0c96a9, type: 3}
       propertyPath: m_Name
       value: demencia revolver

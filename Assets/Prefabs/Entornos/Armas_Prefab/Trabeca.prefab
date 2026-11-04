@@ -182,6 +182,7 @@ MonoBehaviour:
   _ammoType: 1
   _healAmount: 25
   _sanityRestoreAmount: 20
+  _inventoryItemData: {fileID: 0}
   _interactKey: 101
   _requireLookingAtItem: 1
   _lookAtAngleThreshold: 65

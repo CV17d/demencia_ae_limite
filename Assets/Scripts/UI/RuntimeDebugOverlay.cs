@@ -1,14 +1,13 @@
 // ============================================================================
-// RuntimeDebugOverlay.cs — Immediate OnGUI HUD & Interactive Elevator Display
+// RuntimeDebugOverlay.cs — High-Legibility Horror Visor HUD (Halo Spatial Layout)
 // ============================================================================
-// Automatically renders in-game visual elements during Play Mode without needing
-// Canvas/UI setup:
-//   - Dynamic Health Bar (Green/Red)
-//   - Mental Degradation Meter (Purple/Black) with Tier indicator
-//   - Floor Progress, Currency & Weapon Ammunition
-//   - Center Crosshair
-//   - Interactive Elevator Dialog (Merchant purchases & Cursed Pact choices)
-//   - Boss HP Bar on Boss Floors
+// Minimalist, high-contrast HUD designed for psychological horror and suspense:
+//   - Drop-shadow text rendering (Black +2px offset) for instant readability on dark scenes
+//   - Bone-white vibrant text [new Color(0.9f, 0.9f, 0.85f)]
+//   - Full-length semi-transparent black track (0,0,0,0.7) for maximum bar visibility
+//   - 14px tall tactile progress bars & 2px medium gray divider lines
+//   - 20% brightened Crimson Health & Withered Purple Sanity fills
+//   - Isolated bottom-right digital ammo readout [ AMMO // [ 10 / 12 ] ]
 // ============================================================================
 
 using UnityEngine;
@@ -20,17 +19,27 @@ namespace DemenciaNoLimite.UI
 {
     public class RuntimeDebugOverlay : MonoBehaviour
     {
+        // --- PALETA DE TERROR Y ALTA LEGIBILIDAD ---
+        private static readonly Color ColorBoneText        = new Color(0.9f, 0.9f, 0.85f, 1.0f);
+        private static readonly Color ColorDividerLine     = new Color(0.5f, 0.5f, 0.5f, 0.7f);
+        private static readonly Color ColorBarTrack        = new Color(0.0f, 0.0f, 0.0f, 0.7f);
+        private static readonly Color ColorBloodRed        = new Color(0.7f, 0.15f, 0.15f, 1.0f);
+        private static readonly Color ColorWitheredPurple  = new Color(0.5f, 0.35f, 0.7f, 1.0f);
+        private static readonly Color ColorTrackBorder     = new Color(0.4f, 0.4f, 0.4f, 0.5f);
+        private static readonly Color ColorTerminalDim     = new Color(0.6f, 0.6f, 0.58f, 0.8f);
+
         private HUDController _hud;
         private ElevatorUIController _elevatorUI;
         private BossHealthBarUI _bossUI;
 
-        [Header("Debug Panels")]
-        [Tooltip("Muestra el panel de navegación de la torre y botones de teletransporte (desactivado por defecto).")]
-        [SerializeField] private bool _showTowerDebugPanel = false;
-
         private Texture2D _whiteTex;
-        private GUIStyle _headerStyle;
-        private GUIStyle _subStyle;
+        private GUIStyle _sectorStyle;
+        private GUIStyle _labelStyle;
+        private GUIStyle _valStyle;
+        private GUIStyle _ammoLargeStyle;
+        private GUIStyle _tokenStyle;
+        private GUIStyle _terminalStyle;
+        private GUIStyle _bossHeaderStyle;
         private GUIStyle _buttonStyle;
         private GUIStyle _cardStyle;
 
@@ -52,32 +61,68 @@ namespace DemenciaNoLimite.UI
 
         private void InitStyles()
         {
-            if (_headerStyle != null) return;
+            if (_sectorStyle != null) return;
 
-            _headerStyle = new GUIStyle(GUI.skin.label)
+            _sectorStyle = new GUIStyle(GUI.skin.label)
             {
-                fontSize = 18,
+                fontSize = 12,
                 fontStyle = FontStyle.Bold,
-                normal = { textColor = Color.white }
+                alignment = TextAnchor.MiddleLeft
             };
 
-            _subStyle = new GUIStyle(GUI.skin.label)
+            _labelStyle = new GUIStyle(GUI.skin.label)
             {
-                fontSize = 13,
-                normal = { textColor = new Color(0.8f, 0.85f, 0.9f) }
+                fontSize = 11,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleLeft
+            };
+
+            _valStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 11,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleRight
+            };
+
+            _ammoLargeStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 20,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleRight
+            };
+
+            _tokenStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 12,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleRight
+            };
+
+            _terminalStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 10,
+                fontStyle = FontStyle.Normal,
+                alignment = TextAnchor.MiddleLeft
+            };
+
+            _bossHeaderStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 14,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter
             };
 
             _buttonStyle = new GUIStyle(GUI.skin.button)
             {
-                fontSize = 14,
+                fontSize = 13,
                 fontStyle = FontStyle.Bold
             };
 
             _cardStyle = new GUIStyle(GUI.skin.box)
             {
-                fontSize = 13,
+                fontSize = 12,
                 wordWrap = true,
-                padding = new RectOffset(12, 12, 12, 12)
+                padding = new RectOffset(10, 10, 10, 10)
             };
         }
 
@@ -85,25 +130,19 @@ namespace DemenciaNoLimite.UI
         {
             InitStyles();
 
-            // 1. Center Crosshair
+            // 1. Crosshair táctico tenue
             DrawCrosshair();
 
-            // 2. Main In-game HUD
+            // 2. HUD Descentralizado de Alta Legibilidad
             DrawHUD();
 
-            // 3. Boss Bar (if active)
+            // 3. Barra de Encuentro con Jefe
             if (_bossUI != null && _bossUI.IsVisible)
             {
                 DrawBossBar();
             }
 
-            // 4. Tower Navigation & 27-Floor Testing Panel (Oculto por defecto según requerimiento de diseño)
-            if (_showTowerDebugPanel)
-            {
-                DrawTowerProgressPanel();
-            }
-
-            // 5. Elevator UI Dialog (if active)
+            // 4. Diálogo de Elevador Fronterizo
             if (_elevatorUI != null && _elevatorUI.IsElevatorUIVisible)
             {
                 DrawElevatorDialog();
@@ -112,7 +151,7 @@ namespace DemenciaNoLimite.UI
 
         private void Update()
         {
-            // Tab key toggles cursor lock so player can click buttons
+            // Tab para liberar cursor durante diálogos o inspección
             if (Input.GetKeyDown(KeyCode.Tab))
             {
                 Cursor.lockState = Cursor.lockState == CursorLockMode.Locked ? CursorLockMode.None : CursorLockMode.Locked;
@@ -120,142 +159,227 @@ namespace DemenciaNoLimite.UI
             }
         }
 
+        // ====================================================================
+        // SOMBREADO DE TEXTO (CRÍTICO: +2px OFFSET EN NEGRO PURO)
+        // ====================================================================
+        private void DrawTextWithShadow(Rect rect, string text, GUIStyle style, Color mainColor)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+
+            // 1. Sombra: negro puro con offset (+2px en X e Y)
+            style.normal.textColor = Color.black;
+            GUI.Label(new Rect(rect.x + 2f, rect.y + 2f, rect.width, rect.height), text, style);
+
+            // 2. Texto principal en la capa superior
+            style.normal.textColor = mainColor;
+            GUI.Label(rect, text, style);
+        }
+
+        // ====================================================================
+        // RETÍCULA DE VISOR
+        // ====================================================================
         private void DrawCrosshair()
         {
             float cx = Screen.width * 0.5f;
             float cy = Screen.height * 0.5f;
-            DrawRect(new Rect(cx - 1, cy - 8, 2, 16), new Color(1f, 1f, 1f, 0.7f));
-            DrawRect(new Rect(cx - 8, cy - 1, 16, 2), new Color(1f, 1f, 1f, 0.7f));
+            Color reticleColor = new Color(0.7f, 0.7f, 0.65f, 0.5f);
+
+            // Ticks sutiles del visor
+            DrawRect(new Rect(cx - 8, cy - 1, 5, 2), reticleColor);
+            DrawRect(new Rect(cx + 3, cy - 1, 5, 2), reticleColor);
+            DrawRect(new Rect(cx - 1, cy - 8, 2, 5), reticleColor);
+            DrawRect(new Rect(cx - 1, cy + 3, 2, 5), reticleColor);
+
+            // Micro punto central
+            DrawRect(new Rect(cx - 0.5f, cy - 0.5f, 1, 1), Color.white);
         }
 
+        // ====================================================================
+        // HUD PRINCIPAL (ESQUINAS DESCENTRALIZADAS & ALTA VISIBILIDAD)
+        // ====================================================================
         private void DrawHUD()
         {
-            float pad = 20f;
-            float topY = pad;
+            // ----------------------------------------------------------------
+            // ESQUINA SUPERIOR IZQUIERDA: VITALES Y CORDURA (FLOTANTE)
+            // ----------------------------------------------------------------
+            float lx = 32f;
+            float ly = 26f;
+            float barW = 210f;
+            float barH = 14f; // 14px de altura para alta visibilidad
 
-            // Background panel for Top-Left Stats
-            DrawRect(new Rect(pad - 8, topY - 8, 310, 160), new Color(0.08f, 0.08f, 0.12f, 0.88f));
+            // Identificador de Sector / Piso
+            string floorText = _hud != null ? _hud.FloorDisplayText : "TORRE FRONTERA";
+            DrawTextWithShadow(new Rect(lx, ly, barW + 80f, 20f), $"SEC // {floorText.ToUpper()}", _sectorStyle, ColorBoneText);
+            ly += 22f;
 
-            // Floor & Act
-            string floorText = _hud != null ? _hud.FloorDisplayText : "TORRE DE LA FRONTERA";
-            GUI.Label(new Rect(pad, topY, 290, 26), floorText, _headerStyle);
-            topY += 28;
+            // Línea divisoria horizontal de 2px de grosor
+            DrawRect(new Rect(lx, ly, barW, 2f), ColorDividerLine);
+            ly += 12f;
 
-            // Health Bar
-            var gm = GameManager.Instance;
+            // Salud del Sujeto (Rojo Aclarado 20% con Sombra)
             float hpPct = _hud != null ? _hud.HealthNormalized : 1f;
             string hpText = _hud != null ? _hud.HealthDisplayText : "100 / 100";
+            DrawTextWithShadow(new Rect(lx, ly, 100f, 18f), "SALUD //", _labelStyle, ColorBoneText);
+            DrawTextWithShadow(new Rect(lx + 100f, ly, barW - 100f, 18f), hpText, _valStyle, ColorBoneText);
+            ly += 20f;
+            DrawProgressBar(lx, ly, barW, barH, hpPct, ColorBloodRed);
+            ly += barH + 12f;
 
-            GUI.Label(new Rect(pad, topY, 100, 20), $"SALUD:", _subStyle);
-            DrawBar(pad + 65, topY + 2, 210, 16, hpPct, new Color(0.85f, 0.2f, 0.2f), new Color(0.2f, 0.05f, 0.05f));
-            GUI.Label(new Rect(pad + 120, topY - 1, 120, 20), hpText, _subStyle);
-            topY += 26;
-
-            // Sanity Bar (Mental Degradation)
+            // Cordura / Degradación Mental (Morado Frío Aclarado 20%)
             float sanityPct = _hud != null ? _hud.SanityNormalized : 0f;
             string tierText = _hud != null ? _hud.SanityTierDisplayText : "STABLE";
+            string sanityDisplay = $"{tierText} [{(sanityPct * 100f):F0}%]";
+            DrawTextWithShadow(new Rect(lx, ly, 100f, 18f), "CORDURA //", _labelStyle, ColorBoneText);
+            DrawTextWithShadow(new Rect(lx + 100f, ly, barW - 100f, 18f), sanityDisplay, _valStyle, ColorBoneText);
+            ly += 20f;
+            DrawProgressBar(lx, ly, barW, barH, 1f - sanityPct, ColorWitheredPurple);
 
-            GUI.Label(new Rect(pad, topY, 100, 20), $"CORDURA:", _subStyle);
-            DrawBar(pad + 65, topY + 2, 210, 16, 1f - sanityPct, new Color(0.6f, 0.2f, 0.9f), new Color(0.15f, 0.05f, 0.25f));
-            GUI.Label(new Rect(pad + 115, topY - 1, 140, 20), $"{tierText} ({(sanityPct * 100f):F0}%)", _subStyle);
-            topY += 26;
-
-            // Currency & Ammo
-            string currencyText = _hud != null ? _hud.CurrencyDisplayText : "0 FICHAS";
-            string ammoText = _hud != null ? _hud.AmmoDisplayText : "-- / --";
-
-            GUI.Label(new Rect(pad, topY, 140, 22), $"💰 {currencyText}", _subStyle);
-            GUI.Label(new Rect(pad + 150, topY, 140, 22), $"🔫 BALAS: {ammoText}", _subStyle);
-            topY += 24;
-
-            // Controls Hint (Pure manual exploration - no compass or waypoints)
-            GUI.Label(new Rect(pad, topY, 290, 20), "<color=#888888>WASD: Mover | Clic: Disparo | Tab: Liberar Mouse</color>", _subStyle);
-        }
-
-        private void DrawTowerProgressPanel()
-        {
+            // ----------------------------------------------------------------
+            // ESQUINA INFERIOR DERECHA: MUNICIÓN Y FICHAS AISLADAS (ESTILO HALO)
+            // ----------------------------------------------------------------
             float panelW = 280f;
-            float panelH = 155f;
-            float px = Screen.width - panelW - 20f;
-            float py = 20f;
+            float rx = Screen.width - panelW - 32f;
+            float ry = Screen.height - 30f;
 
-            DrawRect(new Rect(px - 8, py - 8, panelW + 16, panelH + 16), new Color(0.08f, 0.08f, 0.12f, 0.88f));
+            string rawAmmo = _hud != null ? _hud.AmmoDisplayText : "-- / --";
+            string formattedAmmo = FormatAmmoHalo(rawAmmo);
 
-            var gm = GameManager.Instance;
-            int currentFloor = gm != null && gm.CurrentFloor != null ? gm.CurrentFloor.FloorNumber : 1;
+            string rawCurrency = _hud != null ? _hud.CurrencyDisplayText : "0 FICHAS";
+            string formattedCurrency = FormatCurrencyHalo(rawCurrency);
 
-            GUI.Label(new Rect(px, py, panelW, 22), "<b>🏢 TORRE PRE-GENERADA (30 PISOS)</b>", _headerStyle);
-            py += 26;
+            float ammoH = 28f;
+            float tokenH = 20f;
 
-            GUI.Label(new Rect(px, py, panelW, 20), $"Piso Actual: <color=yellow>PISO {currentFloor:D2} / {FloorConfig.MAX_TOWER_FLOORS}</color>", _subStyle);
-            py += 22;
+            float ammoY = ry - ammoH;
+            float lineY = ammoY - 6f;
+            float tokenY = lineY - tokenH - 4f;
 
-            GUI.Label(new Rect(px, py, panelW, 20), "<color=#aaaaaa>Teletransporte Directo (Tab para cursor):</color>", _subStyle);
-            py += 22;
+            // Fichas con sombreado nítido
+            DrawTextWithShadow(new Rect(rx, tokenY, panelW, tokenH), $"FICHAS // {formattedCurrency}", _tokenStyle, ColorBoneText);
 
-            float btnW = 60f;
-            float btnH = 26f;
+            // Línea horizontal divisoria de 2px de grosor
+            DrawRect(new Rect(rx, lineY, panelW, 2f), ColorDividerLine);
 
-            if (GUI.Button(new Rect(px, py, btnW, btnH), "P01 (Lobby)"))
-            {
-                gm?.TeleportToFloor(1);
-            }
-            if (GUI.Button(new Rect(px + 66, py, btnW, btnH), "P10 (J1)"))
-            {
-                gm?.TeleportToFloor(10); // Boss 1: Carnicero
-            }
-            if (GUI.Button(new Rect(px + 132, py, btnW, btnH), "P20 (J2)"))
-            {
-                gm?.TeleportToFloor(20); // Boss 2: Maquina
-            }
-            if (GUI.Button(new Rect(px + 198, py, btnW, btnH), "P30 (J3)"))
-            {
-                gm?.TeleportToFloor(30); // Boss 3: Demencia
-            }
-            py += 32;
+            // Display de munición aislado con fuente grande y sombreado
+            DrawTextWithShadow(new Rect(rx, ammoY, panelW, ammoH), $"AMMO // {formattedAmmo}", _ammoLargeStyle, ColorBoneText);
 
-            if (GUI.Button(new Rect(px, py, panelW, 26), "▲ SUBIR SIGUIENTE PISO ▲"))
-            {
-                gm?.TeleportToFloor(currentFloor + 1);
-            }
+            // ----------------------------------------------------------------
+            // ESQUINA INFERIOR IZQUIERDA: TELEMETRÍA SECUNDARIA
+            // ----------------------------------------------------------------
+            DrawTextWithShadow(new Rect(32f, Screen.height - 24f, 360f, 18f), "// SYS_LINK: [WASD] Mover | [LMB] Disparo | [TAB] Cursor", _terminalStyle, ColorTerminalDim);
         }
 
+        // ====================================================================
+        // DIBUJADO DE BARRA CON FONDO COMPLETO (TRACK AL 100%) & 14px ALTURA
+        // ====================================================================
+        private void DrawProgressBar(float x, float y, float width, float height, float fillPct, Color fillColor)
+        {
+            // 1. Fondo negro semitransparente (100% de la longitud de la barra)
+            DrawRect(new Rect(x, y, width, height), ColorBarTrack);
+
+            // 2. Relleno proporcional de la barra
+            float clamped = Mathf.Clamp01(fillPct);
+            if (clamped > 0f)
+            {
+                DrawRect(new Rect(x, y, width * clamped, height), fillColor);
+            }
+
+            // 3. Borde sutil del track para delimitar claramente el contenedor
+            DrawHollowRect(new Rect(x, y, width, height), ColorTrackBorder, 1);
+        }
+
+        // ====================================================================
+        // FORMATEO TÉCNICO DE CADENAS NUMÉRICAS
+        // ====================================================================
+        private string FormatAmmoHalo(string rawAmmo)
+        {
+            if (string.IsNullOrEmpty(rawAmmo)) return "[ -- / -- ]";
+
+            if (rawAmmo.Contains("/"))
+            {
+                string[] parts = rawAmmo.Split('/');
+                if (parts.Length == 2)
+                {
+                    string p0 = parts[0].Trim();
+                    string p1 = parts[1].Trim();
+
+                    bool ok0 = int.TryParse(p0, out int mag);
+                    bool ok1 = int.TryParse(p1, out int res);
+
+                    string s0 = ok0 ? mag.ToString("D2") : p0;
+                    string s1 = ok1 ? res.ToString("D2") : p1;
+
+                    return $"[ {s0} / {s1} ]";
+                }
+            }
+
+            return $"[ {rawAmmo} ]";
+        }
+
+        private string FormatCurrencyHalo(string rawCurrency)
+        {
+            int amount = 0;
+            if (GameManager.Instance != null)
+            {
+                amount = GameManager.Instance.Currency;
+            }
+            else if (!string.IsNullOrEmpty(rawCurrency))
+            {
+                string digits = System.Text.RegularExpressions.Regex.Match(rawCurrency, @"\d+").Value;
+                int.TryParse(digits, out amount);
+            }
+
+            return $"[ {amount:D4} ]";
+        }
+
+        // ====================================================================
+        // BARRA DE ENCUENTRO CON JEFE (ALTA VISIBILIDAD)
+        // ====================================================================
         private void DrawBossBar()
         {
-            float barW = 550f;
-            float barH = 26f;
+            float barW = 500f;
+            float barH = 14f;
             float bx = (Screen.width - barW) * 0.5f;
-            float by = 35f;
-
-            DrawRect(new Rect(bx - 10, by - 26, barW + 20, barH + 45), new Color(0.08f, 0.02f, 0.02f, 0.9f));
+            float by = 26f;
 
             string bossName = _bossUI.BossName;
-            if (_bossUI.IsBossEnraged) bossName += " <color=red>[¡ENFURECIDO!]</color>";
+            if (_bossUI.IsBossEnraged) bossName += " <color=#ff3333>[ENFURECIDO]</color>";
 
-            GUI.Label(new Rect(bx, by - 24, barW, 24), bossName, _headerStyle);
-            DrawBar(bx, by, barW, barH, _bossUI.HealthNormalized, new Color(0.9f, 0.1f, 0.15f), new Color(0.2f, 0.05f, 0.05f));
+            DrawTextWithShadow(new Rect(bx, by, barW, 20f), $"» AMENAZA // {bossName.ToUpper()}", _bossHeaderStyle, ColorBoneText);
+            by += 22f;
+
+            DrawRect(new Rect(bx, by, barW, 2f), ColorDividerLine);
+            by += 6f;
+
+            DrawProgressBar(bx, by, barW, barH, _bossUI.HealthNormalized, ColorBloodRed);
         }
 
+        // ====================================================================
+        // DIÁLOGO DEL ELEVADOR FRONTERIZO
+        // ====================================================================
         private void DrawElevatorDialog()
         {
-            // Dim background
-            DrawRect(new Rect(0, 0, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.65f));
+            DrawRect(new Rect(0, 0, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.75f));
 
-            float dialogW = 650f;
-            float dialogH = 420f;
+            float dialogW = 620f;
+            float dialogH = 400f;
             float dx = (Screen.width - dialogW) * 0.5f;
             float dy = (Screen.height - dialogH) * 0.5f;
 
-            DrawRect(new Rect(dx, dy, dialogW, dialogH), new Color(0.12f, 0.13f, 0.18f, 0.96f));
+            Rect dialogRect = new Rect(dx, dy, dialogW, dialogH);
+            DrawRect(dialogRect, new Color(0.06f, 0.06f, 0.07f, 0.96f));
+            DrawHollowRect(dialogRect, ColorDividerLine, 1);
 
-            float innerY = dy + 20f;
-            GUI.Label(new Rect(dx + 20, innerY, dialogW - 40, 30), "🚪 CABINA DEL ELEVADOR FRONTERIZO", _headerStyle);
-            innerY += 35f;
+            float innerY = dy + 18f;
+            DrawTextWithShadow(new Rect(dx + 20, innerY, dialogW - 40, 26), "🚪 CABINA DEL ELEVADOR FRONTERIZO", _bossHeaderStyle, ColorBoneText);
+            innerY += 30f;
+            DrawRect(new Rect(dx + 20, innerY, dialogW - 40, 2), ColorDividerLine);
+            innerY += 14f;
 
             if (_elevatorUI.ActiveEventType == ElevatorResult.Merchant)
             {
-                GUI.Label(new Rect(dx + 20, innerY, dialogW - 40, 22), "Un contrabandista te ofrece suministros a cambio de Fichas:", _subStyle);
-                innerY += 30f;
+                DrawTextWithShadow(new Rect(dx + 20, innerY, dialogW - 40, 20), "Un contrabandista te ofrece suministros a cambio de Fichas:", _labelStyle, ColorBoneText);
+                innerY += 26f;
 
                 var items = _elevatorUI.GetMerchantItems();
                 if (items != null && items.Count > 0)
@@ -264,23 +388,23 @@ namespace DemenciaNoLimite.UI
                     {
                         var it = items[i];
                         string desc = $"{it.DisplayName} — 💰 {it.Cost} Fichas\n<color=#aaaaaa>{it.Description}</color>";
-                        if (GUI.Button(new Rect(dx + 30, innerY, dialogW - 60, 48), desc, _buttonStyle))
+                        if (GUI.Button(new Rect(dx + 30, innerY, dialogW - 60, 44), desc, _buttonStyle))
                         {
                             _elevatorUI.TryBuyItem(it);
                         }
-                        innerY += 56f;
+                        innerY += 50f;
                     }
                 }
                 else
                 {
-                    GUI.Label(new Rect(dx + 30, innerY, dialogW - 60, 40), "El contrabandista se ha quedado sin mercancía.", _subStyle);
-                    innerY += 50f;
+                    DrawTextWithShadow(new Rect(dx + 30, innerY, dialogW - 60, 30), "El contrabandista se ha quedado sin mercancía.", _labelStyle, ColorBoneText);
+                    innerY += 40f;
                 }
             }
             else // Cursed Pact
             {
-                GUI.Label(new Rect(dx + 20, innerY, dialogW - 40, 22), "<color=#ff5555>Pacto Maldito: Obtén poder a cambio de mutar a los enemigos de la torre.</color>", _subStyle);
-                innerY += 30f;
+                DrawTextWithShadow(new Rect(dx + 20, innerY, dialogW - 40, 20), "Pacto Maldito: Obtén poder a cambio de mutar a los enemigos de la torre.", _labelStyle, new Color(0.95f, 0.4f, 0.4f));
+                innerY += 26f;
 
                 var pacts = _elevatorUI.GetOfferedPacts();
                 if (pacts != null && pacts.Count > 0)
@@ -291,38 +415,49 @@ namespace DemenciaNoLimite.UI
                         var p = pacts[i];
                         float cardX = dx + 30 + (i * (cardW + 10));
                         string pactCard = $"<b>{p.DisplayName}</b>\n\n" +
-                                          $"<color=#55ff55>TU BUFF:</color> +{p.BonusDamage} Daño, +{p.BonusMoveSpeed} Vel\n\n" +
-                                          $"<color=#ff5555>MUTADOR ENEMIGO:</color> Daño x{p.EnemyDamageMultiplier}, {(p.GrantThrowDebris ? "Arrojan Escombros" : "Mayor HP")}";
+                                          $"<color=#66bb66>TU BUFF:</color> +{p.BonusDamage} Daño, +{p.BonusMoveSpeed} Vel\n\n" +
+                                          $"<color=#bb5555>MUTADOR:</color> Daño x{p.EnemyDamageMultiplier}, {(p.GrantThrowDebris ? "Arrojan Escombros" : "Mayor HP")}";
 
-                        GUI.Box(new Rect(cardX, innerY, cardW, 160), pactCard, _cardStyle);
-                        if (GUI.Button(new Rect(cardX + 10, innerY + 115, cardW - 20, 36), "ACEPTAR PACTO", _buttonStyle))
+                        GUI.Box(new Rect(cardX, innerY, cardW, 150), pactCard, _cardStyle);
+                        if (GUI.Button(new Rect(cardX + 10, innerY + 108, cardW - 20, 32), "ACEPTAR PACTO", _buttonStyle))
                         {
                             _elevatorUI.AcceptPact(p);
                         }
                     }
-                    innerY += 175f;
+                    innerY += 165f;
                 }
             }
 
-            // Bottom Buttons
-            if (GUI.Button(new Rect(dx + 40, dy + dialogH - 55, 240, 40), "SUBIR AL SIGUIENTE PISO", _buttonStyle))
+            // Botones inferiores
+            if (GUI.Button(new Rect(dx + 30, dy + dialogH - 50, 240, 36), "SUBIR AL SIGUIENTE PISO", _buttonStyle))
             {
                 _elevatorUI.AscendNextFloor();
             }
 
             if (_elevatorUI.ActiveEventType == ElevatorResult.CursedPact)
             {
-                if (GUI.Button(new Rect(dx + 300, dy + dialogH - 55, 240, 40), "RECHAZAR PACTOS", _buttonStyle))
+                if (GUI.Button(new Rect(dx + 290, dy + dialogH - 50, 240, 36), "RECHAZAR PACTOS", _buttonStyle))
                 {
                     _elevatorUI.DeclinePacts();
                 }
             }
         }
 
-        private void DrawBar(float x, float y, float w, float h, float fillPct, Color fillCol, Color bgCol)
+        // ====================================================================
+        // PRIMITIVAS DE RENDERIZADO VISUAL
+        // ====================================================================
+        private void DrawHollowRect(Rect rect, Color color, int thickness = 1)
         {
-            DrawRect(new Rect(x, y, w, h), bgCol);
-            DrawRect(new Rect(x, y, w * Mathf.Clamp01(fillPct), h), fillCol);
+            if (thickness <= 0) return;
+
+            // Borde Superior
+            DrawRect(new Rect(rect.x, rect.y, rect.width, thickness), color);
+            // Borde Inferior
+            DrawRect(new Rect(rect.x, rect.y + rect.height - thickness, rect.width, thickness), color);
+            // Borde Izquierdo
+            DrawRect(new Rect(rect.x, rect.y + thickness, thickness, rect.height - (thickness * 2)), color);
+            // Borde Derecho
+            DrawRect(new Rect(rect.x + rect.width - thickness, rect.y + thickness, thickness, rect.height - (thickness * 2)), color);
         }
 
         private void DrawRect(Rect rect, Color col)

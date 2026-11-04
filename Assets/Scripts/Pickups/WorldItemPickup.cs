@@ -14,6 +14,7 @@ using DemenciaNoLimite.Core;
 using DemenciaNoLimite.Core.Data;
 using DemenciaNoLimite.Player;
 using DemenciaNoLimite.Horror;
+using DemenciaNoLimite.UI;
 
 #pragma warning disable CS0649
 
@@ -71,6 +72,10 @@ namespace DemenciaNoLimite.Pickups
 
         [Tooltip("Cantidad de culpa reducida si el ítem es Suero de Cordura.")]
         [SerializeField] private int _sanityRestoreAmount = 20;
+
+        [Header("Inventario Dinámico (Survival Horror)")]
+        [Tooltip("Datos del ítem en caso de integrarse con el panel de cuadrícula de InventoryUIController.")]
+        [SerializeField] private InventoryItemData _inventoryItemData;
 
         // ════════════════════════════════════════════════════════════════════
         // ENTRADA E INTERACCIÓN POR TECLA
@@ -434,6 +439,12 @@ namespace DemenciaNoLimite.Pickups
                 case WorldItemType.CustomItem:
                     RecogerObjetoGenerico(pm);
                     break;
+            }
+
+            // Sincronizar con el nuevo sistema de cuadrícula del inventario (si aplica)
+            if (_inventoryItemData != null && InventoryUIController.Instance != null)
+            {
+                InventoryUIController.Instance.AddItem(_inventoryItemData, Mathf.Max(1, _amount));
             }
 
             // 2. Notificar y actualizar la mano diegética del jugador

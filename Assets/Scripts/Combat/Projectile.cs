@@ -37,6 +37,11 @@ namespace DemenciaNoLimite.Combat
             _isInitialized = true;
         }
 
+        public void SetCollisionMask(LayerMask mask)
+        {
+            _collisionMask = mask;
+        }
+
         private void Update()
         {
             if (!_isInitialized) return;
@@ -60,8 +65,8 @@ namespace DemenciaNoLimite.Combat
             // Continuous collision check
             if (Physics.SphereCast(transform.position, _radius, direction, out RaycastHit hit, stepDistance, _collisionMask, QueryTriggerInteraction.Ignore))
             {
-                // Ignore self
-                if (_damageTemplate.Attacker != null && hit.collider.gameObject == _damageTemplate.Attacker)
+                // Ignore self and children of attacker
+                if (_damageTemplate.Attacker != null && (hit.collider.gameObject == _damageTemplate.Attacker || hit.collider.transform.IsChildOf(_damageTemplate.Attacker.transform)))
                 {
                     transform.position += step;
                     return;

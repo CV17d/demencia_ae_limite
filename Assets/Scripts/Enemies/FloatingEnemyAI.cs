@@ -103,13 +103,17 @@ namespace DemenciaNoLimite.Enemies
         [SerializeField] private float _attackDamage = 16f;
 
         [Tooltip("Tiempo de enfriamiento (cooldown) entre ataques consecutivos en segundos.")]
-        [SerializeField] private float _attackCooldown = 1.5f;
+        [SerializeField] private float _attackCooldown = 1.3f;
 
-        [Tooltip("Duración en segundos en la que se muestra el sprite de ataque antes de volver al sprite base.")]
-        [SerializeField] private float _attackSpriteDuration = 0.35f;
+        [Tooltip("Duración rápida en segundos en la que se muestra el sprite de ataque (0.15s - 0.20s) para una embestida ágil y visceral.")]
+        [Range(0.05f, 0.50f)]
+        [SerializeField] private float _attackSpriteDuration = 0.18f;
 
         [Tooltip("Fuerza de empuje físico (knockback) aplicada al jugador al golpear.")]
         [SerializeField] private float _attackKnockbackForce = 3.5f;
+
+        [Tooltip("Micro-embestida hacia adelante al ejecutar el ataque para mayor tensión visceral.")]
+        [SerializeField] private float _attackLungeForce = 0.75f;
 
         [Tooltip("Efecto de sonido al realizar el ataque.")]
         [SerializeField] private AudioClip _attackSound;
@@ -368,15 +372,16 @@ namespace DemenciaNoLimite.Enemies
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Rutina de ataque: cambia temporalmente al sprite '001 pegando' durante 0.35s,
-        /// aplica el daño al jugador respetando el cooldown y retorna al sprite base.
+        /// Rutina de ataque rápido y visceral: cambia de inmediato al sprite '001 pegando'
+        /// durante un lapso muy breve y reactivo (0.18s), aplica micro-embestida y daño al jugador,
+        /// y retorna velozmente al sprite base 'enemigo 001 baset'.
         /// </summary>
         private IEnumerator PerformAttackRoutine()
         {
             _isAttacking = true;
             _nextAttackTime = Time.time + _attackCooldown;
 
-            // 1. Cambiar fluidamente al sprite de ataque ("001 pegando")
+            // 1. Cambiar inmediatamente y con agilidad al sprite de ataque ("001 pegando")
             SetSprite(_attackSprite != null ? _attackSprite : _baseSprite);
 
             // 2. Reproducir audio de ataque
@@ -385,13 +390,24 @@ namespace DemenciaNoLimite.Enemies
                 _audioSource.PlayOneShot(_attackSound);
             }
 
-            // 3. Aplicar daño al sistema de salud del jugador
+            // 3. Micro-embestida visceral hacia el jugador
+            if (_playerTransform != null && _attackLungeForce > 0f)
+            {
+                Vector3 lungeDir = (_playerTransform.position - transform.position);
+                lungeDir.y = 0f;
+                if (lungeDir.sqrMagnitude > 0.001f)
+                {
+                    transform.position += lungeDir.normalized * (_attackLungeForce * 0.12f);
+                }
+            }
+
+            // 4. Aplicar daño inmediato al sistema de salud del jugador
             DeliverDamageToPlayer();
 
-            // 4. Lapso breve exacto del impacto de ataque (0.35s)
+            // 5. Transición rápida y visceral (0.18s) para sensación ágil y tensa
             yield return new WaitForSeconds(_attackSpriteDuration);
 
-            // 5. Retornar fluidamente al sprite base de flotación ("enemigo 001 baset")
+            // 6. Retornar inmediatamente al sprite base de flotación ("enemigo 001 baset")
             if (_isAlive)
             {
                 SetSprite(_baseSprite);
@@ -712,14 +728,18 @@ namespace DemenciaNoLimite.Enemies
 
         private void EnsureHitboxCollider()
         {
-            Collider col = GetComponent<Collider>();
-            if (col == null)
+            CapsuleCollider capsule = GetComponent<CapsuleCollider>();
+            if (capsule == null)
             {
-                CapsuleCollider capsule = gameObject.AddComponent<CapsuleCollider>();
-                capsule.radius = 0.42f;
-                capsule.height = 1.6f;
-                capsule.center = new Vector3(0f, 0.8f, 0f);
+                capsule = gameObject.AddComponent<CapsuleCollider>();
             }
+
+            // Sincronizar dimensiones proporcionales a marcos de puerta 4x4
+            // Altura resultante en mundo ~2.52m y radio ~0.57m con escala 1.8
+            capsule.radius = 0.32f;
+            capsule.height = 1.4f;
+            capsule.center = new Vector3(0f, 0.7f, 0f);
+            capsule.direction = 1;
 
             // Kinematic Rigidbody para que Unity gestione colisiones sin empujes físicos erráticos en Y
             Rigidbody rb = GetComponent<Rigidbody>();

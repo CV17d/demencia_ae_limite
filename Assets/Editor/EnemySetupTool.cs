@@ -55,6 +55,8 @@ namespace DemenciaNoLimite.Editor
 
             GameObject enemyGo = new GameObject("EnemigoFlotante");
             enemyGo.transform.position = spawnPosition;
+            // Escala calibrada proporcional (1.8x) para cruzar marcos y puertas 4x4 con total holgura
+            enemyGo.transform.localScale = new Vector3(1.8f, 1.8f, 1.8f);
             Undo.RegisterCreatedObjectUndo(enemyGo, "Crear Enemigo Flotante");
 
             // Capa 'Enemy' si existe en la configuración del proyecto
@@ -76,12 +78,12 @@ namespace DemenciaNoLimite.Editor
             spriteRenderer.receiveShadows = true;
 
             // ════════════════════════════════════════════════════════════════
-            // 4. CAPSULE COLLIDER (HITBOX DE BALAS Y PROYECTILES)
+            // 4. CAPSULE COLLIDER (SINCRONIZADO CON LA ESCALA 1.8x PARA IMPACTOS EXACTOS)
             // ════════════════════════════════════════════════════════════════
             CapsuleCollider capsule = enemyGo.AddComponent<CapsuleCollider>();
-            capsule.radius = 0.42f;
-            capsule.height = 1.6f;
-            capsule.center = new Vector3(0f, 0.8f, 0f);
+            capsule.radius = 0.32f; // ~0.57m de radio en mundo (escala 1.8)
+            capsule.height = 1.4f;  // ~2.52m de altura en mundo (escala 1.8, claramente bajo los 4m de las puertas)
+            capsule.center = new Vector3(0f, 0.7f, 0f);
             capsule.direction = 1; // Eje Y
 
             // ════════════════════════════════════════════════════════════════
@@ -95,7 +97,7 @@ namespace DemenciaNoLimite.Editor
             audio.maxDistance = 22f;
 
             // ════════════════════════════════════════════════════════════════
-            // 6. FLOATING ENEMY AI Y SERIALIZACIÓN DE CAMPOS
+            // 6. FLOATING ENEMY AI Y SERIALIZACIÓN DE CAMPOS (ATAQUE RÁPIDO 0.18s)
             // ════════════════════════════════════════════════════════════════
             FloatingEnemyAI floatingAI = enemyGo.AddComponent<FloatingEnemyAI>();
 
@@ -104,11 +106,13 @@ namespace DemenciaNoLimite.Editor
             var attackSpriteProp = serializedAI.FindProperty("_attackSprite");
             var rendererProp = serializedAI.FindProperty("_spriteRenderer");
             var visualTransProp = serializedAI.FindProperty("_visualTransform");
+            var attackDurationProp = serializedAI.FindProperty("_attackSpriteDuration");
 
             if (baseSpriteProp != null) baseSpriteProp.objectReferenceValue = baseSprite;
             if (attackSpriteProp != null) attackSpriteProp.objectReferenceValue = attackSprite;
             if (rendererProp != null) rendererProp.objectReferenceValue = spriteRenderer;
             if (visualTransProp != null) visualTransProp.objectReferenceValue = enemyGo.transform;
+            if (attackDurationProp != null) attackDurationProp.floatValue = 0.18f;
 
             serializedAI.ApplyModifiedPropertiesWithoutUndo();
 

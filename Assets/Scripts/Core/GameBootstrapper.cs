@@ -172,6 +172,7 @@ namespace DemenciaNoLimite
             controller.SetCameraHolder(camGo.transform);
 
             var weaponHandler = playerGo.AddComponent<PlayerWeaponHandler>();
+            var combatController = playerGo.AddComponent<WeaponCombatController>();
 
             // Create starting weapon if not assigned
             WeaponData startingWeapon = _customStartingWeapon;

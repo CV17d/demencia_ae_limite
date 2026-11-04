@@ -229,6 +229,7 @@ namespace DemenciaNoLimite.Player
         [SerializeField] private PlayerHandController _playerHandController;
         [SerializeField] private FirstPersonController _fpsController;
         [SerializeField] private CharacterController _characterController;
+        [SerializeField] private WeaponCombatController _combatController;
 
         // ════════════════════════════════════════════════════════════════════
         // ESTADO INTERNO
@@ -269,6 +270,7 @@ namespace DemenciaNoLimite.Player
         public WeaponData CurrentEquippedWeaponData => _currentEquippedWeaponData;
         public string CurrentEquippedWeaponId => _currentEquippedWeaponId;
         public Transform WeaponHolder => _weaponHolder;
+        public WeaponCombatController CombatController => _combatController;
         public bool HasWeaponEquipped => _currentSpawnedWeaponInstance != null;
         public Vector3 DefaultWeaponScale => _defaultWeaponScale;
         public float GlobalScaleMultiplier => _globalScaleMultiplier;
@@ -446,8 +448,12 @@ namespace DemenciaNoLimite.Player
             // 10. Sincronizar mano 2D diegética al estado empuñado (EquippedItem)
             SincronizarManoDiegetica(HandState.EquippedItem);
 
-            // 11. Notificar a observadores
+            // 11. Notificar a observadores y gestor de combate
             OnWeaponEquipped?.Invoke(_currentSpawnedWeaponInstance, _currentEquippedWeaponData);
+            if (_combatController != null)
+            {
+                _combatController.HandleWeaponEquipped(_currentSpawnedWeaponInstance, _currentEquippedWeaponData);
+            }
 
             Debug.Log($"[PlayerWeaponEquipManager] Arma 3D '{_currentEquippedWeaponId}' equipada bajo '{holder.name}'. " +
                       $"Escala: {_currentSpawnedWeaponInstance.transform.localScale}, PosLocal: {_currentSpawnedWeaponInstance.transform.localPosition}");
@@ -638,6 +644,10 @@ namespace DemenciaNoLimite.Player
 
             SincronizarManoDiegetica(HandState.EquippedItem);
             OnWeaponUnequipped?.Invoke();
+            if (_combatController != null)
+            {
+                _combatController.HandleWeaponUnequipped();
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -1297,6 +1307,15 @@ namespace DemenciaNoLimite.Player
             if (_characterController == null)
             {
                 _characterController = GetComponentInParent<CharacterController>() ?? FindAnyObjectByType<CharacterController>();
+            }
+
+            if (_combatController == null)
+            {
+                _combatController = GetComponent<WeaponCombatController>() ?? GetComponentInParent<WeaponCombatController>() ?? FindAnyObjectByType<WeaponCombatController>();
+                if (_combatController == null)
+                {
+                    _combatController = gameObject.AddComponent<WeaponCombatController>();
+                }
             }
 
             if (_weaponHolder != null)

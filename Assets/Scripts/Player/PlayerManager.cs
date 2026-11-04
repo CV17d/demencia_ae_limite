@@ -52,6 +52,7 @@ namespace DemenciaNoLimite.Player
 
         [Tooltip("Gestor de instanciamiento y equipamiento de armas 3D en primera persona.")]
         [SerializeField] private PlayerWeaponEquipManager _weaponEquipManager;
+        [SerializeField] private WeaponCombatController _combatController;
 
         // ════════════════════════════════════════════════════════════════════
         // REFERENCIAS GLOBALES (LOCURA / GAMEPLAY)
@@ -100,6 +101,7 @@ namespace DemenciaNoLimite.Player
         public PlayerWeaponHandler WeaponHandler => _weaponHandler;
         public PlayerHandController HandController => _handController;
         public PlayerWeaponEquipManager WeaponEquipManager => _weaponEquipManager;
+        public WeaponCombatController CombatController => _combatController;
 
         public bool IsAlive => _health == null || _health.IsAlive;
         public float CurrentGuilt => _sanityManager != null ? _sanityManager.CurrentGuilt : (SanityManager.Instance != null ? SanityManager.Instance.CurrentGuilt : 0);
@@ -178,6 +180,14 @@ namespace DemenciaNoLimite.Player
                 }
             }
             if (_weaponEquipManager == null) _weaponEquipManager = GetComponentInChildren<PlayerWeaponEquipManager>();
+            if (_combatController == null)
+            {
+                _combatController = GetComponent<WeaponCombatController>() ?? GetComponentInChildren<WeaponCombatController>();
+                if (_combatController == null)
+                {
+                    _combatController = gameObject.AddComponent<WeaponCombatController>();
+                }
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════

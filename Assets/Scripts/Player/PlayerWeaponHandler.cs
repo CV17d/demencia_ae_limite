@@ -96,6 +96,12 @@ namespace DemenciaNoLimite.Player
 
             HandleWeaponSwitchInput();
 
+            // Si WeaponCombatController está activo en el GameObject, delegar el disparo y recarga
+            if (TryGetComponent<WeaponCombatController>(out var combat) && combat.enabled)
+            {
+                return;
+            }
+
             WeaponSlotInstance active = _inventory.ActiveWeaponInstance;
             if (active == null) return;
 

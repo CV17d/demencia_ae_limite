@@ -90,7 +90,25 @@ namespace DemenciaNoLimite.UI
 
         private void OnAmmoUpdated(int currentMag, int reserve)
         {
-            AmmoDisplayText = $"{currentMag} | {reserve}";
+            AmmoDisplayText = $"{currentMag} / {reserve}";
+            OnHUDRefreshed?.Invoke();
+        }
+
+        /// <summary>
+        /// Actualiza el indicador de munición en formato 'currentAmmo / maxAmmo'.
+        /// </summary>
+        public void UpdateAmmo(int currentAmmo, int maxAmmo)
+        {
+            AmmoDisplayText = $"{currentAmmo} / {maxAmmo}";
+            OnHUDRefreshed?.Invoke();
+        }
+
+        /// <summary>
+        /// Asigna directamente el texto formateado de munición (ej. 'RECARGANDO...').
+        /// </summary>
+        public void SetAmmoDisplayText(string text)
+        {
+            AmmoDisplayText = text;
             OnHUDRefreshed?.Invoke();
         }
 

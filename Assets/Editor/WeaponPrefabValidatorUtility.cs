@@ -421,8 +421,9 @@ namespace DemenciaNoLimite.Editor
             string lower = fileName.ToLowerInvariant().Trim();
             if (lower.Contains("bingala")) return "Bingala";
             if (lower.Contains("revolver") || lower.Contains("demencia")) return "Demencia Revólver";
-            if (lower.Contains("muak")) return "Muak";
             if (lower.Contains("trabeca")) return "Trabeca";
+            if (lower.Contains("canoduplo")) return "Canoduplo";
+            if (lower.Contains("muak")) return "Muak";
 
             return char.ToUpperInvariant(fileName[0]) + fileName.Substring(1);
         }
@@ -432,8 +433,9 @@ namespace DemenciaNoLimite.Editor
             string lower = fileName.ToLowerInvariant().Trim();
             if (lower.Contains("bingala")) return "bingala";
             if (lower.Contains("revolver") || lower.Contains("demencia")) return "demencia revolver";
-            if (lower.Contains("muak")) return "muak";
             if (lower.Contains("trabeca")) return "trabeca";
+            if (lower.Contains("canoduplo")) return "canoduplo";
+            if (lower.Contains("muak")) return "muak";
 
             return lower;
         }

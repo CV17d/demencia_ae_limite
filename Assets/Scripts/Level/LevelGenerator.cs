@@ -176,6 +176,7 @@ namespace DemenciaNoLimite.Level
         public int PisoActual => pisoActual;
         public int PisoMaximo => pisoMaximo;
         public int MaxModules => _maxModules;
+        public IReadOnlyList<GameObject> SpawnedModules => _spawnedModulesList;
 
         // ════════════════════════════════════════════════════════════════════
         // CICLO DE VIDA MONOBEHAVIOUR

@@ -55,9 +55,9 @@ namespace DemenciaNoLimite.Editor
 
             GameObject enemyGo = new GameObject("EnemigoFlotante");
             enemyGo.transform.position = spawnPosition;
-            // Escala real calibrada al lienzo del sprite (512px / 100 PPU = 5.12m base).
-            // Con escala 0.36x, la altura total es de ~1.84m, estatura espectral perfecta para puertas de 4x4.
-            enemyGo.transform.localScale = new Vector3(0.36f, 0.36f, 0.36f);
+            // Escala compacta requerida (1.2f) calibrada al lienzo del sprite (512px / 280 PPU = 1.83m base).
+            // Con escala 1.2f, la altura total es de ~2.19m, estatura espectral perfecta para pasar holgadamente por puertas de 4x4.
+            enemyGo.transform.localScale = new Vector3(1.2f, 1.2f, 1.2f);
             Undo.RegisterCreatedObjectUndo(enemyGo, "Crear Enemigo Flotante");
 
             // Capa 'Enemy' si existe en la configuración del proyecto
@@ -79,12 +79,12 @@ namespace DemenciaNoLimite.Editor
             spriteRenderer.receiveShadows = true;
 
             // ════════════════════════════════════════════════════════════════
-            // 4. CAPSULE COLLIDER (SINCRONIZADO CON LA ESCALA 0.36x PARA IMPACTOS EXACTOS)
+            // 4. CAPSULE COLLIDER (SINCRONIZADO CON ESCALA 1.2f PARA PUERTAS 4x4 E IMPACTOS EXACTOS)
             // ════════════════════════════════════════════════════════════════
             CapsuleCollider capsule = enemyGo.AddComponent<CapsuleCollider>();
-            // Con escala 0.36x: Altura en mundo = 4.8 * 0.36 = ~1.73m | Radio en mundo = 1.05 * 0.36 = ~0.38m
-            capsule.radius = 1.05f;
-            capsule.height = 4.8f;
+            // Con escala 1.2f: Altura total en mundo = 1.8 * 1.2 = ~2.16m | Radio en mundo = 0.45 * 1.2 = ~0.54m
+            capsule.radius = 0.45f;
+            capsule.height = 1.8f;
             capsule.center = Vector3.zero; // El sprite está centrado en (0, 0, 0)
             capsule.direction = 1; // Eje Y
 

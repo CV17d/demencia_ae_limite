@@ -1461,6 +1461,15 @@ namespace DemenciaNoLimite.Player
                 RegistrarEnDiccionarioId("Bingala", mapping);
             }
 
+            // Aliases para canoduplo
+            if (lower.Contains("canoduplo") || lower.Contains("cano duplo"))
+            {
+                RegistrarEnDiccionarioId("canoduplo", mapping);
+                RegistrarEnDiccionarioId("Canoduplo", mapping);
+                RegistrarEnDiccionarioId("cano duplo", mapping);
+                RegistrarEnDiccionarioId("Cano Duplo", mapping);
+            }
+
             // Aliases para muak
             if (lower.Contains("muak"))
             {
@@ -1511,6 +1520,7 @@ namespace DemenciaNoLimite.Player
                     else if (lowerName.Contains("bingala")) targetSize = 0.32f;
                     else if (lowerName.Contains("muak")) targetSize = 0.36f;
                     else if (lowerName.Contains("trabeca")) targetSize = 0.48f;
+                    else if (lowerName.Contains("canoduplo")) targetSize = 0.46f;
 
                     var newMapping = new Weapon3DMapping
                     {

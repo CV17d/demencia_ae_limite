@@ -217,6 +217,18 @@ namespace DemenciaNoLimite.Pickups
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
+        /// Configura programáticamente la identidad, nombre y prefab 3D del arma para este pickup.
+        /// </summary>
+        public void ConfigurarComoArma(string weaponId, string itemName, GameObject weapon3DPrefab, WeaponData weaponData = null)
+        {
+            _itemType = WorldItemType.Weapon;
+            _weaponId = weaponId;
+            _itemName = !string.IsNullOrEmpty(itemName) ? itemName : weaponId;
+            _weapon3DPrefab = weapon3DPrefab;
+            _weaponData = weaponData;
+        }
+
+        /// <summary>
         /// Resuelve de forma robusta y autónoma el identificador del arma, analizando campos serializados,
         /// prefabs asignados, datos de ScriptableObject y nombres en la jerarquía (ej. 'bingala', 'demencia revolver').
         /// </summary>
@@ -285,8 +297,9 @@ namespace DemenciaNoLimite.Pickups
             {
                 if (detectedId.Equals("bingala", StringComparison.OrdinalIgnoreCase)) _itemName = "Bingala";
                 else if (detectedId.IndexOf("revolver", StringComparison.OrdinalIgnoreCase) >= 0 || detectedId.IndexOf("demencia", StringComparison.OrdinalIgnoreCase) >= 0) _itemName = "Demencia Revólver";
-                else if (detectedId.Equals("muak", StringComparison.OrdinalIgnoreCase)) _itemName = "Muak";
                 else if (detectedId.Equals("trabeca", StringComparison.OrdinalIgnoreCase)) _itemName = "Trabeca";
+                else if (detectedId.IndexOf("canoduplo", StringComparison.OrdinalIgnoreCase) >= 0) _itemName = "Canoduplo";
+                else if (detectedId.Equals("muak", StringComparison.OrdinalIgnoreCase)) _itemName = "Muak (Obsoleta)";
                 else
                 {
                     _itemName = char.ToUpperInvariant(detectedId[0]) + detectedId.Substring(1);

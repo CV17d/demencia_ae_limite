@@ -474,6 +474,19 @@ namespace DemenciaNoLimite.Player
                 _combatController.HandleWeaponEquipped(_currentSpawnedWeaponInstance, _currentEquippedWeaponData);
             }
 
+            // Sincronizar automáticamente con PlayerInventory
+            if (_playerInventory == null)
+            {
+                _playerInventory = PlayerInventory.Instance ?? GetComponent<PlayerInventory>() ?? GetComponentInParent<PlayerInventory>() ?? FindAnyObjectByType<PlayerInventory>();
+            }
+            if (_playerInventory != null && _currentEquippedWeaponData != null)
+            {
+                if (!_playerInventory.ContainsWeapon(_currentEquippedWeaponId))
+                {
+                    _playerInventory.AddWeapon(_currentEquippedWeaponData, autoEquip: false);
+                }
+            }
+
             Debug.Log($"[PlayerWeaponEquipManager] Arma 3D '{_currentEquippedWeaponId}' equipada bajo '{holder.name}'. " +
                       $"Escala: {_currentSpawnedWeaponInstance.transform.localScale}, PosLocal: {_currentSpawnedWeaponInstance.transform.localPosition}");
         }
@@ -673,7 +686,7 @@ namespace DemenciaNoLimite.Player
         // RESOLUCIÓN ROBUSTA DE MAPPINGS, PREFABS Y ALIASES
         // ════════════════════════════════════════════════════════════════════
 
-        private Weapon3DMapping BuscarMapping(string weaponId, WeaponData data)
+        public Weapon3DMapping BuscarMapping(string weaponId, WeaponData data)
         {
             Weapon3DMapping mapping = null;
 
@@ -1244,7 +1257,11 @@ namespace DemenciaNoLimite.Player
         {
             if (_playerInventory == null)
             {
-                _playerInventory = GetComponentInParent<PlayerInventory>() ?? FindAnyObjectByType<PlayerInventory>();
+                _playerInventory = PlayerInventory.Instance ?? GetComponentInParent<PlayerInventory>() ?? GetComponentInChildren<PlayerInventory>() ?? FindAnyObjectByType<PlayerInventory>();
+                if (_playerInventory == null)
+                {
+                    _playerInventory = gameObject.AddComponent<PlayerInventory>();
+                }
             }
 
             if (_playerInventory != null)
@@ -1309,7 +1326,11 @@ namespace DemenciaNoLimite.Player
 
             if (_playerInventory == null)
             {
-                _playerInventory = GetComponentInParent<PlayerInventory>() ?? FindAnyObjectByType<PlayerInventory>();
+                _playerInventory = PlayerInventory.Instance ?? GetComponentInParent<PlayerInventory>() ?? GetComponentInChildren<PlayerInventory>() ?? FindAnyObjectByType<PlayerInventory>();
+                if (_playerInventory == null)
+                {
+                    _playerInventory = gameObject.AddComponent<PlayerInventory>();
+                }
             }
 
             if (_playerHandController == null && _playerManager != null)

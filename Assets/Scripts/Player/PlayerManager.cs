@@ -18,6 +18,7 @@ namespace DemenciaNoLimite.Player
 {
     [DisallowMultipleComponent]
     [RequireComponent(typeof(AudioSource))]
+    [RequireComponent(typeof(PlayerInventory))]
     public class PlayerManager : MonoBehaviour
     {
         // ════════════════════════════════════════════════════════════════════
@@ -171,9 +172,9 @@ namespace DemenciaNoLimite.Player
             if (_controller == null) _controller = GetComponent<FirstPersonController>();
             if (_characterController == null) _characterController = GetComponent<CharacterController>();
             if (_playerCamera == null) _playerCamera = GetComponentInChildren<PlayerCamera>();
-            if (_health == null) _health = GetComponent<PlayerHealth>();
-            if (_inventory == null) _inventory = GetComponent<PlayerInventory>();
-            if (_weaponHandler == null) _weaponHandler = GetComponent<PlayerWeaponHandler>();
+            if (_health == null) { _health = GetComponent<PlayerHealth>() ?? gameObject.AddComponent<PlayerHealth>(); }
+            if (_inventory == null) { _inventory = GetComponent<PlayerInventory>() ?? gameObject.AddComponent<PlayerInventory>(); }
+            if (_weaponHandler == null) { _weaponHandler = GetComponent<PlayerWeaponHandler>() ?? gameObject.AddComponent<PlayerWeaponHandler>(); }
             if (_handController == null)
             {
                 _handController = GetComponentInChildren<PlayerHandController>();

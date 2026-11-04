@@ -443,42 +443,86 @@ namespace DemenciaNoLimite.Pickups
             string resolvedId = ObtenerWeaponId();
             Debug.Log($"[WorldItemPickup] Procesando recogida de arma: '{resolvedId}' (GameObject: '{gameObject.name}')");
 
-            // 1. Resolver inventario del jugador
-            PlayerInventory inventory = pm != null ? pm.Inventory : playerTarget?.GetComponentInParent<PlayerInventory>();
+            // 1. Resolver inventario del jugador de forma ultra-defensiva (Singleton > PlayerManager > Target > Find)
+            PlayerInventory inventory = PlayerInventory.Instance;
+            if (inventory == null && pm != null)
+            {
+                inventory = pm.Inventory ?? pm.GetComponent<PlayerInventory>();
+            }
+            if (inventory == null && playerTarget != null)
+            {
+                inventory = playerTarget.GetComponentInParent<PlayerInventory>() 
+                         ?? playerTarget.GetComponentInChildren<PlayerInventory>();
+            }
             if (inventory == null)
             {
                 inventory = FindAnyObjectByType<PlayerInventory>();
             }
 
+            // Autogenerar PlayerInventory en el jugador si aún no existe
+            if (inventory == null)
+            {
+                if (pm != null)
+                {
+                    inventory = pm.gameObject.AddComponent<PlayerInventory>();
+                }
+                else if (playerTarget != null)
+                {
+                    inventory = playerTarget.AddComponent<PlayerInventory>();
+                }
+            }
+
             // 2. Resolver gestor de equipamiento de armas 3D
-            PlayerWeaponEquipManager equipManager = pm != null ? pm.WeaponEquipManager : null;
+            PlayerWeaponEquipManager equipManager = PlayerWeaponEquipManager.Instance;
+            if (equipManager == null && pm != null)
+            {
+                equipManager = pm.WeaponEquipManager ?? pm.GetComponent<PlayerWeaponEquipManager>();
+            }
             if (equipManager == null && playerTarget != null)
             {
-                equipManager = playerTarget.GetComponentInChildren<PlayerWeaponEquipManager>() ?? playerTarget.GetComponentInParent<PlayerWeaponEquipManager>();
+                equipManager = playerTarget.GetComponentInChildren<PlayerWeaponEquipManager>() 
+                            ?? playerTarget.GetComponentInParent<PlayerWeaponEquipManager>();
             }
             if (equipManager == null)
             {
                 equipManager = FindAnyObjectByType<PlayerWeaponEquipManager>();
             }
 
-            // 3. Preparar o crear dinámicamente el WeaponData correspondiente
+            // 3. Preparar o buscar el WeaponData correspondiente
             WeaponData weaponToEquip = _weaponData;
+            if (weaponToEquip == null && equipManager != null)
+            {
+                var mapping = equipManager.BuscarMapping(resolvedId, null);
+                if (mapping != null && mapping.weaponData != null)
+                {
+                    weaponToEquip = mapping.weaponData;
+                }
+            }
+
             if (weaponToEquip == null)
             {
                 weaponToEquip = ScriptableObject.CreateInstance<WeaponData>();
                 weaponToEquip.WeaponID = resolvedId;
-                weaponToEquip.DisplayName = !string.IsNullOrEmpty(_itemName) && _itemName != "Pistola Táctica" ? _itemName : resolvedId;
+                weaponToEquip.DisplayName = (!string.IsNullOrEmpty(_itemName) && _itemName != "Pistola Táctica") ? _itemName : resolvedId;
                 weaponToEquip.Type = _ammoType;
+                weaponToEquip.MagazineSize = 12;
+                weaponToEquip.MaxAmmo = 60;
+                weaponToEquip.BaseDamage = 35f;
             }
             else if (string.IsNullOrEmpty(weaponToEquip.WeaponID))
             {
                 weaponToEquip.WeaponID = resolvedId;
             }
 
-            // 4. Agregar al inventario con equipamiento automático
+            // 4. Agregar de forma obligatoria y garantizada al inventario
             if (inventory != null)
             {
-                inventory.AddWeapon(weaponToEquip, autoEquip: true);
+                bool added = inventory.AddWeapon(weaponToEquip, autoEquip: true);
+                Debug.Log($"[WorldItemPickup] ✅ Arma '{weaponToEquip.DisplayName}' ({weaponToEquip.WeaponID}) registrada en PlayerInventory. Éxito: {added}. Ranuras totales: {inventory.Slots.Count}");
+            }
+            else
+            {
+                Debug.LogError("[WorldItemPickup] Error crítico: No se pudo resolver ni crear PlayerInventory para registrar el arma.");
             }
 
             // 5. Llamada directa y garantizada a PlayerWeaponEquipManager para instanciar el modelo 3D bajo el WeaponHolder

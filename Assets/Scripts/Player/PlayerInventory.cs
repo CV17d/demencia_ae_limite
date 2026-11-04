@@ -83,6 +83,26 @@ namespace DemenciaNoLimite.Player
         {
             if (weaponData == null) return false;
 
+            // 1. Si el arma ya existe en el inventario, recargar cargador y equipar si corresponde
+            for (int i = 0; i < _slots.Count; i++)
+            {
+                if (_slots[i] != null && _slots[i].Data != null)
+                {
+                    if (string.Equals(_slots[i].Data.WeaponID, weaponData.WeaponID, StringComparison.OrdinalIgnoreCase) ||
+                        (!string.IsNullOrEmpty(weaponData.DisplayName) && string.Equals(_slots[i].Data.DisplayName, weaponData.DisplayName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        _slots[i].CurrentMagAmmo = weaponData.MagazineSize > 0 ? weaponData.MagazineSize : _slots[i].CurrentMagAmmo;
+                        if (autoEquip)
+                        {
+                            EquipSlot(i);
+                        }
+                        OnInventoryChanged?.Invoke();
+                        return true;
+                    }
+                }
+            }
+
+            // 2. Si hay ranuras libres, agregar en una nueva ranura
             if (_slots.Count < _maxWeaponSlots)
             {
                 var instance = new WeaponSlotInstance(weaponData);
@@ -96,7 +116,7 @@ namespace DemenciaNoLimite.Player
                 return true;
             }
 
-            // Replace active weapon slot if full
+            // 3. Reemplazar ranura activa si el inventario está lleno
             if (_slots.Count > 0)
             {
                 _slots[_currentSlotIndex] = new WeaponSlotInstance(weaponData);

@@ -389,12 +389,21 @@ namespace DemenciaNoLimite.UI
         {
             if (_inventory == null)
             {
-                _inventory = PlayerInventory.Instance ?? FindAnyObjectByType<PlayerInventory>();
+                _inventory = PlayerInventory.Instance 
+                    ?? PlayerManager.Instance?.Inventory 
+                    ?? FindAnyObjectByType<PlayerInventory>();
+
+                if (_inventory == null && PlayerManager.Instance != null)
+                {
+                    _inventory = PlayerManager.Instance.gameObject.AddComponent<PlayerInventory>();
+                }
             }
 
             if (_equipManager == null)
             {
-                _equipManager = PlayerWeaponEquipManager.Instance ?? FindAnyObjectByType<PlayerWeaponEquipManager>();
+                _equipManager = PlayerWeaponEquipManager.Instance 
+                    ?? PlayerManager.Instance?.WeaponEquipManager 
+                    ?? FindAnyObjectByType<PlayerWeaponEquipManager>();
             }
         }
 

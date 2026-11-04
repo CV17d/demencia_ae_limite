@@ -82,7 +82,24 @@ namespace DemenciaNoLimite.Level
         // SINGLETON Y PERSISTENCIA
         // ════════════════════════════════════════════════════════════════════
 
-        public static WeaponSpawner Instance { get; private set; }
+        private static WeaponSpawner _instance;
+        public static WeaponSpawner Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    _instance = FindAnyObjectByType<WeaponSpawner>();
+                    if (_instance == null)
+                    {
+                        GameObject go = new GameObject("=== WEAPON_SPAWNER ===");
+                        _instance = go.AddComponent<WeaponSpawner>();
+                    }
+                }
+                return _instance;
+            }
+            private set => _instance = value;
+        }
 
         // ════════════════════════════════════════════════════════════════════
         // CATÁLOGO ACTIVO DE ARMAS (CON EXCLUSIÓN ESTRICTA DE "MUAK")
@@ -186,12 +203,12 @@ namespace DemenciaNoLimite.Level
 
         private void Awake()
         {
-            if (Instance != null && Instance != this)
+            if (_instance != null && _instance != this)
             {
                 Destroy(this);
                 return;
             }
-            Instance = this;
+            _instance = this;
 
             // Garantizar persistencia entre escenas si es objeto raíz
             if (transform.parent == null)

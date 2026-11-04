@@ -38,7 +38,24 @@ namespace DemenciaNoLimite.Level
         // SINGLETON Y CONFIGURACIÓN DE SPAWN SIMULTÁNEO POR MAPA
         // ════════════════════════════════════════════════════════════════════
 
-        public static EnemySpawner Instance { get; private set; }
+        private static EnemySpawner _instance;
+        public static EnemySpawner Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    _instance = FindAnyObjectByType<EnemySpawner>();
+                    if (_instance == null)
+                    {
+                        GameObject go = new GameObject("=== ENEMY_SPAWNER ===");
+                        _instance = go.AddComponent<EnemySpawner>();
+                    }
+                }
+                return _instance;
+            }
+            private set => _instance = value;
+        }
 
         [Header("Generación Aleatoria Simultánea por Todo el Mapa")]
         [Tooltip("¿Generar automáticamente varios enemigos simultáneos distribuidos por todo el mapa al construirse el nivel?")]
@@ -194,12 +211,12 @@ namespace DemenciaNoLimite.Level
 
         private void Awake()
         {
-            if (Instance != null && Instance != this)
+            if (_instance != null && _instance != this)
             {
                 Destroy(this);
                 return;
             }
-            Instance = this;
+            _instance = this;
 
             if (transform.parent == null)
             {
@@ -246,9 +263,9 @@ namespace DemenciaNoLimite.Level
 
         private void OnDestroy()
         {
-            if (Instance == this)
+            if (_instance == this)
             {
-                Instance = null;
+                _instance = null;
             }
         }
 
@@ -1363,6 +1380,15 @@ namespace DemenciaNoLimite.Level
             if (_floatingEnemyPrefab == null)
             {
                 _floatingEnemyPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/EnemigoFlotante.prefab");
+                if (_floatingEnemyPrefab == null)
+                {
+                    string[] guids = AssetDatabase.FindAssets("EnemigoFlotante t:Prefab");
+                    if (guids != null && guids.Length > 0)
+                    {
+                        string path = AssetDatabase.GUIDToAssetPath(guids[0]);
+                        _floatingEnemyPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                    }
+                }
             }
             if (_enemyPrefabDefault == null && _floatingEnemyPrefab != null)
             {

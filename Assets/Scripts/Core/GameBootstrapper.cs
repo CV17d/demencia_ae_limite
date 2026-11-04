@@ -83,37 +83,35 @@ namespace DemenciaNoLimite
         private GameObject EnsureCoreManagers()
         {
             var existingGM = FindAnyObjectByType<GameManager>();
-            if (existingGM != null) return existingGM.gameObject;
-
-            var managerGo = new GameObject("=== CORE_MANAGERS ===");
+            var managerGo = existingGM != null ? existingGM.gameObject : new GameObject("=== CORE_MANAGERS ===");
 
             // 1. Core Systems
-            var gm = managerGo.AddComponent<GameManager>();
+            var gm = existingGM ?? (managerGo.GetComponent<GameManager>() ?? managerGo.AddComponent<GameManager>());
             var levelGen = FindAnyObjectByType<DemenciaNoLimite.Level.LevelGenerator>();
             if (levelGen == null)
             {
-                levelGen = managerGo.AddComponent<DemenciaNoLimite.Level.LevelGenerator>();
+                levelGen = managerGo.GetComponent<DemenciaNoLimite.Level.LevelGenerator>() ?? managerGo.AddComponent<DemenciaNoLimite.Level.LevelGenerator>();
             }
 
-            var aiDirector = managerGo.AddComponent<AIDirector>();
-            var bossMath = managerGo.AddComponent<AdaptiveBossController>();
-            var elevator = managerGo.AddComponent<ElevatorEventSystem>();
-            var degradation = managerGo.AddComponent<MentalDegradationSystem>();
+            var aiDirector = managerGo.GetComponent<AIDirector>() ?? managerGo.AddComponent<AIDirector>();
+            var bossMath = managerGo.GetComponent<AdaptiveBossController>() ?? managerGo.AddComponent<AdaptiveBossController>();
+            var elevator = managerGo.GetComponent<ElevatorEventSystem>() ?? managerGo.AddComponent<ElevatorEventSystem>();
+            var degradation = managerGo.GetComponent<MentalDegradationSystem>() ?? managerGo.AddComponent<MentalDegradationSystem>();
 
             // 2. Spawners
             var enemySpawner = managerGo.GetComponent<DemenciaNoLimite.Level.EnemySpawner>()
                              ?? FindAnyObjectByType<DemenciaNoLimite.Level.EnemySpawner>()
                              ?? managerGo.AddComponent<DemenciaNoLimite.Level.EnemySpawner>();
-            var hazardSpawner = managerGo.AddComponent<HazardSpawner>();
+            var hazardSpawner = managerGo.GetComponent<HazardSpawner>() ?? managerGo.AddComponent<HazardSpawner>();
             var weaponSpawner = managerGo.GetComponent<DemenciaNoLimite.Level.WeaponSpawner>()
                              ?? FindAnyObjectByType<DemenciaNoLimite.Level.WeaponSpawner>()
                              ?? managerGo.AddComponent<DemenciaNoLimite.Level.WeaponSpawner>();
-            var bossEncounter = managerGo.AddComponent<BossEncounterManager>();
+            var bossEncounter = managerGo.GetComponent<BossEncounterManager>() ?? managerGo.AddComponent<BossEncounterManager>();
 
             // 3. Horror & Audio
-            managerGo.AddComponent<MentalDegradationHook>();
-            managerGo.AddComponent<HorrorAudioManager>();
-            managerGo.AddComponent<ScreenShakeController>();
+            if (managerGo.GetComponent<MentalDegradationHook>() == null) managerGo.AddComponent<MentalDegradationHook>();
+            if (managerGo.GetComponent<HorrorAudioManager>() == null) managerGo.AddComponent<HorrorAudioManager>();
+            if (managerGo.GetComponent<ScreenShakeController>() == null) managerGo.AddComponent<ScreenShakeController>();
 
             // Wire references directly to eliminate runtime lookup delays
             gm.SetReferences(aiDirector, levelGen, elevator, degradation);
